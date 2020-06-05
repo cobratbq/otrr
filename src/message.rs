@@ -1,20 +1,20 @@
-use std::io::Error;
 use regex::bytes::Regex;
+use std::io::Error;
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 
 fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
-    println!("Parsing raw message content ....");
     if data.starts_with(OTR_ENCODED_PREFIX) {
-        return parse_encoded_message(data)
+        return parse_encoded_message(data);
     }
     if data.starts_with(OTR_ERROR_PREFIX) {
-        return Ok(MessageType::ErrorMessage{
+        return Ok(MessageType::ErrorMessage {
+            // TODO needs trimming to remove possible prefix space?
             content: Vec::from(&data[OTR_ERROR_PREFIX.len()..]),
-        })
+        });
     }
-    return parse_unencoded_message(data)
+    return parse_unencoded_message(data);
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
@@ -32,48 +32,57 @@ fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
     let query_pattern = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
     let query_caps = query_pattern.captures(data);
     if query_caps.is_some() {
-        let versions_cap = query_caps.unwrap().get(1);
-        if versions_cap.is_some() {
-            return Ok(MessageType::QueryMessage{
-                versions: versions_cap.unwrap().as_bytes().iter().map(|v| {
-                    match v {
-                        // '1' is not actually allowed according to OTR-spec.
-                        // FIXME consider b'1' a protocol violation, return error.
-                        // b'1' => Version::V1,
-                        // b'2' => Version::V2,
-                        b'3' => Version::V3,
-                        _ => Version::Unsupported(*v),
-                    }
-                }).collect(),
-            })
-        }
-        return Ok(MessageType::QueryMessage{versions: Vec::new()})
+        return match query_caps.unwrap().get(1) {
+            None => Ok(MessageType::QueryMessage {
+                versions: Vec::new(),
+            }),
+            Some(versions) => Ok(MessageType::QueryMessage {
+                versions: versions
+                    .as_bytes()
+                    .iter()
+                    .map(|v| {
+                        match v {
+                            // '1' is not actually allowed according to OTR-spec. (illegal)
+                            b'1' => Version::Unsupported(*v),
+                            b'2' => Version::Unsupported(*v),
+                            b'3' => Version::V3,
+                            _ => Version::Unsupported(*v),
+                        }
+                    })
+                    .filter(|v| match v {
+                        Version::Unsupported(_) => false,
+                        Version::V3 => true,
+                    })
+                    .collect(),
+            }),
+        };
     }
-    let whitespace_pattern = Regex::new(r"").unwrap();    
+    // TODO continue with parsing whitespace patterns.
+    let whitespace_pattern = Regex::new(" \t  \t\t\t\t \t \t \t  ").unwrap();
     let whitespace_caps = whitespace_pattern.captures(data);
     if whitespace_caps.is_some() {
         panic!("Whitespace pattern matching to be implemented.");
     }
-    return Ok(MessageType::PlaintextMessage{
+    return Ok(MessageType::PlaintextMessage {
         content: data.to_vec(),
     })
 }
 
 enum MessageType {
-    PlaintextMessage{
+    PlaintextMessage {
         content: Vec<u8>,
     },
-    TaggedMessage{
+    TaggedMessage {
         versions: Vec<Version>,
         content: Vec<u8>,
     },
-    QueryMessage{
+    QueryMessage {
         versions: Vec<Version>,
     },
-    ErrorMessage{
+    ErrorMessage {
         content: Vec<u8>,
     },
-    EncodedMessage{
+    EncodedMessage {
         version: Version,
         messagetype: EncodedMessageType,
         sender: InstanceTag,
@@ -82,74 +91,135 @@ enum MessageType {
     },
 }
 
+#[derive(PartialEq)]
 enum Version {
     // V1, // most likely never going to be needed.
-    // V2,
+    // V2, // will not be supported.
     V3,
     Unsupported(u8),
 }
 
 type InstanceTag = u32;
 
-enum EncodedMessageType {
-}
+enum EncodedMessageType {}
 
 #[cfg(test)]
 mod tests {
     // FIXME: add test for mid-string query tag, at start and at end of message.
-    use crate::message::{parse_message,MessageType};
+    use crate::message::{parse_message, MessageType, Version};
 
     #[test]
-    fn parse_query_message_OTRv1_format() {
-        parse_message(b"?OTR?").unwrap();
+    fn parse_empty_message() {
+        match parse_message(b"").unwrap() {
+            MessageType::PlaintextMessage { content } => assert_eq!(b"", content.as_slice()),
+            _ => panic!("Incorret message type received."),
+        }
     }
 
     #[test]
-    fn parse_query_message_OTRv2_format_empty() {
-        match parse_message(b"?OTRv?").unwrap() {
-            MessageType::QueryMessage{versions} => assert!(versions.is_empty()),
+    fn parse_hello_world_message() {
+        match parse_message(b"Hello world! Greetings from <undisclosed location>").unwrap() {
+            MessageType::PlaintextMessage { content } => assert_eq!(
+                b"Hello world! Greetings from <undisclosed location>".as_ref(),
+                content.as_slice()
+            ),
+            _ => panic!("Incorret message type received."),
+        }
+    }
+
+    #[test]
+    fn parse_message_false_query_tag() {
+        match parse_message(b"?OTRv Hello world!").unwrap() {
+            MessageType::PlaintextMessage { content } => {
+                assert_eq!(b"?OTRv Hello world!".as_ref(), content.as_slice())
+            }
+            _ => panic!("Incorret message type received."),
+        }
+    }
+
+    #[test]
+    fn parse_message_false_query_tag_2() {
+        match parse_message(b"OTRv3? Hello world!").unwrap() {
+            MessageType::PlaintextMessage { content } => {
+                assert_eq!(b"OTRv3? Hello world!".as_ref(), content.as_slice())
+            }
+            _ => panic!("Incorret message type received."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv1_format() {
+        match parse_message(b"?OTR?").unwrap() {
+            MessageType::QueryMessage { versions } => assert!(versions.is_empty()),
             _ => panic!("Unexpected message type."),
         }
     }
 
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v1_illegal() {
-    //     parse_message(b"?OTRv1?").unwrap();
-    // }
-
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v2() {
-    //     parse_message(b"?OTRv2?").unwrap();
-    // }
-
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v3() {
-    //     parse_message(b"?OTRv3?").unwrap();
-    // }
-
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v23() {
-    //     parse_message(b"?OTRv3?").unwrap();
-    // }
-
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v234() {
-    //     parse_message(b"?OTRv3?").unwrap();
-    // }
-
-    // #[test]
-    // fn parse_query_message_OTRv2_format_v34() {
-    //     parse_message(b"?OTRv3?").unwrap();
-    // }
+    #[test]
+    fn parse_query_message_otrv2_format_empty() {
+        match parse_message(b"?OTRv?").unwrap() {
+            MessageType::QueryMessage { versions } => assert!(versions.is_empty()),
+            _ => panic!("Unexpected message type."),
+        }
+    }
 
     #[test]
-    fn parse_empty() {
-        let msg = parse_message(b"").unwrap();
-        match msg {
-            super::MessageType::PlaintextMessage{content} => {
-                assert_eq!(b"", content.as_slice());
+    fn parse_query_message_otrv2_format_v1_illegal() {
+        match parse_message(b"?OTRv1?").unwrap() {
+            MessageType::QueryMessage { versions } => assert!(versions.is_empty()),
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv2_format_v2() {
+        match parse_message(b"?OTRv2?").unwrap() {
+            MessageType::QueryMessage { versions } => assert!(versions.is_empty()),
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv2_format_v3() {
+        match parse_message(b"?OTRv3?").unwrap() {
+            MessageType::QueryMessage { versions } => {
+                assert_eq!(1, versions.len());
+                assert!(versions[0] == Version::V3);
             }
-            _ => panic!("Incorrect type received.")
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv2_format_v23() {
+        match parse_message(b"?OTRv23?").unwrap() {
+            MessageType::QueryMessage { versions } => {
+                assert_eq!(1, versions.len());
+                assert!(Version::V3 == versions[0]);
+            }
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv2_format_v234() {
+        match parse_message(b"?OTRv234?").unwrap() {
+            MessageType::QueryMessage { versions } => {
+                assert_eq!(1, versions.len());
+                assert!(Version::V3 == versions[0]);
+            }
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_query_message_otrv2_format_v34() {
+        match parse_message(b"?OTRv34?").unwrap() {
+            MessageType::QueryMessage { versions } => {
+                assert_eq!(1, versions.len());
+                assert!(Version::V3 == versions[0]);
+            }
+            _ => panic!("Unexpected message type."),
         }
     }
 }
