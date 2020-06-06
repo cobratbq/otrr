@@ -4,13 +4,17 @@ use std::io::Error;
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 
+const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
+const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
+const WHITESPACE_TAG_OTRv3: &[u8] = b"  \t\t  \t\t";
+
 fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
     if data.starts_with(OTR_ENCODED_PREFIX) {
         return parse_encoded_message(data);
     }
     if data.starts_with(OTR_ERROR_PREFIX) {
         return Ok(MessageType::ErrorMessage {
-            // TODO needs trimming to remove possible prefix space?
+            // FIXME needs trimming to remove possible prefix space?
             content: Vec::from(&data[OTR_ERROR_PREFIX.len()..]),
         });
     }
@@ -29,6 +33,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
 }
 
 fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
+    // TODO: extract RegEx pattern as constant.
     let query_pattern = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
     let query_caps = query_pattern.captures(data);
     if query_caps.is_some() {
@@ -50,22 +55,46 @@ fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
                         }
                     })
                     .filter(|v| match v {
-                        Version::Unsupported(_) => false,
                         Version::V3 => true,
+                        Version::Unsupported(_) => false,
                     })
                     .collect(),
             }),
         };
     }
-    // TODO continue with parsing whitespace patterns.
-    let whitespace_pattern = Regex::new(" \t  \t\t\t\t \t \t \t  ").unwrap();
+    // TODO: search for multiple occurrences?
+    // FIXME: extract RegEx pattern as constant.
+    let whitespace_pattern = Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
     let whitespace_caps = whitespace_pattern.captures(data);
     if whitespace_caps.is_some() {
-        panic!("Whitespace pattern matching to be implemented.");
+        let cleaned = whitespace_pattern.replace_all(data, b"".as_ref()).to_vec();
+        return match whitespace_caps.unwrap().get(1) {
+            None => Ok(MessageType::TaggedMessage{
+                versions: Vec::new(),
+                content: cleaned,
+            }),
+            Some(cap) => Ok(MessageType::TaggedMessage{
+                versions: parse_whitespace_tags(cap.as_bytes()),
+                content: cleaned,
+            }),
+        }
     }
     return Ok(MessageType::PlaintextMessage {
         content: data.to_vec(),
     })
+}
+
+fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
+    let mut result: Vec<Version> = Vec::new();
+    for i in (0..data.len()).step_by(8) {
+        match &data[i..i+8] {
+            WHITESPACE_TAG_OTRV1 => { /* ignore OTRv1 tag */ },
+            WHITESPACE_TAG_OTRV2 => { /* ignore OTRv2 tag */ },
+            WHITESPACE_TAG_OTRv3 => result.push(Version::V3),
+            _ => { /* ignore unknown tag */ },
+        }
+    }
+    return result
 }
 
 enum MessageType {
@@ -218,6 +247,40 @@ mod tests {
             MessageType::QueryMessage { versions } => {
                 assert_eq!(1, versions.len());
                 assert!(Version::V3 == versions[0]);
+            }
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_tagged_message_no_versions() {
+        match parse_message(b"Hello \t  \t\t\t\t \t \t \t   world!").unwrap() {
+            MessageType::TaggedMessage {versions, content} => {
+                assert_eq!(0, versions.len());
+                assert_eq!(b"Hello world!", content.as_slice());
+            }
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_tagged_message_versions_v1v2() {
+        match parse_message(b"Hello \t  \t\t\t\t \t \t \t   \t \t  \t   \t\t  \t  world!").unwrap() {
+            MessageType::TaggedMessage {versions, content} => {
+                assert_eq!(0, versions.len());
+                assert_eq!(b"Hello world!", content.as_slice());
+            }
+            _ => panic!("Unexpected message type."),
+        }
+    }
+
+    #[test]
+    fn parse_tagged_message_versions_v3() {
+        match parse_message(b"Hello \t  \t\t\t\t \t \t \t    \t\t  \t\t world!").unwrap() {
+            MessageType::TaggedMessage {versions, content} => {
+                assert_eq!(1, versions.len());
+                assert!(versions[0] == Version::V3);
+                assert_eq!(b"Hello world!", content.as_slice());
             }
             _ => panic!("Unexpected message type."),
         }
