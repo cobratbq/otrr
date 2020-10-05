@@ -1,16 +1,28 @@
+use base64::decode;
 use regex::bytes::Regex;
-use std::io::Error;
+use std::io::{Error,ErrorKind};
+use crate::{InstanceTag,Version};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 
 const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
-const WHITESPACE_TAG_OTRv3: &[u8] = b"  \t\t  \t\t";
+const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 
-fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
+lazy_static! {
+    static ref QUERY_PATTERN: Regex = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
+    static ref WHITESPACE_PATTERN: Regex = Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
+}
+
+// TODO: include base64-decoding messages
+
+pub fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
     if data.starts_with(OTR_ENCODED_PREFIX) {
-        return parse_encoded_message(data);
+        return match decode(&data[OTR_ENCODED_PREFIX.len()..data.len()-1]) {
+            Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
+            Ok(decoded) => parse_encoded_message(&decoded),
+        };
     }
     if data.starts_with(OTR_ERROR_PREFIX) {
         return Ok(MessageType::ErrorMessage {
@@ -22,20 +34,32 @@ fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
-    panic!("To be implemented")
-    // return Ok(Message::EncodedMessage{
-    //     version: Version::V3,
-    //     messagetype: EncodedMessageType::Temp,
-    //     sender: 256,
-    //     receiver: 257,
-    //     content: data.to_vec(),
-    // })
+    let v: u16 = (data[0] as u16) << 8 + data[1] as u16;
+    let version: Version = match v {
+        3u16 => Version::V3,
+        _ => return Err(Error::from(ErrorKind::InvalidInput)),
+    };
+    let message_type: EncodedMessageType = match data[2] {
+        0x02 => EncodedMessageType::DHCommit,
+        0x0a => EncodedMessageType::DHKey,
+        0x11 => EncodedMessageType::RevealSignature,
+        0x12 => EncodedMessageType::Signature,
+        0x03 => EncodedMessageType::Data,
+        _ => return Err(Error::from(ErrorKind::InvalidInput)),
+    };
+    let sender: u32 = (data[3] as u32) << 24 + (data[4] as u32) << 16 + (data[5] as u32) << 8 + data[6] as u32;
+    let receiver: u32 = (data[7] as u32) << 24 + (data[8] as u32) << 16 + (data[9] as u32) << 8 + data[10] as u32;
+    return Result::Ok(MessageType::EncodedMessage{
+        version: version,
+        messagetype: message_type,
+        sender: sender,
+        receiver: receiver,
+        content: Vec::from(&data[11..]),
+    });
 }
 
-fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
-    // TODO: extract RegEx pattern as constant.
-    let query_pattern = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
-    let query_caps = query_pattern.captures(data);
+fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {    
+    let query_caps = QUERY_PATTERN.captures(data);
     if query_caps.is_some() {
         return match query_caps.unwrap().get(1) {
             None => Ok(MessageType::QueryMessage {
@@ -48,10 +72,11 @@ fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
                     .map(|v| {
                         match v {
                             // '1' is not actually allowed according to OTR-spec. (illegal)
-                            b'1' => Version::Unsupported(*v),
-                            b'2' => Version::Unsupported(*v),
+                            b'1' => Version::Unsupported(1u16),
+                            b'2' => Version::Unsupported(2u16),
                             b'3' => Version::V3,
-                            _ => Version::Unsupported(*v),
+                            // TODO: Use u16::MAX here as placeholder for unparsed textual value representation.
+                            _ => Version::Unsupported(std::u16::MAX),
                         }
                     })
                     .filter(|v| match v {
@@ -63,11 +88,9 @@ fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {
         };
     }
     // TODO: search for multiple occurrences?
-    // FIXME: extract RegEx pattern as constant.
-    let whitespace_pattern = Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
-    let whitespace_caps = whitespace_pattern.captures(data);
+    let whitespace_caps = WHITESPACE_PATTERN.captures(data);
     if whitespace_caps.is_some() {
-        let cleaned = whitespace_pattern.replace_all(data, b"".as_ref()).to_vec();
+        let cleaned = WHITESPACE_PATTERN.replace_all(data, b"".as_ref()).to_vec();
         return match whitespace_caps.unwrap().get(1) {
             None => Ok(MessageType::TaggedMessage{
                 versions: Vec::new(),
@@ -88,16 +111,16 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     let mut result: Vec<Version> = Vec::new();
     for i in (0..data.len()).step_by(8) {
         match &data[i..i+8] {
-            WHITESPACE_TAG_OTRV1 => { /* ignore OTRv1 tag */ },
-            WHITESPACE_TAG_OTRV2 => { /* ignore OTRv2 tag */ },
-            WHITESPACE_TAG_OTRv3 => result.push(Version::V3),
-            _ => { /* ignore unknown tag */ },
+            WHITESPACE_TAG_OTRV1 => { /* ignore OTRv1 tag, unsupported version */ },
+            WHITESPACE_TAG_OTRV2 => { /* ignore OTRv2 tag, unsupported version */ },
+            WHITESPACE_TAG_OTRV3 => result.push(Version::V3),
+            _ => { /* ignore unknown tags */ },
         }
     }
     return result
 }
 
-enum MessageType {
+pub enum MessageType {
     PlaintextMessage {
         content: Vec<u8>,
     },
@@ -120,17 +143,13 @@ enum MessageType {
     },
 }
 
-#[derive(PartialEq)]
-enum Version {
-    // V1, // most likely never going to be needed.
-    // V2, // will not be supported.
-    V3,
-    Unsupported(u8),
+pub enum EncodedMessageType {
+    DHCommit,
+    DHKey,
+    RevealSignature,
+    Signature,
+    Data,
 }
-
-type InstanceTag = u32;
-
-enum EncodedMessageType {}
 
 #[cfg(test)]
 mod tests {
