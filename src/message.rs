@@ -20,6 +20,7 @@ lazy_static! {
 pub fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
     if data.starts_with(OTR_ENCODED_PREFIX) {
         return match decode(&data[OTR_ENCODED_PREFIX.len()..data.len()-1]) {
+            // TODO: can we do this without losing the original error?
             Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
             Ok(decoded) => parse_encoded_message(&decoded),
         };
