@@ -1,10 +1,5 @@
-use base64::decode;
 use regex::bytes::Regex;
-use std::io::{Error,ErrorKind};
-use crate::{InstanceTag,Version};
-
-const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
-const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
+use crate::{InstanceTag, OTRError, Version};
 
 const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
@@ -15,30 +10,11 @@ lazy_static! {
     static ref WHITESPACE_PATTERN: Regex = Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
 }
 
-// TODO: include base64-decoding messages
-
-pub fn parse_message(data: &[u8]) -> Result<MessageType, Error> {
-    if data.starts_with(OTR_ENCODED_PREFIX) {
-        return match decode(&data[OTR_ENCODED_PREFIX.len()..data.len()-1]) {
-            // TODO: can we do this without losing the original error?
-            Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
-            Ok(decoded) => parse_encoded_message(&decoded),
-        };
-    }
-    if data.starts_with(OTR_ERROR_PREFIX) {
-        return Ok(MessageType::ErrorMessage {
-            // FIXME needs trimming to remove possible prefix space?
-            content: Vec::from(&data[OTR_ERROR_PREFIX.len()..]),
-        });
-    }
-    return parse_unencoded_message(data);
-}
-
-fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
+pub fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let v: u16 = (data[0] as u16) << 8 + data[1] as u16;
     let version: Version = match v {
         3u16 => Version::V3,
-        _ => return Err(Error::from(ErrorKind::InvalidInput)),
+        _ => return Err(OTRError::InvalidProtocolData("Invalid or unknown protocol version.")),
     };
     let message_type: EncodedMessageType = match data[2] {
         0x02 => EncodedMessageType::DHCommit,
@@ -46,7 +22,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
         0x11 => EncodedMessageType::RevealSignature,
         0x12 => EncodedMessageType::Signature,
         0x03 => EncodedMessageType::Data,
-        _ => return Err(Error::from(ErrorKind::InvalidInput)),
+        _ => return Err(OTRError::InvalidProtocolData("Invalid or unknown message type.")),
     };
     let sender: u32 = (data[3] as u32) << 24 + (data[4] as u32) << 16 + (data[5] as u32) << 8 + data[6] as u32;
     let receiver: u32 = (data[7] as u32) << 24 + (data[8] as u32) << 16 + (data[9] as u32) << 8 + data[10] as u32;
@@ -59,7 +35,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, Error> {
     });
 }
 
-fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, Error> {    
+pub fn parse_unencoded_message(data: &[u8]) -> Result<MessageType, OTRError> {    
     let query_caps = QUERY_PATTERN.captures(data);
     if query_caps.is_some() {
         return match query_caps.unwrap().get(1) {
