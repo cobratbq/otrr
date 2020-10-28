@@ -4,14 +4,17 @@ extern crate regex;
 extern crate lazy_static;
 extern crate hex;
 
-mod fragment;
-mod message;
+mod decoder;
 mod session;
-mod wire;
+mod protocol;
+mod authentication;
 
 /// OTRError is the enum containing the various errors that can occur.
 pub enum OTRError {
+    /// Message contained invalid data according to the OTR protocol.
     InvalidProtocolData(&'static str),
+    /// Indicates that only a fragment of the message was received and more fragments are needed before a full message can be (re)constructed.
+    MessageIncomplete,
 }
 
 /// Version contains the various supported OTR protocol versions.
@@ -25,3 +28,5 @@ pub enum Version {
 
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
 pub type InstanceTag = u32;
+
+// TODO: introduce fragmenter.
