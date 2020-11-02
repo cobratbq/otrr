@@ -33,7 +33,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let version: Version = match v {
         3u16 => Version::V3,
         _ => {
-            return Err(OTRError::InvalidProtocolData(
+            return Err(OTRError::ProtocolViolation(
                 "Invalid or unknown protocol version.",
             ))
         }
@@ -45,7 +45,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
         0x12 => EncodedMessageType::Signature,
         0x03 => EncodedMessageType::Data,
         _ => {
-            return Err(OTRError::InvalidProtocolData(
+            return Err(OTRError::ProtocolViolation(
                 "Invalid or unknown message type.",
             ))
         }

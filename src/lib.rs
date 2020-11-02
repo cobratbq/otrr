@@ -13,9 +13,7 @@ mod authentication;
 /// OTRError is the enum containing the various errors that can occur.
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
-    InvalidProtocolData(&'static str),
-    /// Indicates that only a fragment of the message was received and more fragments are needed before a full message can be (re)constructed.
-    MessageIncomplete,
+    ProtocolViolation(&'static str),
     /// Received OTR message is an OTR error.
     ErrorMessage(Vec<u8>),
 }

@@ -21,7 +21,7 @@ pub fn is_fragment(content: &[u8]) -> bool {
         && content.ends_with(OTR_FRAGMENT_SUFFIX);
 }
 
-pub fn parse_fragment(content: &[u8]) -> Fragment {
+pub fn parse(content: &[u8]) -> Fragment {
     let fragment_caps = FRAGMENT_PATTERN.captures(content);
     if fragment_caps.is_none() {
         // FIXME this currently includes OTRv2 fragments, which we will not support but should handle gracefully.
@@ -82,7 +82,7 @@ pub enum FragmentError {
     IllegalFragment,
 }
 
-pub fn NewAssembler() -> Assembler {
+pub fn new_assembler() -> Assembler {
     return Assembler {
         total: 0,
         last: 0,
