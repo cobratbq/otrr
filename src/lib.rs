@@ -5,6 +5,7 @@ extern crate lazy_static;
 extern crate hex;
 
 mod decoder;
+mod fragment;
 mod session;
 mod protocol;
 mod authentication;
@@ -15,6 +16,8 @@ pub enum OTRError {
     InvalidProtocolData(&'static str),
     /// Indicates that only a fragment of the message was received and more fragments are needed before a full message can be (re)constructed.
     MessageIncomplete,
+    /// Received OTR message is an OTR error.
+    ErrorMessage(Vec<u8>),
 }
 
 /// Version contains the various supported OTR protocol versions.
