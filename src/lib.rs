@@ -3,6 +3,7 @@ extern crate regex;
 #[macro_use]
 extern crate lazy_static;
 extern crate hex;
+extern crate num_bigint;
 
 mod decoder;
 mod fragment;
@@ -10,12 +11,18 @@ mod session;
 mod protocol;
 mod authentication;
 
+pub enum Message {
+    None,
+    Plain(Vec<u8>),
+    Confidential(Vec<u8>),
+    Error(Vec<u8>),
+}
+
 /// OTRError is the enum containing the various errors that can occur.
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),
-    /// Received OTR message is an OTR error.
-    ErrorMessage(Vec<u8>),
+    IncompleteMessage,
 }
 
 /// Version contains the various supported OTR protocol versions.

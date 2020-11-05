@@ -1,3 +1,4 @@
+use num_bigint::BigUint;
 use regex::bytes::Regex;
 
 use crate::{InstanceTag, OTRError, Version};
@@ -10,57 +11,92 @@ const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 
+const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
+const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
+const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
+const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
+const OTR_DATA_TYPE_CODE: u8 = 0x03;
+
 lazy_static! {
     static ref QUERY_PATTERN: Regex = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
     static ref WHITESPACE_PATTERN: Regex =
         Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
 }
 
+// TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
+
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
-    return if is_otr_encoded(data) {
+    return if data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX) {
         parse_encoded_message(data)
     } else {
         parse_plain_message(data)
     };
 }
 
-fn is_otr_encoded(data: &[u8]) -> bool {
-    return data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX);
-}
-
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let v: u16 = (data[0] as u16) << 8 + data[1] as u16;
     let version: Version = match v {
         3u16 => Version::V3,
-        _ => {
-            return Err(OTRError::ProtocolViolation(
-                "Invalid or unknown protocol version.",
-            ))
-        }
-    };
-    let message_type: EncodedMessageType = match data[2] {
-        0x02 => EncodedMessageType::DHCommit,
-        0x0a => EncodedMessageType::DHKey,
-        0x11 => EncodedMessageType::RevealSignature,
-        0x12 => EncodedMessageType::Signature,
-        0x03 => EncodedMessageType::Data,
-        _ => {
-            return Err(OTRError::ProtocolViolation(
-                "Invalid or unknown message type.",
-            ))
-        }
+        _ => return Err(OTRError::ProtocolViolation("Invalid or unknown protocol version.")),
     };
     let sender: u32 =
         (data[3] as u32) << 24 + (data[4] as u32) << 16 + (data[5] as u32) << 8 + data[6] as u32;
     let receiver: u32 =
         (data[7] as u32) << 24 + (data[8] as u32) << 16 + (data[9] as u32) << 8 + data[10] as u32;
+    let encoded = interpret_encoded_content(data[2], &data[11..])?;
     return Result::Ok(MessageType::EncodedMessage {
         version: version,
-        messagetype: message_type,
         sender: sender,
         receiver: receiver,
-        content: Vec::from(&data[11..]),
+        message: encoded,
     });
+}
+
+fn interpret_encoded_content(message_type: u8, content: &[u8]) -> Result<OTRMessage, OTRError> {
+    let mut decoder = OTRDecoder{content: content};
+    return match message_type {
+        OTR_DH_COMMIT_TYPE_CODE => {
+            let encrypted = decoder.readData()?;
+            let hashed = decoder.readData()?;
+            Ok(OTRMessage::DHCommit{
+                gx_encrypted: encrypted,
+                gx_hashed: hashed,
+            })
+        }
+        OTR_DH_KEY_TYPE_CODE => {
+            let gy = decoder.readMPI()?;
+            Ok(OTRMessage::DHKey{
+                gy: gy,
+            })
+        }
+        OTR_REVEAL_SIGNATURE_TYPE_CODE => {
+            let key = decoder.readData()?;
+            let encrypted = decoder.readData()?;
+            let mac = decoder.readData()?;
+            Ok(OTRMessage::RevealSignature{
+                key: key,
+                signature_encrypted: Vec::from(encrypted),
+                signature_mac: Vec::from(mac),
+            })
+        }
+        OTR_SIGNATURE_TYPE_CODE => {
+            let encrypted = decoder.readData()?;
+            let mac = decoder.readData()?;
+            Ok(OTRMessage::Signature{
+                signature_encrypted: Vec::from(encrypted),
+                signature_mac: Vec::from(mac),
+            })
+        }
+        OTR_DATA_TYPE_CODE => {
+            let content = decoder.readContent()?;
+            let tlvs = decoder.readTLVs()?;
+            Ok(OTRMessage::Data{
+                content: content,
+                tlvs: tlvs,
+            })
+        }
+        _ => Err(OTRError::ProtocolViolation("Invalid or unknown message type.")),
+    }
 }
 
 fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
@@ -131,17 +167,111 @@ pub enum MessageType {
     QueryMessage(Vec<Version>),
     EncodedMessage {
         version: Version,
-        messagetype: EncodedMessageType,
         sender: InstanceTag,
         receiver: InstanceTag,
-        content: Vec<u8>,
+        message: OTRMessage,
     },
 }
 
-pub enum EncodedMessageType {
-    DHCommit,
-    DHKey,
-    RevealSignature,
-    Signature,
-    Data,
+pub enum OTRMessage {
+    DHCommit{
+        gx_encrypted: Vec<u8>,
+        gx_hashed: Vec<u8>,
+    },
+    DHKey{
+        gy: BigUint
+    },
+    RevealSignature{
+        key: Vec<u8>,
+        signature_encrypted: Vec<u8>,
+        signature_mac: Vec<u8>,
+    },
+    Signature{
+        signature_encrypted: Vec<u8>,
+        signature_mac: Vec<u8>,
+    },
+    Data{
+        content: Vec<u8>,
+        tlvs: Vec<TLV>,
+    },
+}
+
+// TODO predefine TLVs according to spec or keep open for custom implementation? (seems that predefining with exact fields might be more useful/controllable)
+/// Type-Length-Value records that are optionally appended to content of an OTR Data Message.
+pub struct TLV {
+    typ: u16,
+    value: Vec<u8>,
+}
+
+struct OTRDecoder<'a>  {
+    content: &'a [u8],
+}
+
+/// OTRDecoder contains the logic for reading entries from byte-buffer.
+impl OTRDecoder<'_> {
+
+    /// readData reads variable-length data from buffer.
+    fn readData(&mut self) -> Result<Vec<u8>, OTRError> {
+        let len = self.readLength()?;
+        if self.content.len() < len {
+            return Err(OTRError::IncompleteMessage)
+        }
+        let data = Vec::from(&self.content[..]);
+        self.content = &self.content[data.len()..];
+        return Ok(data)
+    }
+
+    /// readMPI reads MPI from buffer.
+    fn readMPI(&mut self) -> Result<BigUint, OTRError> {
+        let len = self.readLength()?;
+        if self.content.len() < len {
+            return Err(OTRError::IncompleteMessage)
+        }
+        let mpi = BigUint::from_bytes_be(&self.content[..len]);
+        self.content = &self.content[len..];
+        return Ok(mpi)
+    }
+
+    /// readContent reads content until null-terminated or end of buffer.
+    fn readContent(&mut self) -> Result<Vec<u8>, OTRError> {
+        let mut content_end_index = self.content.len();
+        for i in 0..self.content.len() {
+            if self.content[i] == 0 {
+                content_end_index = i;
+                break;
+            }
+        }
+        let content = Vec::from(&self.content[0..content_end_index]);
+        self.content = &self.content[content_end_index+1..];
+        return Ok(content)
+    }
+
+    /// readTLVs reads TLV-records until end of buffer.
+    fn readTLVs(&mut self) -> Result<Vec<TLV>, OTRError> {
+        // FIXME check for content length before reading type, length and value from the content array
+        let mut tlvs = Vec::new();
+        while self.content.len() > 0 {
+            if self.content.len() < 4 {
+                return Err(OTRError::IncompleteMessage)
+            }
+            let typ = (self.content[0] as u16) << 8 + self.content[1] as u16;
+            let len = (self.content[2] as usize) << 8 + self.content[3] as usize;
+            if self.content.len() < 4+len {
+                return Err(OTRError::IncompleteMessage)
+            }
+            tlvs.push(TLV{typ: typ, value: Vec::from(&self.content[4..4+len])});
+            self.content = &self.content[4+len..];
+        }
+        return Ok(tlvs);
+    }
+
+    /// readLength reads 4-byte unsigned big-endian length.
+    fn readLength(&mut self) -> Result<usize, OTRError> {
+        if self.content.len() < 4 {
+            return Err(OTRError::IncompleteMessage);
+        }
+        let length = (self.content[0] as usize) << 24 + (self.content[1] as usize) << 16 + (self.content[2] as usize) << 8 + self.content[3] as usize;
+        self.content = &self.content[4..];
+        return Ok(length)
+    }
 }
