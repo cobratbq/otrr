@@ -1,12 +1,17 @@
-use std::collections;
+use std::{collections};
 
-use crate::{InstanceTag, Message, OTRError, Version, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
+use crate::{Host, InstanceTag, Message, OTRError, Version, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
 
 pub struct Account {
+    host: Box<dyn Host>,
     instances: collections::HashMap<InstanceTag, Instance>,
 }
 
+// TODO add conditional initiation of OTR protocol AKE.
+// TODO introduce fragmenter.
+
 impl Account {
+
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
         if fragment::is_fragment(payload) {
@@ -17,7 +22,7 @@ impl Account {
                     fragment.sender,
                     Instance {
                         assembler: fragment::new_assembler(),
-                        state: protocol::ProtocolState::Plaintext,
+                        state: Box::new(protocol::PlaintextState{}),
                     },
                 );
             }
@@ -40,11 +45,11 @@ impl Account {
             MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(Message::Plain(content)),
             MessageType::TaggedMessage(versions, content) => {
-                // FIXME act on versions in tagged message.
+                self.initiate(versions);
                 Ok(Message::Plain(content))
             }
             MessageType::QueryMessage(versions) => {
-                // FIXME act on versions in query message.
+                self.initiate(versions);
                 Ok(Message::None)
             }
             MessageType::EncodedMessage {
@@ -54,20 +59,34 @@ impl Account {
                 message,
             } => {
                 // FIXME look-up or create instance, delegate handling to instance
-                self.instances.get_mut(&sender).unwrap().handle(version, sender, receiver, message);
-                todo!("Implement!")
+                self.instances.get_mut(&sender).unwrap().handle(self.host.as_ref(), version, sender, receiver, message)
             }
         };
+    }
+
+    fn initiate(&mut self, versions: Vec<Version>) {
+        todo!("Implement sending/injecting DH-Commit message.")
     }
 }
 
 pub struct Instance {
     assembler: fragment::Assembler,
-    state: protocol::ProtocolState,
+    state: Box<dyn protocol::ProtocolState>,
 }
 
 impl Instance {
-    fn handle(&mut self, version: Version, sender: InstanceTag, receiver: InstanceTag, message: OTRMessage) {
-        // FIXME implement message handling
+    fn handle(&mut self, host: &dyn Host, version: Version, sender: InstanceTag, receiver: InstanceTag, message: OTRMessage) -> Result<Message, OTRError> {
+        let new_state = self.state.handle(host, message);
+        if new_state.is_some() {
+            self.state = new_state.unwrap();
+        }
+        Ok(Message::None)
+    }
+
+    fn finish(&mut self) {
+        let new_state = self.state.finish();
+        if new_state.is_some() {
+            self.state = new_state.unwrap()
+        }
     }
 }

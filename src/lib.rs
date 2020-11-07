@@ -11,6 +11,14 @@ mod session;
 mod protocol;
 mod authentication;
 
+/// Host represents the Host implementation for calling back into the messaging client.
+pub trait Host {
+
+    /// Inject a message into the messaging's transport stream.
+    fn inject(&self, message: &[u8]);
+}
+
+/// Message represents the resulting Message intended for the user.
 pub enum Message {
     None,
     Plain(Vec<u8>),
@@ -36,5 +44,3 @@ pub enum Version {
 
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
 pub type InstanceTag = u32;
-
-// TODO: introduce fragmenter.
