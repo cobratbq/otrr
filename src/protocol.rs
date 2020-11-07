@@ -1,28 +1,23 @@
-use crate::{authentication::AKEState, Host, decoder::OTRMessage};
+use crate::{decoder::OTRMessage, Host};
 
 pub trait ProtocolState {
     fn handle(&mut self, host: &dyn Host, message: OTRMessage) -> Option<Box<dyn ProtocolState>>;
     fn finish(&mut self) -> Option<Box<dyn ProtocolState>>;
 }
 
-pub struct PlaintextState {
-
-}
+pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
-
     fn handle(&mut self, host: &dyn Host, message: OTRMessage) -> Option<Box<dyn ProtocolState>> {
-        return None
+        return None;
     }
 
     fn finish(&mut self) -> Option<Box<dyn ProtocolState>> {
-        return None
+        return None;
     }
 }
 
-struct EncryptedState {
-    ake: AKEState,
-}
+struct EncryptedState {}
 
 impl ProtocolState for EncryptedState {
     fn handle(&mut self, host: &dyn Host, message: OTRMessage) -> Option<Box<dyn ProtocolState>> {
@@ -30,12 +25,11 @@ impl ProtocolState for EncryptedState {
     }
 
     fn finish(&mut self) -> Option<Box<dyn ProtocolState>> {
-        return Some(Box::new(PlaintextState{}))
+        return Some(Box::new(PlaintextState {}));
     }
 }
 
-struct FinishedState {
-}
+struct FinishedState {}
 
 impl ProtocolState for FinishedState {
     fn handle(&mut self, host: &dyn Host, message: OTRMessage) -> Option<Box<dyn ProtocolState>> {
@@ -43,6 +37,6 @@ impl ProtocolState for FinishedState {
     }
 
     fn finish(&mut self) -> Option<Box<dyn ProtocolState>> {
-        return Some(Box::new(PlaintextState{}))
+        return Some(Box::new(PlaintextState {}));
     }
 }

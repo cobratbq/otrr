@@ -1,6 +1,9 @@
-use std::{collections};
+use std::collections;
 
-use crate::{Host, InstanceTag, Message, OTRError, Version, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
+use crate::{
+    decoder::{self, MessageType, OTRMessage},
+    fragment, protocol, Host, InstanceTag, Message, OTRError, Version,
+};
 
 pub struct Account {
     host: Box<dyn Host>,
@@ -11,7 +14,6 @@ pub struct Account {
 // TODO introduce fragmenter.
 
 impl Account {
-
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
         if fragment::is_fragment(payload) {
@@ -22,7 +24,7 @@ impl Account {
                     fragment.sender,
                     Instance {
                         assembler: fragment::new_assembler(),
-                        state: Box::new(protocol::PlaintextState{}),
+                        state: Box::new(protocol::PlaintextState {}),
                     },
                 );
             }
@@ -33,7 +35,9 @@ impl Account {
                 Ok(assembled) => return self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
                 Err(fragment::AssemblingError::IncompleteResult) => return Ok(Message::None),
-                Err(fragment::AssemblingError::IllegalFragment) => return Err(OTRError::ProtocolViolation("Illegal fragment received.")),
+                Err(fragment::AssemblingError::IllegalFragment) => {
+                    return Err(OTRError::ProtocolViolation("Illegal fragment received."))
+                }
                 Err(fragment::AssemblingError::UnexpectedFragment) => {
                     todo!("handle unexpected fragments")
                 }
@@ -59,7 +63,13 @@ impl Account {
                 message,
             } => {
                 // FIXME look-up or create instance, delegate handling to instance
-                self.instances.get_mut(&sender).unwrap().handle(self.host.as_ref(), version, sender, receiver, message)
+                self.instances.get_mut(&sender).unwrap().handle(
+                    self.host.as_ref(),
+                    version,
+                    sender,
+                    receiver,
+                    message,
+                )
             }
         };
     }
@@ -75,7 +85,14 @@ pub struct Instance {
 }
 
 impl Instance {
-    fn handle(&mut self, host: &dyn Host, version: Version, sender: InstanceTag, receiver: InstanceTag, message: OTRMessage) -> Result<Message, OTRError> {
+    fn handle(
+        &mut self,
+        host: &dyn Host,
+        version: Version,
+        sender: InstanceTag,
+        receiver: InstanceTag,
+        message: OTRMessage,
+    ) -> Result<Message, OTRError> {
         let new_state = self.state.handle(host, message);
         if new_state.is_some() {
             self.state = new_state.unwrap();
