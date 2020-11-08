@@ -9,7 +9,7 @@ pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
     fn handle(&mut self, host: &dyn Host, message: OTRMessage) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return (Ok(Message::None), None);
+        todo!()
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
@@ -25,7 +25,8 @@ impl ProtocolState for EncryptedState {
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return (Ok(Message::ConfidentialSessionEnded), Some(Box::new(PlaintextState {})));
+        // FIXME send/inject session end message to other party (with ignore unreadable).
+        return (Ok(Message::Reset), Some(Box::new(PlaintextState {})));
     }
 }
 
@@ -37,6 +38,6 @@ impl ProtocolState for FinishedState {
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return (Ok(Message::None), Some(Box::new(PlaintextState {})));
+        return (Ok(Message::Reset), Some(Box::new(PlaintextState {})));
     }
 }

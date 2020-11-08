@@ -36,16 +36,15 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let v: u16 = (data[0] as u16) << 8 + data[1] as u16;
-    let version: Version = match v {
+    let mut decoder = OTRDecoder{content: data};
+    let version: Version = match decoder.readShort()? {
         3u16 => Version::V3,
         _ => return Err(OTRError::ProtocolViolation("Invalid or unknown protocol version.")),
     };
-    let sender: u32 =
-        (data[3] as u32) << 24 + (data[4] as u32) << 16 + (data[5] as u32) << 8 + data[6] as u32;
-    let receiver: u32 =
-        (data[7] as u32) << 24 + (data[8] as u32) << 16 + (data[9] as u32) << 8 + data[10] as u32;
-    let encoded = interpret_encoded_content(data[2], &data[11..])?;
+    let message_type = decoder.readByte()?;
+    let sender = decoder.readInt()?;
+    let receiver = decoder.readInt()?;
+    let encoded = interpret_encoded_content(message_type, decoder)?;
     return Result::Ok(MessageType::EncodedMessage {
         version: version,
         sender: sender,
@@ -54,8 +53,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     });
 }
 
-fn interpret_encoded_content(message_type: u8, content: &[u8]) -> Result<OTRMessage, OTRError> {
-    let mut decoder = OTRDecoder{content: content};
+fn interpret_encoded_content(message_type: u8, mut decoder: OTRDecoder) -> Result<OTRMessage, OTRError> {
     return match message_type {
         OTR_DH_COMMIT_TYPE_CODE => {
             let encrypted = decoder.readData()?;
@@ -134,7 +132,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
                             b'1' => Version::Unsupported(1u16),
                             b'2' => Version::Unsupported(2u16),
                             b'3' => Version::V3,
-                            // TODO: Use u16::MAX here as placeholder for unparsed textual value representation.
+                            // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
                             _ => Version::Unsupported(std::u16::MAX),
                         }
                     })
@@ -146,7 +144,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
             )),
         };
     }
-    // TODO: search for multiple occurrences?
+    // TODO search for multiple occurrences?
     let whitespace_caps = WHITESPACE_PATTERN.captures(data);
     if whitespace_caps.is_some() {
         let cleaned = WHITESPACE_PATTERN.replace_all(data, b"".as_ref()).to_vec();
@@ -162,7 +160,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
-    let mut result: Vec<Version> = Vec::new();
+    let mut result = Vec::new();
     for i in (0..data.len()).step_by(8) {
         match &data[i..i + 8] {
             WHITESPACE_TAG_OTRV1 => { /* ignore OTRv1 tag, unsupported version */ }
@@ -212,7 +210,7 @@ pub enum OTRMessage {
         ctr: CTR,
         encrypted: Vec<u8>,
         authenticator: MAC,
-        /// revealed contains all the keys used to generate MACs for authentication.
+        /// revealed contains all the keys previously used for authentication.
         revealed: Vec<u8>,
     },
 }
@@ -309,6 +307,7 @@ impl OTRDecoder<'_> {
         return Ok(mac);
     }
 
+    // FIXME consider if this should move somewhere else...
     /// readContent reads content until null-terminated or end of buffer.
     fn readContent(&mut self) -> Result<Vec<u8>, OTRError> {
         let mut content_end_index = self.content.len();
@@ -323,6 +322,7 @@ impl OTRDecoder<'_> {
         return Ok(content)
     }
 
+    // FIXME consider if this should move somewhere else...
     /// readTLVs reads TLV-records until end of buffer.
     fn readTLVs(&mut self) -> Result<Vec<TLV>, OTRError> {
         // FIXME check for content length before reading type, length and value from the content array
@@ -348,6 +348,7 @@ impl OTRDecoder<'_> {
             return Err(OTRError::IncompleteMessage);
         }
         let length = (self.content[0] as usize) << 24 + (self.content[1] as usize) << 16 + (self.content[2] as usize) << 8 + self.content[3] as usize;
+        // FIXME verify/validate sane length values to prevent DoS strategies.
         self.content = &self.content[4..];
         return Ok(length)
     }

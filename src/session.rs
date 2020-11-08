@@ -7,11 +7,9 @@ use crate::{
 
 pub struct Account {
     host: Box<dyn Host>,
+    tag: InstanceTag,
     instances: collections::HashMap<InstanceTag, Instance>,
 }
-
-// TODO add conditional initiation of OTR protocol AKE.
-// TODO introduce fragmenter.
 
 impl Account {
     // TODO fuzzing target
@@ -19,6 +17,10 @@ impl Account {
         if fragment::is_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
             let fragment = fragment::parse(payload);
+            if fragment.receiver != self.tag {
+                // FIXME do fragments always have receiver tag set? (or sometimes zero?)
+                return Err(OTRError::MessageForOtherInstance);
+            }
             if !self.instances.contains_key(&fragment.sender) {
                 self.instances.insert(
                     fragment.sender,
@@ -48,10 +50,10 @@ impl Account {
         // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
         return match decoder::parse(&payload)? {
             MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
-            MessageType::PlaintextMessage(content) => Ok(Message::Plain(content)),
+            MessageType::PlaintextMessage(content) => Ok(Message::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
                 self.initiate(versions);
-                Ok(Message::Plain(content))
+                Ok(Message::Plaintext(content))
             }
             MessageType::QueryMessage(versions) => {
                 self.initiate(versions);
@@ -63,6 +65,10 @@ impl Account {
                 receiver,
                 message,
             } => {
+                // FIXME add more precise instane tag (sender/receiver) validation.
+                if receiver != 0u32 && receiver != self.tag {
+                    return Err(OTRError::MessageForOtherInstance);
+                }
                 // FIXME look-up or create instance, delegate handling to instance
                 self.instances.get_mut(&sender).unwrap().handle(
                     self.host.as_ref(),
