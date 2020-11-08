@@ -45,6 +45,7 @@ impl Account {
         }
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
+        // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
         return match decoder::parse(&payload)? {
             MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(Message::Plain(content)),
@@ -93,17 +94,22 @@ impl Instance {
         receiver: InstanceTag,
         message: OTRMessage,
     ) -> Result<Message, OTRError> {
-        let new_state = self.state.handle(host, message);
-        if new_state.is_some() {
-            self.state = new_state.unwrap();
-        }
-        Ok(Message::None)
+        let (message, new_state) = self.state.handle(host, message);
+        self.update(new_state);
+        return message;
     }
 
-    fn finish(&mut self) {
-        let new_state = self.state.finish();
-        if new_state.is_some() {
-            self.state = new_state.unwrap()
+    fn finish(&mut self) -> Result<Message, OTRError> {
+        let (message, new_state) = self.state.finish();
+        self.update(new_state);
+        return message;
+    }
+
+    // TODO replace with macro?
+    fn update(&mut self, new_state: Option<Box<dyn protocol::ProtocolState>>) {
+        if new_state.is_none() {
+            return
         }
+        self.state = new_state.unwrap();
     }
 }

@@ -22,7 +22,9 @@ pub trait Host {
 pub enum Message {
     None,
     Plain(Vec<u8>),
+    ConfidentialSessionStarted,
     Confidential(Vec<u8>),
+    ConfidentialSessionEnded,
     Error(Vec<u8>),
 }
 
