@@ -21,17 +21,17 @@ pub fn is_fragment(content: &[u8]) -> bool {
         && content.ends_with(OTR_FRAGMENT_SUFFIX);
 }
 
-pub fn parse(content: &[u8]) -> Fragment {
+pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
     let fragment_caps = FRAGMENT_PATTERN.captures(content);
     if fragment_caps.is_none() {
-        // FIXME this currently includes OTRv2 fragments, which we will not support but should handle gracefully.
-        panic!("Input is unsupported fragment format or no fragment at all.");
+        // TODO this currently includes OTRv2 fragments, which we will not support but maybe should handle gracefully.
+        return Err(FragmentError::IllegalFragment);
     }
     let captures = fragment_caps.unwrap();
     // FIXME: can these arrays be smaller than 4 bytes?
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
-    return Fragment {
+    return Ok(Fragment {
         sender: u32::from_be_bytes([
             sender_bytes[0],
             sender_bytes[1],
@@ -55,7 +55,7 @@ pub fn parse(content: &[u8]) -> Fragment {
         )
         .unwrap(),
         payload: Vec::from(captures.get(5).unwrap().as_bytes()),
-    };
+    });
 }
 
 pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {

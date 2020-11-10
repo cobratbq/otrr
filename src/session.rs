@@ -16,7 +16,8 @@ impl Account {
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
         if fragment::is_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
-            let fragment = fragment::parse(payload);
+            let fragment = fragment::parse(payload)
+                .or(Err(OTRError::ProtocolViolation("Illegal or unsupported fragment.")))?;
             if fragment.receiver != self.tag {
                 // FIXME do fragments always have receiver tag set? (or sometimes zero?)
                 return Err(OTRError::MessageForOtherInstance);
