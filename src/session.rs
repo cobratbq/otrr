@@ -18,8 +18,7 @@ impl Account {
             // FIXME handle OTRv2 fragments not being supported(?)
             let fragment = fragment::parse(payload)
                 .or(Err(OTRError::ProtocolViolation("Illegal or unsupported fragment.")))?;
-            if fragment.receiver != self.tag {
-                // FIXME do fragments always have receiver tag set? (or sometimes zero?)
+            if fragment.receiver != self.tag && fragment.receiver != 0u32 {
                 return Err(OTRError::MessageForOtherInstance);
             }
             if !self.instances.contains_key(&fragment.sender) {
