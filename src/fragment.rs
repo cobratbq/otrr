@@ -78,6 +78,7 @@ pub struct Fragment {
     payload: Vec<u8>,
 }
 
+#[derive(std::fmt::Debug)]
 pub enum FragmentError {
     IllegalFragment,
 }
@@ -121,6 +122,7 @@ impl Assembler {
 }
 
 /// Errors that may occur while assembling message fragments into a full OTR-encoded message.
+#[derive(std::fmt::Debug)]
 pub enum AssemblingError {
     /// Illegal fragment received. Fragment contains bad data and cannot be processed.
     IllegalFragment,
@@ -128,4 +130,113 @@ pub enum AssemblingError {
     IncompleteResult,
     /// Unexpected fragment received. Resetting assembler.
     UnexpectedFragment,
+}
+
+#[cfg(test)]
+mod tests{
+    use super::{Fragment, FragmentError, is_fragment, parse, verify};
+
+    #[test]
+    fn test_is_fragment_empty_string() {
+        assert_eq!(false, is_fragment(b""));
+    }
+
+    #[test]
+    fn test_is_fragment_arbitrary_string() {
+        assert_eq!(false, is_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
+    }
+
+    #[test]
+    fn test_is_fragment_OTRv2_fragment() {
+        assert_eq!(true, is_fragment(b"?OTR,"));
+    }
+
+    #[test]
+    fn test_is_fragment_OTRv3_fragment_incomplete() {
+        assert_eq!(false, is_fragment(b"?OTR|"));
+    }
+
+    #[test]
+    fn test_is_fragment_OTRv3_fragment() {
+        assert_eq!(true, is_fragment(b"?OTR|,"));
+    }
+
+    #[test]
+    fn test_is_fragment_OTR_partly_arbitrary() {
+        assert_eq!(false, is_fragment(b"?OTRsomethingrandom,"));
+    }
+
+    #[test]
+    fn test_is_fragment_OTR_encoded() {
+        assert_eq!(false, is_fragment(b"?OTR:."));
+    }
+
+    #[test]
+    fn test_is_fragment_OTR_encoded_mixed() {
+        assert_eq!(false, is_fragment(b"?OTR:,"));
+    }
+
+    #[test]
+    fn test_verify_fragment_zero() {
+        let f = Fragment{sender: 0, receiver: 0, total: 0, part: 0, payload: Vec::new()};
+        assert!(verify(&f).is_err());
+    }
+
+    #[test]
+    fn test_verify_fragment_correct() {
+        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 1, payload: Vec::from("Hello")};
+        assert!(verify(&f).is_ok());
+    }
+
+    #[test]
+    fn test_verify_fragment_zero_part() {
+        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 0, payload: Vec::from("Hello")};
+        assert!(verify(&f).is_err());
+    }
+
+    #[test]
+    fn test_verify_fragment_zero_total() {
+        let f = Fragment{sender: 256, receiver: 256, total: 0, part: 1, payload: Vec::from("Hello")};
+        assert!(verify(&f).is_err());
+    }
+
+    #[test]
+    fn test_verify_fragment_empty_payload() {
+        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 1, payload: Vec::new()};
+        assert!(verify(&f).is_err());
+    }
+
+    #[test]
+    fn test_verify_fragment_part_larger_total() {
+        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 2, payload: Vec::from("Hello")};
+        assert!(verify(&f).is_err());
+    }
+
+    #[test]
+    fn test_verify_fragment_last_part() {
+        let f = Fragment{sender: 256, receiver: 256, total: 11, part: 11, payload: Vec::from("Hello")};
+        assert!(verify(&f).is_ok());
+    }
+
+    #[test]
+    fn test_parse_fragment_empty() {
+        let result = parse(b"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_fragment_arbitrary() {
+        let result = parse(b"fds7ag56sdaf67sd8a5f6se7895f6asd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_fragment() {
+        let f = parse(b"?OTR|1f2e3d4c|1a2b3c4d,1,1,?OTR:encoded.,").unwrap();
+        assert_eq!(0x1f2e3d4cu32, f.sender);
+        assert_eq!(0x1a2b3c4du32, f.receiver);
+        assert_eq!(1u16, f.part);
+        assert_eq!(1u16, f.total);
+        assert_eq!(b"?OTR:encoded.", f.payload.as_slice());
+    }
 }
