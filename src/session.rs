@@ -81,8 +81,17 @@ impl Account {
         };
     }
 
+    pub fn send(instance: InstanceTag, content: &[u8]) -> Vec<u8> {
+        // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
+        todo!()
+    }
+
     fn initiate(&mut self, versions: Vec<Version>) {
         todo!("Implement sending/injecting DH-Commit message.")
+    }
+
+    fn query(&mut self, versions: Vec<Version>) {
+        todo!("Query by sending query message.")
     }
 }
 
