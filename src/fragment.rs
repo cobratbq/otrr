@@ -235,11 +235,11 @@ mod tests{
 
     #[test]
     fn test_parse_fragment() {
-        let f = parse(b"?OTR|1f2e3d4c|1a2b3c4d,1,1,?OTR:encoded.,").unwrap();
+        let f = parse(b"?OTR|1f2e3d4c|1a2b3c4d,1,2,?OTR:encoded.,").unwrap();
         assert_eq!(0x1f2e3d4cu32, f.sender);
         assert_eq!(0x1a2b3c4du32, f.receiver);
         assert_eq!(1u16, f.part);
-        assert_eq!(1u16, f.total);
+        assert_eq!(2u16, f.total);
         assert_eq!(b"?OTR:encoded.", f.payload.as_slice());
     }
 }

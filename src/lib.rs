@@ -36,6 +36,7 @@ pub enum Message {
 }
 
 /// OTRError is the enum containing the various errors that can occur.
+#[derive(std::fmt::Debug)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),
