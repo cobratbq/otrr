@@ -81,16 +81,17 @@ impl Account {
         };
     }
 
-    pub fn send(instance: InstanceTag, content: &[u8]) -> Vec<u8> {
+    pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+        return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         todo!()
     }
 
-    fn initiate(&mut self, versions: Vec<Version>) {
+    fn initiate(&mut self, accepted_versions: Vec<Version>) {
         todo!("Implement sending/injecting DH-Commit message.")
     }
 
-    fn query(&mut self, versions: Vec<Version>) {
+    fn query(&mut self, possible_versions: Vec<Version>) {
         todo!("Query by sending query message.")
     }
 }
@@ -118,6 +119,10 @@ impl Instance {
         let (message, new_state) = self.state.finish();
         self.update(new_state);
         return message;
+    }
+
+    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+        return self.state.send(content);
     }
 
     // TODO replace with macro?

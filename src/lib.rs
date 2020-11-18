@@ -43,6 +43,8 @@ pub enum OTRError {
     IncompleteMessage,
     /// An OTR message was received that is intended for a different instance (client).
     MessageForOtherInstance,
+    /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
+    ProtocolInFinishedState,
 }
 
 /// Version contains the various supported OTR protocol versions.

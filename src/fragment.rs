@@ -28,7 +28,7 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
         return Err(FragmentError::IllegalFragment);
     }
     let captures = fragment_caps.unwrap();
-    // FIXME: can these arrays be smaller than 4 bytes?
+    // FIXME can these arrays be smaller than 4 bytes?
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
     return Ok(Fragment {
@@ -101,13 +101,16 @@ impl Assembler {
     pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, AssemblingError> {
         verify(&fragment).or(Err(AssemblingError::IllegalFragment))?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
+            // First fragment encountered.
             self.total = fragment.total;
             self.last = 1;
             self.content.clone_from(&fragment.payload);
         } else if fragment.total == self.total && fragment.part == self.last + 1 {
+            // Next fragment encountered.
             self.last = fragment.part;
             self.content.extend_from_slice(&fragment.payload);
         } else {
+            // Unexpected fragment encountered. Resetting state.
             self.total = 0;
             self.last = 0;
             self.content.clear();
@@ -134,7 +137,7 @@ pub enum AssemblingError {
 
 #[cfg(test)]
 mod tests{
-    use super::{Fragment, FragmentError, is_fragment, parse, verify};
+    use super::{Fragment, is_fragment, parse, verify};
 
     #[test]
     fn test_is_fragment_empty_string() {
@@ -147,32 +150,32 @@ mod tests{
     }
 
     #[test]
-    fn test_is_fragment_OTRv2_fragment() {
+    fn test_is_fragment_otrv2_fragment() {
         assert_eq!(true, is_fragment(b"?OTR,"));
     }
 
     #[test]
-    fn test_is_fragment_OTRv3_fragment_incomplete() {
+    fn test_is_fragment_otrv3_fragment_incomplete() {
         assert_eq!(false, is_fragment(b"?OTR|"));
     }
 
     #[test]
-    fn test_is_fragment_OTRv3_fragment() {
+    fn test_is_fragment_otrv3_fragment() {
         assert_eq!(true, is_fragment(b"?OTR|,"));
     }
 
     #[test]
-    fn test_is_fragment_OTR_partly_arbitrary() {
+    fn test_is_fragment_otr_partly_arbitrary() {
         assert_eq!(false, is_fragment(b"?OTRsomethingrandom,"));
     }
 
     #[test]
-    fn test_is_fragment_OTR_encoded() {
+    fn test_is_fragment_otr_encoded() {
         assert_eq!(false, is_fragment(b"?OTR:."));
     }
 
     #[test]
-    fn test_is_fragment_OTR_encoded_mixed() {
+    fn test_is_fragment_otr_encoded_mixed() {
         assert_eq!(false, is_fragment(b"?OTR:,"));
     }
 
