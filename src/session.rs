@@ -113,14 +113,14 @@ impl Instance {
     ) -> Result<Message, OTRError> {
         // FIXME verify and validate message before passing on to state.
         let (message, new_state) = self.state.handle(host, message);
-        self.update(new_state);
+        self._update(new_state);
         return message;
     }
 
     fn finish(&mut self) -> Result<Message, OTRError> {
         // FIXME verify and validate message before passing on to state.
         let (message, new_state) = self.state.finish();
-        self.update(new_state);
+        self._update(new_state);
         return message;
     }
 
@@ -129,7 +129,7 @@ impl Instance {
     }
 
     // TODO replace with macro?
-    fn update(&mut self, new_state: Option<Box<dyn protocol::ProtocolState>>) {
+    fn _update(&mut self, new_state: Option<Box<dyn protocol::ProtocolState>>) {
         if new_state.is_none() {
             return
         }
