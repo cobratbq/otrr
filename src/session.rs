@@ -1,9 +1,6 @@
 use std::collections;
 
-use crate::{
-    decoder::{self, MessageType, OTRMessage},
-    fragment, protocol, Host, InstanceTag, Message, OTRError, Version,
-};
+use crate::{Host, InstanceTag, Message, OTRError, Version, authentication, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
 
 pub struct Account {
     host: Box<dyn Host>,
@@ -26,7 +23,7 @@ impl Account {
                     fragment.sender,
                     Instance {
                         assembler: fragment::new_assembler(),
-                        state: Box::new(protocol::PlaintextState {}),
+                        state: protocol::new_protocol_state(),
                     },
                 );
             }
@@ -102,6 +99,10 @@ pub struct Instance {
 }
 
 impl Instance {
+    fn status(&self) -> protocol::ProtocolStatus {
+        return self.state.status();
+    }
+
     fn handle(
         &mut self,
         host: &dyn Host,
@@ -110,12 +111,14 @@ impl Instance {
         receiver: InstanceTag,
         message: OTRMessage,
     ) -> Result<Message, OTRError> {
+        // FIXME verify and validate message before passing on to state.
         let (message, new_state) = self.state.handle(host, message);
         self.update(new_state);
         return message;
     }
 
     fn finish(&mut self) -> Result<Message, OTRError> {
+        // FIXME verify and validate message before passing on to state.
         let (message, new_state) = self.state.finish();
         self.update(new_state);
         return message;

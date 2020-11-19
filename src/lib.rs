@@ -42,6 +42,8 @@ pub enum OTRError {
     ProtocolViolation(&'static str),
     /// Message payload is incomplete. The message cannot be reconstructed from the received bytes.
     IncompleteMessage,
+    /// Encrypted message is unreadable due to loss of keys and/or wrong protocol state.
+    UnreadableMessage,
     /// An OTR message was received that is intended for a different instance (client).
     MessageForOtherInstance,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
