@@ -37,13 +37,13 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let mut decoder = OTRDecoder{content: data};
-    let version: Version = match decoder.readShort()? {
+    let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
         _ => return Err(OTRError::ProtocolViolation("Invalid or unknown protocol version.")),
     };
-    let message_type = decoder.readByte()?;
-    let sender = decoder.readInt()?;
-    let receiver = decoder.readInt()?;
+    let message_type = decoder.read_byte()?;
+    let sender = decoder.read_int()?;
+    let receiver = decoder.read_int()?;
     let encoded = interpret_encoded_content(message_type, decoder)?;
     return Result::Ok(MessageType::EncodedMessage {
         version: version,
@@ -56,23 +56,23 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
 fn interpret_encoded_content(message_type: u8, mut decoder: OTRDecoder) -> Result<OTRMessage, OTRError> {
     return match message_type {
         OTR_DH_COMMIT_TYPE_CODE => {
-            let encrypted = decoder.readData()?;
-            let hashed = decoder.readData()?;
+            let encrypted = decoder.read_data()?;
+            let hashed = decoder.read_data()?;
             Ok(OTRMessage::DHCommit{
                 gx_encrypted: encrypted,
                 gx_hashed: hashed,
             })
         }
         OTR_DH_KEY_TYPE_CODE => {
-            let gy = decoder.readMPI()?;
+            let gy = decoder.read_mpi()?;
             Ok(OTRMessage::DHKey{
                 gy: gy,
             })
         }
         OTR_REVEAL_SIGNATURE_TYPE_CODE => {
-            let key = decoder.readData()?;
-            let encrypted = decoder.readData()?;
-            let mac = decoder.readMAC()?;
+            let key = decoder.read_data()?;
+            let encrypted = decoder.read_data()?;
+            let mac = decoder.read_mac()?;
             Ok(OTRMessage::RevealSignature{
                 key: key,
                 signature_encrypted: Vec::from(encrypted),
@@ -80,22 +80,22 @@ fn interpret_encoded_content(message_type: u8, mut decoder: OTRDecoder) -> Resul
             })
         }
         OTR_SIGNATURE_TYPE_CODE => {
-            let encrypted = decoder.readData()?;
-            let mac = decoder.readMAC()?;
+            let encrypted = decoder.read_data()?;
+            let mac = decoder.read_mac()?;
             Ok(OTRMessage::Signature{
                 signature_encrypted: Vec::from(encrypted),
                 signature_mac: mac,
             })
         }
         OTR_DATA_TYPE_CODE => {
-            let flags = decoder.readByte()?;
-            let sender_keyid = decoder.readInt()?;
-            let receiver_keyid = decoder.readInt()?;
-            let dh_y = decoder.readMPI()?;
-            let ctr = decoder.readCTR()?;
-            let encrypted = decoder.readData()?;
-            let authenticator = decoder.readMAC()?;
-            let revealed = decoder.readData()?;
+            let flags = decoder.read_byte()?;
+            let sender_keyid = decoder.read_int()?;
+            let receiver_keyid = decoder.read_int()?;
+            let dh_y = decoder.read_mpi()?;
+            let ctr = decoder.read_ctr()?;
+            let encrypted = decoder.read_data()?;
+            let authenticator = decoder.read_mac()?;
+            let revealed = decoder.read_data()?;
             Ok(OTRMessage::Data{
                 flags: flags,
                 sender_keyid: sender_keyid,
@@ -234,8 +234,8 @@ struct OTRDecoder<'a>  {
 /// OTRDecoder contains the logic for reading entries from byte-buffer.
 impl OTRDecoder<'_> {
 
-    /// readByte reads a single byte from buffer.
-    fn readByte(&mut self) -> Result<u8, OTRError> {
+    /// read_byte reads a single byte from buffer.
+    fn read_byte(&mut self) -> Result<u8, OTRError> {
         if self.content.len() < 1 {
             return Err(OTRError::IncompleteMessage)
         }
@@ -244,8 +244,8 @@ impl OTRDecoder<'_> {
         return Ok(value)
     }
 
-    /// readShort reads a short value (2 bytes, big-endian) from buffer.
-    fn readShort(&mut self) -> Result<u16, OTRError> {
+    /// read_short reads a short value (2 bytes, big-endian) from buffer.
+    fn read_short(&mut self) -> Result<u16, OTRError> {
         if self.content.len() < 2 {
             return Err(OTRError::IncompleteMessage)
         }
@@ -254,8 +254,8 @@ impl OTRDecoder<'_> {
         return Ok(value)
     }
 
-    /// readInt reads an integer value (4 bytes, big-endian) from buffer.
-    fn readInt(&mut self) -> Result<u32, OTRError> {
+    /// read_int reads an integer value (4 bytes, big-endian) from buffer.
+    fn read_int(&mut self) -> Result<u32, OTRError> {
         if self.content.len() < 4 {
             return Err(OTRError::IncompleteMessage)
         }
@@ -264,9 +264,9 @@ impl OTRDecoder<'_> {
         return Ok(value)
     }
 
-    /// readData reads variable-length data from buffer.
-    fn readData(&mut self) -> Result<Vec<u8>, OTRError> {
-        let len = self.readLength()?;
+    /// read_data reads variable-length data from buffer.
+    fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
+        let len = self._read_length()?;
         if self.content.len() < len {
             return Err(OTRError::IncompleteMessage)
         }
@@ -275,9 +275,9 @@ impl OTRDecoder<'_> {
         return Ok(data)
     }
 
-    /// readMPI reads MPI from buffer.
-    fn readMPI(&mut self) -> Result<BigUint, OTRError> {
-        let len = self.readLength()?;
+    /// read_mpi reads MPI from buffer.
+    fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
+        let len = self._read_length()?;
         if self.content.len() < len {
             return Err(OTRError::IncompleteMessage)
         }
@@ -286,7 +286,7 @@ impl OTRDecoder<'_> {
         return Ok(mpi)
     }
 
-    fn readCTR(&mut self) -> Result<CTR, OTRError> {
+    fn read_ctr(&mut self) -> Result<CTR, OTRError> {
         if self.content.len() < 8 {
             return Err(OTRError::IncompleteMessage)
         }
@@ -296,8 +296,8 @@ impl OTRDecoder<'_> {
         return Ok(ctr)
     }
 
-    /// readMAC reads a MAC value from buffer.
-    fn readMAC(&mut self) -> Result<MAC, OTRError> {
+    /// read_mac reads a MAC value from buffer.
+    fn read_mac(&mut self) -> Result<MAC, OTRError> {
         if self.content.len() < 20 {
             return Err(OTRError::IncompleteMessage)
         }
@@ -308,8 +308,8 @@ impl OTRDecoder<'_> {
     }
 
     // FIXME consider if this should move somewhere else...
-    /// readContent reads content until null-terminated or end of buffer.
-    fn readContent(&mut self) -> Result<Vec<u8>, OTRError> {
+    /// read_content reads content until null-terminated or end of buffer.
+    fn read_content(&mut self) -> Result<Vec<u8>, OTRError> {
         let mut content_end_index = self.content.len();
         for i in 0..self.content.len() {
             if self.content[i] == 0 {
@@ -323,8 +323,8 @@ impl OTRDecoder<'_> {
     }
 
     // FIXME consider if this should move somewhere else...
-    /// readTLVs reads TLV-records until end of buffer.
-    fn readTLVs(&mut self) -> Result<Vec<TLV>, OTRError> {
+    /// read_tlvs reads TLV-records until end of buffer.
+    fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
         // FIXME check for content length before reading type, length and value from the content array
         let mut tlvs = Vec::new();
         while self.content.len() > 0 {
@@ -342,8 +342,8 @@ impl OTRDecoder<'_> {
         return Ok(tlvs);
     }
 
-    /// readLength reads 4-byte unsigned big-endian length.
-    fn readLength(&mut self) -> Result<usize, OTRError> {
+    /// _read_length reads 4-byte unsigned big-endian length.
+    fn _read_length(&mut self) -> Result<usize, OTRError> {
         if self.content.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
