@@ -6,6 +6,7 @@ extern crate hex;
 extern crate num_bigint;
 
 mod authentication;
+mod crypto;
 mod decoder;
 mod fragment;
 mod protocol;
