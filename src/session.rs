@@ -1,6 +1,6 @@
 use std::collections;
 
-use crate::{Host, InstanceTag, Message, OTRError, Version, authentication, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
+use crate::{Host, InstanceTag, Message, OTRError, Version, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
 
 pub struct Account {
     host: Box<dyn Host>,
@@ -93,7 +93,7 @@ impl Account {
     }
 }
 
-pub struct Instance {
+struct Instance {
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
 }

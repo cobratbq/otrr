@@ -12,6 +12,7 @@ mod fragment;
 mod protocol;
 mod session;
 
+// TODO warn in case of unreadable message unless unreadable-flag is set
 /// Host represents the Host implementation for calling back into the messaging client.
 pub trait Host {
     /// Inject a message into the messaging's transport stream.

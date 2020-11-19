@@ -24,6 +24,7 @@ pub fn new_protocol_state() -> Box<dyn ProtocolState> {
 }
 
 struct PlaintextState {
+    // FIXME move AKEState out of protocol state; instead directly into session?
     ake: authentication::AKEState,
 }
 
