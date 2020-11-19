@@ -1,6 +1,10 @@
 use std::collections;
 
-use crate::{Host, InstanceTag, Message, OTRError, Version, decoder::{self, MessageType, OTRMessage}, fragment, protocol};
+use crate::{
+    authentication,
+    decoder::{self, MessageType, OTRMessage},
+    fragment, protocol, Host, InstanceTag, Message, OTRError, Version,
+};
 
 pub struct Account {
     host: Box<dyn Host>,
@@ -13,8 +17,9 @@ impl Account {
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
         if fragment::is_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
-            let fragment = fragment::parse(payload)
-                .or(Err(OTRError::ProtocolViolation("Illegal or unsupported fragment.")))?;
+            let fragment = fragment::parse(payload).or(Err(OTRError::ProtocolViolation(
+                "Illegal or unsupported fragment.",
+            )))?;
             if fragment.receiver != self.tag && fragment.receiver != 0u32 {
                 return Err(OTRError::MessageForOtherInstance);
             }
@@ -24,6 +29,7 @@ impl Account {
                     Instance {
                         assembler: fragment::new_assembler(),
                         state: protocol::new_protocol_state(),
+                        ake: authentication::new_context(),
                     },
                 );
             }
@@ -96,6 +102,7 @@ impl Account {
 struct Instance {
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
+    ake: authentication::AKEContext,
 }
 
 impl Instance {
@@ -111,10 +118,38 @@ impl Instance {
         receiver: InstanceTag,
         message: OTRMessage,
     ) -> Result<Message, OTRError> {
-        // FIXME verify and validate message before passing on to state.
-        let (message, new_state) = self.state.handle(host, message);
-        self._update(new_state);
-        return message;
+        match message {
+            OTRMessage::DHCommit {
+                gx_encrypted: _,
+                gx_hashed: _,
+            } => todo!(),
+            OTRMessage::DHKey { gy: _ } => todo!(),
+            OTRMessage::RevealSignature {
+                key: _,
+                signature_encrypted: _,
+                signature_mac: _,
+            } => todo!(),
+            OTRMessage::Signature {
+                signature_encrypted: _,
+                signature_mac: _,
+            } => todo!(),
+            OTRMessage::Data {
+                flags: _,
+                sender_keyid: _,
+                receiver_keyid: _,
+                dh_y: _,
+                ctr: _,
+                encrypted: _,
+                authenticator: _,
+                revealed: _,
+            } => {
+                // FIXME verify and validate message before passing on to state.
+                let (message, new_state) = self.state.handle(host, message);
+                self._update(new_state);
+                // FIXME in case of error, check for ignore-unreadable flag.
+                return message;
+            }
+        };
     }
 
     fn finish(&mut self) -> Result<Message, OTRError> {
@@ -131,7 +166,7 @@ impl Instance {
     // TODO replace with macro?
     fn _update(&mut self, new_state: Option<Box<dyn protocol::ProtocolState>>) {
         if new_state.is_none() {
-            return
+            return;
         }
         self.state = new_state.unwrap();
     }

@@ -1,4 +1,4 @@
-use crate::{authentication, decoder::OTRMessage, Host, Message, OTRError};
+use crate::{decoder::OTRMessage, Host, Message, OTRError};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -18,15 +18,10 @@ pub enum ProtocolStatus {
 }
 
 pub fn new_protocol_state() -> Box<dyn ProtocolState> {
-    return Box::new(PlaintextState {
-        ake: authentication::AKEState::None,
-    });
+    return Box::new(PlaintextState {});
 }
 
-struct PlaintextState {
-    // FIXME move AKEState out of protocol state; instead directly into session?
-    ake: authentication::AKEState,
-}
+struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
     fn status(&self) -> ProtocolStatus {
@@ -120,9 +115,7 @@ impl ProtocolState for EncryptedState {
         // FIXME send/inject session end message to other party (with ignore unreadable).
         return (
             Ok(Message::Reset),
-            Some(Box::new(PlaintextState {
-                ake: authentication::AKEState::None,
-            })),
+            Some(Box::new(PlaintextState {})),
         );
     }
 
@@ -174,9 +167,7 @@ impl ProtocolState for FinishedState {
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         return (
             Ok(Message::Reset),
-            Some(Box::new(PlaintextState {
-                ake: authentication::AKEState::None,
-            })),
+            Some(Box::new(PlaintextState {})),
         );
     }
 
