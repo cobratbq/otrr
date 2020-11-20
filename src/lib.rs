@@ -65,6 +65,12 @@ pub enum Version {
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
 pub type InstanceTag = u32;
 
+/// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
+type CTR = [u8;8];
+
+/// MAC type represents the 20-byte MAC value.
+type MAC = [u8;20];
+
 // TODO early implementation assumptions:
 // 1. injections of messages into the transport never fails.
 // 2. OTR is always enabled.

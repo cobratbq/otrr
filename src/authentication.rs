@@ -1,4 +1,4 @@
-use crate::{Message, OTRError, crypto, decoder::{OTRMessage, MAC}};
+use crate::{MAC, Message, OTRError, crypto, decoder::OTRMessage};
 
 pub fn new_context() -> AKEContext {
     return AKEContext {

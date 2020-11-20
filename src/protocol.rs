@@ -1,4 +1,4 @@
-use crate::{decoder::CTR, Host, Message, OTRError};
+use crate::{CTR, Host, Message, OTRError};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;

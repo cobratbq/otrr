@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{InstanceTag, OTRError, Version};
+use crate::{CTR, InstanceTag, MAC, OTRError, Version};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -214,12 +214,6 @@ pub enum OTRMessage {
         revealed: Vec<u8>,
     },
 }
-
-// TODO consider moving to get rid of ubiquitous dependency on 'decoder'.
-pub type CTR = [u8;8];
-
-// TODO consider moving to get rid of ubiquitous dependency on 'decoder'.
-pub type MAC = [u8;20];
 
 // TODO predefine TLVs according to spec or keep open for custom implementation? (seems that predefining with exact fields might be more useful/controllable)
 /// Type-Length-Value records that are optionally appended to content of an OTR Data Message.
