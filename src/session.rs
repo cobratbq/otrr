@@ -118,33 +118,38 @@ impl Instance {
         receiver: InstanceTag,
         message: OTRMessage,
     ) -> Result<Message, OTRError> {
-        match message {
+        return match message {
             OTRMessage::DHCommit {
-                gx_encrypted: _,
-                gx_hashed: _,
-            } => todo!(),
-            OTRMessage::DHKey { gy: _ } => todo!(),
+                gx_encrypted,
+                gx_hashed,
+            } => {
+                self.ake.handleCommit(gx_encrypted, gx_hashed);
+                Ok(Message::None)
+            }
+            OTRMessage::DHKey { gy } => self.ake.handleKey(gy),
             OTRMessage::RevealSignature {
-                key: _,
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
+                key,
+                signature_encrypted,
+                signature_mac,
+            } => self
+                .ake
+                .handleRevealSignature(key, signature_encrypted, signature_mac),
             OTRMessage::Signature {
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
+                signature_encrypted,
+                signature_mac,
+            } => self.ake.handleSignature(signature_encrypted, signature_mac),
             OTRMessage::Data {
-                flags: _,
-                sender_keyid: _,
-                receiver_keyid: _,
-                dh_y: _,
-                ctr: _,
-                encrypted: _,
-                authenticator: _,
-                revealed: _,
+                flags,
+                sender_keyid,
+                receiver_keyid,
+                dh_y,
+                ctr,
+                encrypted,
+                authenticator,
+                revealed,
             } => {
                 // FIXME verify and validate message before passing on to state.
-                let (message, new_state) = self.state.handle(host, message);
+                let (message, new_state) = self.state.handle(host, dh_y, ctr, encrypted, authenticator);
                 self._update(new_state);
                 // FIXME in case of error, check for ignore-unreadable flag.
                 return message;

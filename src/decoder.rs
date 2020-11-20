@@ -215,8 +215,10 @@ pub enum OTRMessage {
     },
 }
 
+// TODO consider moving to get rid of ubiquitous dependency on 'decoder'.
 pub type CTR = [u8;8];
 
+// TODO consider moving to get rid of ubiquitous dependency on 'decoder'.
 pub type MAC = [u8;20];
 
 // TODO predefine TLVs according to spec or keep open for custom implementation? (seems that predefining with exact fields might be more useful/controllable)

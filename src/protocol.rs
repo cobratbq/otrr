@@ -1,11 +1,14 @@
-use crate::{decoder::OTRMessage, Host, Message, OTRError};
+use crate::{decoder::CTR, Host, Message, OTRError};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn handle(
         &mut self,
         host: &dyn Host,
-        message: OTRMessage,
+        dh_y: num_bigint::BigUint,
+        ctr: CTR,
+        encrypted: Vec<u8>,
+        authenticator: [u8;20],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
@@ -31,34 +34,13 @@ impl ProtocolState for PlaintextState {
     fn handle(
         &mut self,
         host: &dyn Host,
-        message: OTRMessage,
+        dh_y: num_bigint::BigUint,
+        ctr: CTR,
+        encrypted: Vec<u8>,
+        authenticator: [u8;20],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return match message {
-            OTRMessage::DHCommit {
-                gx_encrypted: _,
-                gx_hashed: _,
-            } => todo!(),
-            OTRMessage::DHKey { gy: _ } => todo!(),
-            OTRMessage::RevealSignature {
-                key: _,
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Signature {
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Data {
-                flags: _,
-                sender_keyid: _,
-                receiver_keyid: _,
-                dh_y: _,
-                ctr: _,
-                encrypted: _,
-                authenticator: _,
-                revealed: _,
-            } => (Err(OTRError::UnreadableMessage), None),
-        };
+        // FIXME assumes that this only needs to handle encrypted (OTR Data messages).
+        return (Err(OTRError::UnreadableMessage), None)
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
@@ -80,35 +62,13 @@ impl ProtocolState for EncryptedState {
     fn handle(
         &mut self,
         host: &dyn Host,
-        message: OTRMessage,
+        dh_y: num_bigint::BigUint,
+        ctr: CTR,
+        encrypted: Vec<u8>,
+        authenticator: [u8;20],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
-        return match message {
-            OTRMessage::DHCommit {
-                gx_encrypted: _,
-                gx_hashed: _,
-            } => todo!(),
-            OTRMessage::DHKey { gy: _ } => todo!(),
-            OTRMessage::RevealSignature {
-                key: _,
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Signature {
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Data {
-                flags: _,
-                sender_keyid: _,
-                receiver_keyid: _,
-                dh_y: _,
-                ctr: _,
-                encrypted: _,
-                authenticator: _,
-                revealed: _,
-            } => todo!(),
-        };
+        todo!("To be implemented")
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
@@ -134,34 +94,12 @@ impl ProtocolState for FinishedState {
     fn handle(
         &mut self,
         host: &dyn Host,
-        message: OTRMessage,
+        dh_y: num_bigint::BigUint,
+        ctr: CTR,
+        encrypted: Vec<u8>,
+        authenticator: [u8;20],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return match message {
-            OTRMessage::DHCommit {
-                gx_encrypted: _,
-                gx_hashed: _,
-            } => todo!(),
-            OTRMessage::DHKey { gy: _ } => todo!(),
-            OTRMessage::RevealSignature {
-                key: _,
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Signature {
-                signature_encrypted: _,
-                signature_mac: _,
-            } => todo!(),
-            OTRMessage::Data {
-                flags: _,
-                sender_keyid: _,
-                receiver_keyid: _,
-                dh_y: _,
-                ctr: _,
-                encrypted: _,
-                authenticator: _,
-                revealed: _,
-            } => (Err(OTRError::UnreadableMessage), None),
-        };
+        return (Err(OTRError::UnreadableMessage), None)
     }
 
     fn finish(&mut self) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {

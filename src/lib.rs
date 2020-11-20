@@ -4,6 +4,7 @@ extern crate regex;
 extern crate lazy_static;
 extern crate hex;
 extern crate num_bigint;
+extern crate ring;
 
 mod authentication;
 mod crypto;
