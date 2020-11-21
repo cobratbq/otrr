@@ -1,4 +1,5 @@
 
+#[allow(non_snake_case)]
 pub mod DH {
 
     pub fn generate() -> Keypair {
@@ -11,14 +12,27 @@ pub mod DH {
     }
 }
 
-pub mod AES {
+#[allow(non_snake_case)]
+pub mod AES128 {
+    use aes_ctr::{Aes128Ctr, cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher}};
 
+    /// crypt provides both encrypting and decrypting logic.
+    pub fn crypt(key: &[u8;16], nonce: &[u8;16], data: &[u8]) -> Vec<u8> {
+        let mut result = Vec::from(data);
+        let key = GenericArray::from_slice(key);
+        let nonce = GenericArray::from_slice(nonce);
+        let mut cipher = Aes128Ctr::new(&key, &nonce);
+        cipher.apply_keystream(result.as_mut_slice());
+        return result;
+    }
 }
 
+#[allow(non_snake_case)]
 pub mod DSA {
 
 }
 
+#[allow(non_snake_case)]
 pub mod SHA1 {
 
     pub fn digest(data: &[u8]) -> [u8;20] {
@@ -29,6 +43,7 @@ pub mod SHA1 {
     }
 }
 
+#[allow(non_snake_case)]
 pub mod SHA256 {
 
     /// digest calculates the SHA256 digest value.

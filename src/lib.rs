@@ -1,3 +1,4 @@
+extern crate aes_ctr;
 extern crate base64;
 extern crate regex;
 #[macro_use]
@@ -11,7 +12,8 @@ mod crypto;
 mod decoder;
 mod fragment;
 mod protocol;
-mod session;
+
+pub mod session;
 
 // TODO warn in case of unreadable message unless unreadable-flag is set
 /// Host represents the Host implementation for calling back into the messaging client.
@@ -66,10 +68,10 @@ pub enum Version {
 pub type InstanceTag = u32;
 
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
-type CTR = [u8;8];
+type CTR = [u8; 8];
 
 /// MAC type represents the 20-byte MAC value.
-type MAC = [u8;20];
+type MAC = [u8; 20];
 
 // TODO early implementation assumptions:
 // 1. injections of messages into the transport never fails.

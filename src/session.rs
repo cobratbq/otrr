@@ -123,21 +123,21 @@ impl Instance {
                 gx_encrypted,
                 gx_hashed,
             } => {
-                self.ake.handleCommit(gx_encrypted, gx_hashed);
+                self.ake.handle_commit(gx_encrypted, gx_hashed);
                 Ok(Message::None)
             }
-            OTRMessage::DHKey { gy } => self.ake.handleKey(gy),
+            OTRMessage::DHKey { gy } => self.ake.handle_key(gy),
             OTRMessage::RevealSignature {
                 key,
                 signature_encrypted,
                 signature_mac,
             } => self
                 .ake
-                .handleRevealSignature(key, signature_encrypted, signature_mac),
+                .handle_reveal_signature(key, signature_encrypted, signature_mac),
             OTRMessage::Signature {
                 signature_encrypted,
                 signature_mac,
-            } => self.ake.handleSignature(signature_encrypted, signature_mac),
+            } => self.ake.handle_signature(signature_encrypted, signature_mac),
             OTRMessage::Data {
                 flags,
                 sender_keyid,

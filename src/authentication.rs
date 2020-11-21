@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{MAC, Message, OTRError, crypto, decoder::OTRMessage};
+use crate::{crypto, decoder::OTRMessage, Message, OTRError, MAC};
 
 pub fn new_context() -> AKEContext {
     return AKEContext {
@@ -27,7 +27,7 @@ enum AKEState {
 }
 
 impl AKEContext {
-    pub fn handleCommit(
+    pub fn handle_commit(
         &mut self,
         gx_encrypted: Vec<u8>,
         gx_hashed: Vec<u8>,
@@ -68,7 +68,7 @@ impl AKEContext {
                     // AUTHSTATE_NONE; i.e. reply with a D-H Key Message, and transition authstate to
                     // AUTHSTATE_AWAITING_REVEALSIG.
                     self.state = AKEState::None;
-                    self.handleCommit(gx_encrypted, gx_hashed)
+                    self.handle_commit(gx_encrypted, gx_hashed)
                 };
             }
             AKEState::AwaitingRevealSignature {
@@ -112,11 +112,11 @@ impl AKEContext {
         };
     }
 
-    pub fn handleKey(&mut self, gy: num_bigint::BigUint) -> Result<Message, OTRError> {
+    pub fn handle_key(&mut self, gy: num_bigint::BigUint) -> Result<Message, OTRError> {
         todo!()
     }
 
-    pub fn handleRevealSignature(
+    pub fn handle_reveal_signature(
         &mut self,
         key: Vec<u8>,
         signature_encrypted: Vec<u8>,
@@ -125,7 +125,7 @@ impl AKEContext {
         todo!()
     }
 
-    pub fn handleSignature(
+    pub fn handle_signature(
         &mut self,
         signature_encrypted: Vec<u8>,
         signature_mac: MAC,
