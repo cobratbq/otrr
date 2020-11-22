@@ -1,3 +1,5 @@
+use std::mem;
+
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
@@ -347,5 +349,72 @@ impl OTRDecoder<'_> {
         // FIXME verify/validate sane length values to prevent DoS strategies.
         self.content = &self.content[4..];
         return Ok(length)
+    }
+}
+
+struct OTREncoder{
+    content: Vec<u8>
+}
+
+impl OTREncoder {
+
+    fn write_byte(&mut self, v: u8) -> &mut Self {
+        self.content.push(v);
+        return self;
+    }
+
+    fn write_short(&mut self, v: u16) -> &mut Self {
+        let b = v.to_be_bytes();
+        self.content.push(b[0]);
+        self.content.push(b[1]);
+        return self;
+    }
+
+    fn write_int(&mut self, v: u32) -> &mut Self {
+        let b = v.to_be_bytes();
+        self.content.push(b[0]);
+        self.content.push(b[1]);
+        self.content.push(b[2]);
+        self.content.push(b[3]);
+        return self;
+    }
+
+    fn write_data(&mut self, v: &Vec<u8>) -> &mut Self {
+        self._write_length(v.len());
+        self.content.extend_from_slice(v);
+        return self;
+    }
+
+    fn write_mpi(&mut self, v: BigUint) -> &mut Self {
+        let v = v.to_bytes_be();
+        self.write_data(&v);
+        return self;
+    }
+
+    fn write_ctr(&mut self, v: CTR) -> &mut Self {
+        assert_eq!(8, v.len());
+        self.content.extend_from_slice(&v);
+        return self;
+    }
+
+    fn write_mac(&mut self, v: MAC) -> &mut Self {
+        assert_eq!(20, v.len());
+        self.content.extend_from_slice(&v);
+        return self;
+    }
+
+    fn finish(&self) -> Vec<u8> {
+        return Vec::from(&self.content[..]);
+    }
+
+    // TODO perform size-of check at initialization such that we can immediately detect unsupported configurations?
+    fn _write_length(&mut self, v: usize) -> &mut Self {
+        assert_eq!(4, mem::size_of::<usize>());
+        let b = v.to_be_bytes();
+        self.content.push(b[0]);
+        self.content.push(b[1]);
+        self.content.push(b[2]);
+        self.content.push(b[3]);
+        return self;
     }
 }
