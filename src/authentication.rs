@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{crypto, decoder::OTRMessage, Message, OTRError, MAC};
+use crate::{crypto, encoding::OTRMessage, Message, OTRError, MAC};
 
 pub fn new_context() -> AKEContext {
     return AKEContext {

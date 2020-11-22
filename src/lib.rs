@@ -9,7 +9,7 @@ extern crate ring;
 
 mod authentication;
 mod crypto;
-mod decoder;
+mod encoding;
 mod fragment;
 mod protocol;
 

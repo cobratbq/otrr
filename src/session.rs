@@ -2,7 +2,7 @@ use std::collections;
 
 use crate::{
     authentication,
-    decoder::{self, MessageType, OTRMessage},
+    encoding::{self, MessageType, OTRMessage},
     fragment, protocol, Host, InstanceTag, Message, OTRError, Version,
 };
 
@@ -51,7 +51,7 @@ impl Account {
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
         // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
-        return match decoder::parse(&payload)? {
+        return match encoding::parse(&payload)? {
             MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(Message::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
