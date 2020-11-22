@@ -266,7 +266,7 @@ impl OTRDecoder<'_> {
         if self.content.len() < len {
             return Err(OTRError::IncompleteMessage)
         }
-        let data = Vec::from(&self.content[..]);
+        let data = Vec::from(&self.content[..len]);
         self.content = &self.content[data.len()..];
         return Ok(data)
     }
