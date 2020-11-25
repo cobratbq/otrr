@@ -1,8 +1,12 @@
 #[allow(non_snake_case)]
 pub mod DH {
+    use std::convert::TryInto;
+
     use num_bigint::BigUint;
 
-    use super::CryptoError;
+    use crate::encoding::new_encoder;
+
+    use super::{CryptoError, SHA256};
 
     // Generator (g): 2
     const GENERATOR: BigUint = BigUint::new(vec![2]);
@@ -55,9 +59,39 @@ pub mod DH {
     }
 
     impl Keypair {
-        pub fn calculate_shared_secret(&self, public_key: &BigUint) -> BigUint {
-            return self.private.modpow(public_key, &MODULUS);
+        /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
+        pub fn derive_secrets(&self, public_key: &BigUint) -> DerivedSecrets {
+            let s = self.private.modpow(public_key, &MODULUS);
+            let secbytes = new_encoder().write_mpi(&s).to_vec();
+            let h2secret0 = h2(0x00, &secbytes);
+            let h2secret1 = h2(0x01, &secbytes);
+            return DerivedSecrets{
+                ssid: h2secret0[..8].try_into().expect("BUG: mismatch of slice size for ssid.."),
+                c: h2secret1[..16].try_into().expect("BUG: mismatch of slice size for c."),
+                cp: h2secret1[16..].try_into().expect("BUG: mismatch of slice size for cp."),
+                m1: h2(0x02, &secbytes),
+                m2: h2(0x03, &secbytes),
+                m1p: h2(0x04, &secbytes),
+                m2p: h2(0x05, &secbytes),
+            };
         }
+    }
+
+    // TODO implement Drop (?) trait to ensure proper cleaning up of secrets after use.
+    pub struct DerivedSecrets {
+        pub ssid: [u8;8],
+        pub c: [u8;16],
+        pub cp: [u8;16],
+        pub m1: [u8;32],
+        pub m1p: [u8;32],
+        pub m2: [u8;32],
+        pub m2p: [u8;32],
+    }
+
+    fn h2(b: u8, secbytes: &[u8]) -> [u8;32] {
+        let bytes = vec![b];
+        bytes.extend_from_slice(secbytes);
+        return SHA256::digest(&bytes);
     }
 }
 
@@ -68,8 +102,16 @@ pub mod AES128 {
         Aes128Ctr,
     };
 
+    pub fn encrypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+        return crypt(key, nonce, data);
+    }
+
+    pub fn decrypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+        return crypt(key, nonce, data);
+    }
+
     /// crypt provides both encrypting and decrypting logic.
-    pub fn crypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    fn crypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         let mut result = Vec::from(data);
         let key = GenericArray::from_slice(key);
         let nonce = GenericArray::from_slice(nonce);
@@ -95,6 +137,8 @@ pub mod SHA1 {
 
 #[allow(non_snake_case)]
 pub mod SHA256 {
+    use super::CryptoError;
+
 
     /// digest calculates the SHA256 digest value.
     pub fn digest(data: &[u8]) -> [u8; 32] {
@@ -120,6 +164,15 @@ pub mod SHA256 {
         let mut result = [0u8; 20];
         result.clone_from_slice(&digest.as_ref()[..20]);
         return result;
+    }
+
+    pub fn verify(expected: &[u8], actual: &[u8]) -> Result<(), CryptoError> {
+        // TODO implement comparison in constant-time(?)
+        return if expected == actual {
+            Ok(())
+        } else {
+            Err(CryptoError::VerificationFailure("Hash does not match the expected hash value."))
+        }
     }
 }
 

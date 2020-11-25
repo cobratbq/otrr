@@ -113,3 +113,41 @@ impl ProtocolState for FinishedState {
         return Err(OTRError::ProtocolInFinishedState);
     }
 }
+
+// FIXME consider if this should move somewhere else...
+/// read_content reads content until null-terminated or end of buffer.
+fn read_content(&mut self) -> Result<Vec<u8>, OTRError> {
+    let mut content_end_index = self.content.len();
+    for i in 0..self.content.len() {
+        if self.content[i] == 0 {
+            content_end_index = i;
+            break;
+        }
+    }
+    let content = Vec::from(&self.content[0..content_end_index]);
+    self.content = &self.content[content_end_index + 1..];
+    return Ok(content);
+}
+
+// FIXME consider if this should move somewhere else...
+/// read_tlvs reads TLV-records until end of buffer.
+fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
+    // FIXME check for content length before reading type, length and value from the content array
+    let mut tlvs = Vec::new();
+    while self.content.len() > 0 {
+        if self.content.len() < 4 {
+            return Err(OTRError::IncompleteMessage);
+        }
+        let typ = (self.content[0] as u16) << 8 + self.content[1] as u16;
+        let len = (self.content[2] as usize) << 8 + self.content[3] as usize;
+        if self.content.len() < 4 + len {
+            return Err(OTRError::IncompleteMessage);
+        }
+        tlvs.push(TLV {
+            typ: typ,
+            value: Vec::from(&self.content[4..4 + len]),
+        });
+        self.content = &self.content[4 + len..];
+    }
+    return Ok(tlvs);
+}

@@ -3,7 +3,7 @@ use std::mem;
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{InstanceTag, OTRError, Version, CTR, MAC};
+use crate::{CTR, InstanceTag, MAC, OTRError, Signature, Version};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -231,7 +231,11 @@ pub struct TLV {
     value: Vec<u8>,
 }
 
-struct OTRDecoder<'a> {
+pub fn new_decoder(content: &[u8]) -> OTRDecoder {
+    return OTRDecoder{content};
+}
+
+pub struct OTRDecoder<'a> {
     content: &'a [u8],
 }
 
@@ -239,7 +243,7 @@ struct OTRDecoder<'a> {
 /// OTRDecoder contains the logic for reading entries from byte-buffer.
 impl OTRDecoder<'_> {
     /// read_byte reads a single byte from buffer.
-    fn read_byte(&mut self) -> Result<u8, OTRError> {
+    pub fn read_byte(&mut self) -> Result<u8, OTRError> {
         if self.content.len() < 1 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -249,7 +253,7 @@ impl OTRDecoder<'_> {
     }
 
     /// read_short reads a short value (2 bytes, big-endian) from buffer.
-    fn read_short(&mut self) -> Result<u16, OTRError> {
+    pub fn read_short(&mut self) -> Result<u16, OTRError> {
         if self.content.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -259,7 +263,7 @@ impl OTRDecoder<'_> {
     }
 
     /// read_int reads an integer value (4 bytes, big-endian) from buffer.
-    fn read_int(&mut self) -> Result<u32, OTRError> {
+    pub fn read_int(&mut self) -> Result<u32, OTRError> {
         if self.content.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -278,12 +282,12 @@ impl OTRDecoder<'_> {
             return Err(OTRError::IncompleteMessage);
         }
         let data = Vec::from(&self.content[..len]);
-        self.content = &self.content[data.len()..];
+        self.content = &self.content[len..];
         return Ok(data);
     }
 
     /// read_mpi reads MPI from buffer.
-    fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
+    pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
         let len = self._read_length()?;
         if self.content.len() < len {
             return Err(OTRError::IncompleteMessage);
@@ -293,63 +297,42 @@ impl OTRDecoder<'_> {
         return Ok(mpi);
     }
 
-    fn read_ctr(&mut self) -> Result<CTR, OTRError> {
+    /// read_ctr reads CTR value from buffer.
+    pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
         if self.content.len() < 8 {
             return Err(OTRError::IncompleteMessage);
         }
         let mut ctr: CTR = [0; 8];
-        ctr.copy_from_slice(&self.content[0..8]);
+        ctr.copy_from_slice(&self.content[..8]);
         self.content = &self.content[8..];
         return Ok(ctr);
     }
 
     /// read_mac reads a MAC value from buffer.
-    fn read_mac(&mut self) -> Result<MAC, OTRError> {
+    pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
         if self.content.len() < 20 {
             return Err(OTRError::IncompleteMessage);
         }
         let mut mac: MAC = [0; 20];
-        mac.copy_from_slice(&self.content[0..20]);
+        mac.copy_from_slice(&self.content[..20]);
         self.content = &self.content[20..];
         return Ok(mac);
     }
 
-    // FIXME consider if this should move somewhere else...
-    /// read_content reads content until null-terminated or end of buffer.
-    fn read_content(&mut self) -> Result<Vec<u8>, OTRError> {
-        let mut content_end_index = self.content.len();
-        for i in 0..self.content.len() {
-            if self.content[i] == 0 {
-                content_end_index = i;
-                break;
-            }
-        }
-        let content = Vec::from(&self.content[0..content_end_index]);
-        self.content = &self.content[content_end_index + 1..];
-        return Ok(content);
+    /// read_public_key reads a DSA public key from the buffer.
+    pub fn read_public_key(&mut self) -> Result<(), OTRError> {
+        todo!()
     }
 
-    // FIXME consider if this should move somewhere else...
-    /// read_tlvs reads TLV-records until end of buffer.
-    fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
-        // FIXME check for content length before reading type, length and value from the content array
-        let mut tlvs = Vec::new();
-        while self.content.len() > 0 {
-            if self.content.len() < 4 {
-                return Err(OTRError::IncompleteMessage);
-            }
-            let typ = (self.content[0] as u16) << 8 + self.content[1] as u16;
-            let len = (self.content[2] as usize) << 8 + self.content[3] as usize;
-            if self.content.len() < 4 + len {
-                return Err(OTRError::IncompleteMessage);
-            }
-            tlvs.push(TLV {
-                typ: typ,
-                value: Vec::from(&self.content[4..4 + len]),
-            });
-            self.content = &self.content[4 + len..];
+    /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
+    pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
+        if self.content.len() < 40 {
+            return Err(OTRError::IncompleteMessage);
         }
-        return Ok(tlvs);
+        let mut sig: Signature = [0;40];
+        sig.copy_from_slice(&self.content[..40]);
+        self.content = &self.content[40..];
+        return Ok(sig);
     }
 
     /// _read_length reads 4-byte unsigned big-endian length.
@@ -367,25 +350,29 @@ impl OTRDecoder<'_> {
     }
 }
 
-struct OTREncoder {
+pub fn new_encoder() -> OTREncoder {
+    return OTREncoder{content: Vec::new()};
+}
+
+pub struct OTREncoder {
     content: Vec<u8>,
 }
 
 // TODO can we use 'mut self' so that we move the original instance around mutably?
 impl OTREncoder {
-    fn write_byte(&mut self, v: u8) -> &mut Self {
+    pub fn write_byte(&mut self, v: u8) -> &mut Self {
         self.content.push(v);
         return self;
     }
 
-    fn write_short(&mut self, v: u16) -> &mut Self {
+    pub fn write_short(&mut self, v: u16) -> &mut Self {
         let b = v.to_be_bytes();
         self.content.push(b[0]);
         self.content.push(b[1]);
         return self;
     }
 
-    fn write_int(&mut self, v: u32) -> &mut Self {
+    pub fn write_int(&mut self, v: u32) -> &mut Self {
         let b = v.to_be_bytes();
         self.content.push(b[0]);
         self.content.push(b[1]);
@@ -394,31 +381,41 @@ impl OTREncoder {
         return self;
     }
 
-    fn write_data(&mut self, v: &Vec<u8>) -> &mut Self {
+    pub fn write_data(&mut self, v: &Vec<u8>) -> &mut Self {
         self._write_length(v.len());
         self.content.extend_from_slice(v);
         return self;
     }
 
-    fn write_mpi(&mut self, v: BigUint) -> &mut Self {
+    pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
         let v = v.to_bytes_be();
         self.write_data(&v);
         return self;
     }
 
-    fn write_ctr(&mut self, v: CTR) -> &mut Self {
+    pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
         assert_eq!(8, v.len());
-        self.content.extend_from_slice(&v);
+        self.content.extend_from_slice(v);
         return self;
     }
 
-    fn write_mac(&mut self, v: MAC) -> &mut Self {
+    pub fn write_mac(&mut self, v: &MAC) -> &mut Self {
         assert_eq!(20, v.len());
-        self.content.extend_from_slice(&v);
+        self.content.extend_from_slice(v);
         return self;
     }
 
-    fn to_vec(&self) -> Vec<u8> {
+    pub fn write_public_key(&mut self) -> &mut Self {
+        todo!("To be implemented for DSA public keys.");
+    }
+
+    pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
+        assert_eq!(40, sig.len());
+        self.content.extend_from_slice(sig);
+        return self;
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
         return Vec::from(&self.content[..]);
     }
 

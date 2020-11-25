@@ -53,6 +53,8 @@ pub enum OTRError {
     MessageForOtherInstance,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     ProtocolInFinishedState,
+    /// Violation of cryptographic or mathematical requirement for correct/secure operation.
+    CryptographicViolation(&'static str),
 }
 
 /// Version contains the various supported OTR protocol versions.
@@ -72,6 +74,8 @@ type CTR = [u8; 8];
 
 /// MAC type represents the 20-byte MAC value.
 type MAC = [u8; 20];
+
+type Signature = [u8; 40];
 
 // TODO early implementation assumptions:
 // 1. injections of messages into the transport never fails.
