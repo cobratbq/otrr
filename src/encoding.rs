@@ -1,9 +1,9 @@
-use std::mem;
+use std::{convert::TryInto, mem};
 
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{CTR, crypto::DSA, InstanceTag, MAC, OTRError, Signature, Version};
+use crate::{crypto::AES128, CTR, InstanceTag, MAC, OTRError, Signature, Version, crypto::DSA};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -81,7 +81,7 @@ fn interpret_encoded_content(
             let encrypted = decoder.read_data()?;
             let mac = decoder.read_mac()?;
             Ok(OTRMessage::RevealSignature {
-                key: key,
+                key: AES128::Key(key.try_into().unwrap()),
                 signature_encrypted: Vec::from(encrypted),
                 signature_mac: mac,
             })
@@ -203,7 +203,7 @@ pub enum OTRMessage {
         gy: BigUint,
     },
     RevealSignature {
-        key: Vec<u8>,
+        key: AES128::Key,
         signature_encrypted: Vec<u8>,
         signature_mac: MAC,
     },

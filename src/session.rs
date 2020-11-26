@@ -123,21 +123,35 @@ impl Instance {
                 gx_encrypted,
                 gx_hashed,
             } => {
-                self.ake.handle_commit(gx_encrypted, gx_hashed);
+                let response = self.ake.handle_commit(gx_encrypted, gx_hashed);
+                // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
-            OTRMessage::DHKey { gy } => self.ake.handle_key(gy),
+            OTRMessage::DHKey { gy } => {
+                let response = self.ake.handle_key(&gy);
+                // FIXME handle errors and inject response.
+                Ok(Message::None)
+            }
             OTRMessage::RevealSignature {
                 key,
                 signature_encrypted,
                 signature_mac,
-            } => self
-                .ake
-                .handle_reveal_signature(key, signature_encrypted, signature_mac),
+            } => {
+                let response = self.ake.handle_reveal_signature(key, signature_encrypted, signature_mac);
+                // FIXME handle errors and inject response.
+                // FIXME ensure proper, verified transition to confidential session.
+                Ok(Message::ConfidentialSessionStarted)
+            }
             OTRMessage::Signature {
                 signature_encrypted,
                 signature_mac,
-            } => self.ake.handle_signature(signature_encrypted, signature_mac),
+            } => {
+                let result = self.ake.handle_signature(signature_encrypted, signature_mac);
+                // FIXME handle errors and inject response.
+                // FIXME ensure proper, verified transition to confidential session.
+                self.state = Box::new(self.state.secure()?);
+                Ok(Message::ConfidentialSessionStarted)
+            }
             OTRMessage::Data {
                 flags,
                 sender_keyid,

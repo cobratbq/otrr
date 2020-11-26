@@ -129,7 +129,7 @@ impl AKEContext {
     }
 
     pub fn handle_key(&mut self, gy: &BigUint) -> Result<OTRMessage, AKEError> {
-        return match &self.state {
+        return match self.state {
             AKEState::None => {
                 // Ignore the message.
                 Err(AKEError::MessageIgnored)
@@ -160,13 +160,13 @@ impl AKEContext {
                     .write_data(&AES128::encrypt(&secrets.c, &[0u8;16], &x_b))
                     .to_vec();
                 self.state = AKEState::AwaitingSignature{
-                    our_dh_keypair: Rc::clone(our_dh_keypair),
+                    our_dh_keypair: our_dh_keypair,
                     gy: *gy,
-                    key: *r,
+                    key: r,
                     secrets,
                 };
                 Ok(OTRMessage::RevealSignature{
-                    key: Vec::from(&r[..]),
+                    key: r,
                     signature_encrypted: enc_b,
                     signature_mac: SHA256::hmac160(&secrets.m2, &enc_b),
                 })
@@ -185,7 +185,7 @@ impl AKEContext {
                 gy: old_gy,
                 secrets,
             } => {
-                if old_gy != gy {
+                if old_gy != *gy {
                     // Ignore the message.
                     return Err(AKEError::MessageIgnored);
                 }
@@ -212,7 +212,7 @@ impl AKEContext {
                     .write_data(&AES128::encrypt(&secrets.c, &[0u8;16], &x_b))
                     .to_vec();
                 return Ok(OTRMessage::RevealSignature{
-                    key: Vec::from(&key[..]),
+                    key: key,
                     signature_encrypted: enc_b,
                     signature_mac: SHA256::hmac160(&secrets.m2, &enc_b),
                 });
@@ -271,7 +271,7 @@ impl AKEContext {
                 let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
                 let sig_b = decoder.read_signature().or(Err(AKEError::MessageIncomplete))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
-                let m_b_bytes = new_encoder().write_mpi(&gx).write_mpi(&our_dh_keypair.public).write_public_key(pub_b).write_int(keyid_b).to_vec();
+                let m_b_bytes = new_encoder().write_mpi(&gx).write_mpi(&our_dh_keypair.public).write_public_key(&pub_b).write_int(keyid_b).to_vec();
                 let m_b = SHA256::hmac(&secrets.m1, &m_b_bytes);
                 pub_b.verify(&sig_b, &m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;

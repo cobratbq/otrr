@@ -1,3 +1,5 @@
+// TODO add safety assertions that prevent working with all-zero byte-arrays.
+
 #[allow(non_snake_case)]
 pub mod DH {
     use std::convert::TryInto;
@@ -6,7 +8,7 @@ pub mod DH {
 
     use crate::encoding::new_encoder;
 
-    use super::{CryptoError, SHA256};
+    use super::{AES128, CryptoError, SHA256};
 
     // Generator (g): 2
     const GENERATOR: BigUint = BigUint::new(vec![2]);
@@ -66,9 +68,9 @@ pub mod DH {
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
             return DerivedSecrets{
-                ssid: h2secret0[..8].try_into().expect("BUG: mismatch of slice size for ssid.."),
-                c: h2secret1[..16].try_into().expect("BUG: mismatch of slice size for c."),
-                cp: h2secret1[16..].try_into().expect("BUG: mismatch of slice size for cp."),
+                ssid: h2secret0[..8].try_into().unwrap(),
+                c: AES128::Key(h2secret1[..16].try_into().unwrap()),
+                cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
                 m1: h2(0x02, &secbytes),
                 m2: h2(0x03, &secbytes),
                 m1p: h2(0x04, &secbytes),
@@ -77,15 +79,24 @@ pub mod DH {
         }
     }
 
-    // TODO implement Drop (?) trait to ensure proper cleaning up of secrets after use.
     pub struct DerivedSecrets {
         pub ssid: [u8;8],
-        pub c: [u8;16],
-        pub cp: [u8;16],
+        pub c: AES128::Key,
+        pub cp: AES128::Key,
         pub m1: [u8;32],
         pub m1p: [u8;32],
         pub m2: [u8;32],
         pub m2p: [u8;32],
+    }
+
+    impl Drop for DerivedSecrets {
+        fn drop(&mut self) {
+            self.ssid = [0u8;8];
+            self.m1 = [0u8;32];
+            self.m1p = [0u8;32];
+            self.m2 = [0u8;32];
+            self.m2p = [0u8;32];
+        }
     }
 
     fn h2(b: u8, secbytes: &[u8]) -> [u8;32] {
@@ -97,12 +108,19 @@ pub mod DH {
 
 #[allow(non_snake_case)]
 pub mod AES128 {
+    use std::ops::Drop;
     use aes_ctr::{
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
     };
 
-    pub type Key = [u8;16];
+    pub struct Key(pub [u8;16]);
+
+    impl Drop for Key {
+        fn drop(&mut self) {
+            self.0 = [0u8;16];
+        }
+    }
 
     pub fn encrypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         return crypt(key, nonce, data);
@@ -115,7 +133,7 @@ pub mod AES128 {
     /// crypt provides both encrypting and decrypting logic.
     fn crypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         let mut result = Vec::from(data);
-        let key = GenericArray::from_slice(key);
+        let key = GenericArray::from_slice(&key.0);
         let nonce = GenericArray::from_slice(nonce);
         let mut cipher = Aes128Ctr::new(&key, &nonce);
         cipher.apply_keystream(result.as_mut_slice());
