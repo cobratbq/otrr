@@ -3,7 +3,7 @@ use std::mem;
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{CTR, InstanceTag, MAC, OTRError, Signature, Version};
+use crate::{CTR, crypto::DSA, InstanceTag, MAC, OTRError, Signature, Version};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -320,8 +320,13 @@ impl OTRDecoder<'_> {
     }
 
     /// read_public_key reads a DSA public key from the buffer.
-    pub fn read_public_key(&mut self) -> Result<(), OTRError> {
-        todo!()
+    pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
+        todo!();
+        //let typ = self.read_short()?;
+        //let p = self.read_mpi()?;
+        //let q = self.read_mpi()?;
+        //let g = self.read_mpi()?;
+        //let y = self.read_mpi()?;
     }
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
@@ -405,8 +410,25 @@ impl OTREncoder {
         return self;
     }
 
-    pub fn write_public_key(&mut self) -> &mut Self {
+    pub fn write_public_key(&mut self, public_key: &DSA::PublicKey) -> &mut Self {
         todo!("To be implemented for DSA public keys.");
+        // Pubkey type (SHORT)
+        //   DSA public keys have type 0x0000
+        // p (MPI)
+        // q (MPI)
+        // g (MPI)
+        // y (MPI)
+        //   (p,q,g,y) are the DSA public key parameters
+        //let p: BigUint;
+        //let q: BigUint;
+        //let g: BigUint;
+        //let y: BigUint;
+        //self.write_short(0x00);
+        //self.write_mpi(&p);
+        //self.write_mpi(&q);
+        //self.write_mpi(&g);
+        //self.write_mpi(&y);
+        //return self;
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {

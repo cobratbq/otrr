@@ -102,16 +102,18 @@ pub mod AES128 {
         Aes128Ctr,
     };
 
-    pub fn encrypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    pub type Key = [u8;16];
+
+    pub fn encrypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         return crypt(key, nonce, data);
     }
 
-    pub fn decrypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    pub fn decrypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         return crypt(key, nonce, data);
     }
 
     /// crypt provides both encrypting and decrypting logic.
-    fn crypt(key: &[u8; 16], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    fn crypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
         let mut result = Vec::from(data);
         let key = GenericArray::from_slice(key);
         let nonce = GenericArray::from_slice(nonce);
@@ -121,8 +123,22 @@ pub mod AES128 {
     }
 }
 
+// TODO do we need to verify any of the DSA components, also for encoding/decoding?
 #[allow(non_snake_case)]
-pub mod DSA {}
+pub mod DSA {
+    use crate::Signature;
+
+    use super::CryptoError;
+
+    pub struct PublicKey {}
+
+    impl PublicKey {
+
+        pub fn verify(&self, signature: &Signature, content: &[u8;32]) -> Result<(), CryptoError> {
+            todo!()
+        }            
+    }
+}
 
 #[allow(non_snake_case)]
 pub mod SHA1 {
@@ -138,7 +154,6 @@ pub mod SHA1 {
 #[allow(non_snake_case)]
 pub mod SHA256 {
     use super::CryptoError;
-
 
     /// digest calculates the SHA256 digest value.
     pub fn digest(data: &[u8]) -> [u8; 32] {
