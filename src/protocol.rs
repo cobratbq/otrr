@@ -1,4 +1,4 @@
-use crate::{CTR, Host, Message, OTRError};
+use crate::{CTR, host::Host, Message, OTRError};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -10,9 +10,9 @@ pub trait ProtocolState {
         encrypted: Vec<u8>,
         authenticator: [u8;20],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
-    fn secure(&self) -> EncryptedState;
+    fn secure(&self) -> Box<EncryptedState>;
     // FIXME consider simplifying return value below.
-    fn finish(&self) -> PlaintextState;
+    fn finish(&self) -> Box<PlaintextState>;
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }
 
@@ -45,13 +45,13 @@ impl ProtocolState for PlaintextState {
         return (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self) -> EncryptedState {
+    fn secure(&self) -> Box<EncryptedState> {
         todo!()
     }
 
-    fn finish(&self) -> PlaintextState {
+    fn finish(&self) -> Box<PlaintextState> {
         // FIXME is it desireable/harmful to have to construct a new instance?
-        return PlaintextState {};
+        return Box::new(PlaintextState {});
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -84,13 +84,13 @@ impl ProtocolState for EncryptedState {
         todo!("To be implemented")
     }
 
-    fn secure(&self) -> EncryptedState {
+    fn secure(&self) -> Box<EncryptedState> {
         todo!()
     }
 
-    fn finish(&self) -> PlaintextState {
+    fn finish(&self) -> Box<PlaintextState> {
         // FIXME send/inject session end message to other party (with ignore unreadable).
-        return PlaintextState {};
+        return Box::new(PlaintextState {});
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -116,12 +116,12 @@ impl ProtocolState for FinishedState {
         return (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self) -> EncryptedState {
+    fn secure(&self) -> Box<EncryptedState> {
         todo!()
     }
 
-    fn finish(&self) -> PlaintextState {
-        return PlaintextState {};
+    fn finish(&self) -> Box<PlaintextState> {
+        return Box::new(PlaintextState {});
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {

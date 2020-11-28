@@ -1,13 +1,9 @@
-use std::collections;
+use std::{rc::Rc, collections};
 
-use crate::{
-    authentication,
-    encoding::{self, MessageType, OTRMessage},
-    fragment, protocol, Host, InstanceTag, Message, OTRError, Version,
-};
+use crate::{host::Host, InstanceTag, Message, OTRError, Version, authentication, encoding::{self, MessageType, OTRMessage}, fragment, protocol};
 
 pub struct Account {
-    host: Box<dyn Host>,
+    host: Rc<dyn Host>,
     tag: InstanceTag,
     instances: collections::HashMap<InstanceTag, Instance>,
 }
@@ -29,7 +25,7 @@ impl Account {
                     Instance {
                         assembler: fragment::new_assembler(),
                         state: protocol::new_protocol_state(),
-                        ake: authentication::new_context(),
+                        ake: authentication::new_context(Rc::clone(&self.host)),
                     },
                 );
             }
@@ -85,7 +81,7 @@ impl Account {
     }
 
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        return self.instances.get_mut(&instance).unwrap().send(content);
+        // return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         todo!()
     }
@@ -149,7 +145,7 @@ impl Instance {
                 let result = self.ake.handle_signature(signature_encrypted, signature_mac);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = Box::new(self.state.secure()?);
+                self.state = self.state.secure();
                 Ok(Message::ConfidentialSessionStarted)
             }
             OTRMessage::Data {
@@ -173,9 +169,9 @@ impl Instance {
 
     fn finish(&mut self) -> Result<Message, OTRError> {
         // FIXME verify and validate message before passing on to state.
-        let (message, new_state) = self.state.finish();
-        self._update(new_state);
-        return message;
+        self.state = self.state.finish();
+        // FIXME how to determine if we aborted an existing confidential session?
+        return Ok(Message::Reset);
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {

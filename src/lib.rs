@@ -13,14 +13,8 @@ mod encoding;
 mod fragment;
 mod protocol;
 
+pub mod host;
 pub mod session;
-
-// TODO warn in case of unreadable message unless unreadable-flag is set
-/// Host represents the Host implementation for calling back into the messaging client.
-pub trait Host {
-    /// Inject a message into the messaging's transport stream.
-    fn inject(&self, message: &[u8]);
-}
 
 /// Message represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
 pub enum Message {
