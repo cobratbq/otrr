@@ -117,24 +117,31 @@ pub mod AES128 {
         Aes128Ctr,
     };
 
-    pub struct Key(pub [u8;16]);
+    const KEY_LENGTH: usize = 16;
+
+    type NONCE = [u8;16];
+
+    #[derive(Clone)]
+    pub struct Key(pub [u8;KEY_LENGTH]);
 
     impl Drop for Key {
         fn drop(&mut self) {
-            self.0 = [0u8;16];
+            self.0 = [0u8;KEY_LENGTH];
         }
     }
 
-    pub fn encrypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    // FIXME verify implementation
+    pub fn encrypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
         return crypt(key, nonce, data);
     }
 
-    pub fn decrypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    // FIXME verify implementation
+    pub fn decrypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
         return crypt(key, nonce, data);
     }
 
     /// crypt provides both encrypting and decrypting logic.
-    fn crypt(key: &Key, nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    fn crypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
         let mut result = Vec::from(data);
         let key = GenericArray::from_slice(&key.0);
         let nonce = GenericArray::from_slice(nonce);
@@ -151,6 +158,8 @@ pub mod DSA {
 
     use super::CryptoError;
 
+    type HASH = [u8;32];
+
     pub fn generate() -> PublicKey {
         todo!()
     }
@@ -159,12 +168,12 @@ pub mod DSA {
 
     impl PublicKey {
 
-        pub fn sign(&self, content: &[u8;32]) -> Result<Signature, CryptoError> {
+        pub fn sign(&self, content: &HASH) -> Result<Signature, CryptoError> {
             // FIXME implement signing
             todo!()
         }
 
-        pub fn verify(&self, signature: &Signature, content: &[u8;32]) -> Result<(), CryptoError> {
+        pub fn verify(&self, signature: &Signature, content: &HASH) -> Result<(), CryptoError> {
             // FIXME implement verification
             todo!()
         }            

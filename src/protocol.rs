@@ -26,7 +26,7 @@ pub fn new_protocol_state() -> Box<dyn ProtocolState> {
     return Box::new(PlaintextState {});
 }
 
-struct PlaintextState {}
+pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
     fn status(&self) -> ProtocolStatus {
@@ -59,7 +59,7 @@ impl ProtocolState for PlaintextState {
     }
 }
 
-struct EncryptedState {}
+pub struct EncryptedState {}
 
 impl Drop for EncryptedState {
     fn drop(&mut self) {
@@ -98,7 +98,7 @@ impl ProtocolState for EncryptedState {
     }
 }
 
-struct FinishedState {}
+pub struct FinishedState {}
 
 impl ProtocolState for FinishedState {
     fn status(&self) -> ProtocolStatus {

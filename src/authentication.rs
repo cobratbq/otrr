@@ -3,7 +3,12 @@ use std::rc::Rc;
 use crypto::{AES128, DH, SHA256};
 use num_bigint::BigUint;
 
-use crate::{host::Host, MAC, crypto::{self, CryptoError, DSA}, encoding::{OTRMessage, new_decoder, new_encoder}};
+use crate::{
+    crypto::{self, CryptoError},
+    encoding::{new_decoder, new_encoder, OTRMessage},
+    host::Host,
+    MAC,
+};
 
 pub fn new_context<'a>(host: Rc<dyn Host>) -> AKEContext {
     return AKEContext {
@@ -44,20 +49,8 @@ impl AKEContext {
         gx_encrypted: Vec<u8>,
         gx_hashed: Vec<u8>,
     ) -> Result<OTRMessage, AKEError> {
-        return match &self.state {
-            AKEState::None => {
-                // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
-                let keypair = DH::generate();
-                let dhkey = OTRMessage::DHKey {
-                    gy: keypair.public.clone(),
-                };
-                self.state = AKEState::AwaitingRevealSignature {
-                    our_dh_keypair: Rc::new(keypair),
-                    gx_encrypted,
-                    gx_hashed,
-                };
-                Ok(dhkey)
-            }
+        let (result, transition) = match &self.state {
+            AKEState::None => self._handle_commit_from_initial(gx_encrypted, gx_hashed),
             AKEState::AwaitingDHKey { r, our_dh_keypair } => {
                 // This is the trickiest transition in the whole protocol. It indicates that you have already sent a
                 // D-H Commit message to your correspondent, but that he either didn't receive it, or just didn't
@@ -68,21 +61,20 @@ impl AKEContext {
                 let our_gxmpi_hashed = SHA256::digest(&gxmpi);
                 let our_hash = BigUint::from_bytes_be(&our_gxmpi_hashed);
                 let their_hash = BigUint::from_bytes_be(&gx_hashed);
-                return if our_hash.gt(&their_hash) {
+                if our_hash.gt(&their_hash) {
                     // Ignore the incoming D-H Commit message, but resend your D-H Commit message.
                     let our_gx_encrypted = AES128::encrypt(&r, &[0u8; 16], &gxmpi);
                     let dhcommit = OTRMessage::DHCommit {
                         gx_encrypted: our_gx_encrypted,
                         gx_hashed: Vec::from(our_gxmpi_hashed),
                     };
-                    Ok(dhcommit)
+                    (Ok(dhcommit), None)
                 } else {
                     // Forget your old gx value that you sent (encrypted) earlier, and pretend you're in
                     // AUTHSTATE_NONE; i.e. reply with a D-H Key Message, and transition authstate to
                     // AUTHSTATE_AWAITING_REVEALSIG.
-                    self.state = AKEState::None;
-                    self.handle_commit(gx_encrypted, gx_hashed)
-                };
+                    self._handle_commit_from_initial(gx_encrypted, gx_hashed)
+                }
             }
             AKEState::AwaitingRevealSignature {
                 our_dh_keypair,
@@ -102,14 +94,16 @@ impl AKEContext {
                 let dhkey = OTRMessage::DHKey {
                     gy: our_dh_keypair.public.clone(),
                 };
-                self.state = AKEState::AwaitingRevealSignature {
-                    our_dh_keypair: Rc::clone(our_dh_keypair),
-                    gx_encrypted: gx_encrypted.clone(),
-                    gx_hashed: gx_hashed.clone(),
-                };
-                Ok(dhkey)
+                (
+                    Ok(dhkey),
+                    Some(AKEState::AwaitingRevealSignature {
+                        our_dh_keypair: Rc::clone(our_dh_keypair),
+                        gx_encrypted: gx_encrypted.clone(),
+                        gx_hashed: gx_hashed.clone(),
+                    }),
+                )
             }
-            AKEState::AwaitingSignature{
+            AKEState::AwaitingSignature {
                 our_dh_keypair: _,
                 key: _,
                 gy: _,
@@ -120,21 +114,47 @@ impl AKEContext {
                 let dhkey = OTRMessage::DHKey {
                     gy: our_dh_keypair.public.clone(),
                 };
-                self.state = AKEState::AwaitingRevealSignature {
-                    our_dh_keypair: Rc::new(our_dh_keypair),
-                    gx_encrypted,
-                    gx_hashed,
-                };
-                Ok(dhkey)
+                (
+                    Ok(dhkey),
+                    Some(AKEState::AwaitingRevealSignature {
+                        our_dh_keypair: Rc::new(our_dh_keypair),
+                        gx_encrypted,
+                        gx_hashed,
+                    }),
+                )
             }
         };
+        if transition.is_some() {
+            self.state = transition.unwrap();
+        }
+        return result;
+    }
+
+    fn _handle_commit_from_initial(
+        &self,
+        gx_encrypted: Vec<u8>,
+        gx_hashed: Vec<u8>,
+    ) -> (Result<OTRMessage, AKEError>, Option<AKEState>) {
+        // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
+        let keypair = DH::generate();
+        let dhkey = OTRMessage::DHKey {
+            gy: keypair.public.clone(),
+        };
+        (
+            Ok(dhkey),
+            Some(AKEState::AwaitingRevealSignature {
+                our_dh_keypair: Rc::new(keypair),
+                gx_encrypted,
+                gx_hashed,
+            }),
+        )
     }
 
     pub fn handle_key(&mut self, gy: &BigUint) -> Result<OTRMessage, AKEError> {
-        return match &self.state {
+        let (result, transition) = match &self.state {
             AKEState::None => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
             AKEState::AwaitingDHKey { r, our_dh_keypair } => {
                 DH::verify_public_key(gy)
@@ -142,17 +162,21 @@ impl AKEContext {
                 // Reply with a Reveal Signature Message and transition authstate to AUTHSTATE_AWAITING_SIG.
                 let secrets = our_dh_keypair.derive_secrets(gy);
                 // TODO consider random starting key-id for initial key-id. (Spec: keyid > 0)
-                let pub_b = DSA::generate();
+                let pub_b = self.host.public_key();
                 let keyid_b = 1u32;
-                let m_b = SHA256::hmac(&secrets.m1, &new_encoder()
-                    .write_mpi(&our_dh_keypair.public)
-                    .write_mpi(gy)
-                // FIXME acquire DSA public key from host, write to m_b.
-                    .write_public_key(&pub_b)
-                    .write_int(keyid_b)
-                    .to_vec());
+                let m_b = SHA256::hmac(
+                    &secrets.m1,
+                    &new_encoder()
+                        .write_mpi(&our_dh_keypair.public)
+                        .write_mpi(gy)
+                        // FIXME acquire DSA public key from host, write to m_b.
+                        .write_public_key(&pub_b)
+                        .write_int(keyid_b)
+                        .to_vec(),
+                );
                 // FIXME replace with actual signature calculation.
-                let sig_b = pub_b.sign(&m_b)
+                let sig_b = pub_b
+                    .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 let x_b = new_encoder()
                     .write_public_key(&pub_b)
@@ -160,20 +184,22 @@ impl AKEContext {
                     .write_signature(&sig_b)
                     .to_vec();
                 let enc_b = new_encoder()
-                    .write_data(&AES128::encrypt(&secrets.c, &[0u8;16], &x_b))
+                    .write_data(&AES128::encrypt(&secrets.c, &[0u8; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
-                self.state = AKEState::AwaitingSignature{
-                    our_dh_keypair: Rc::clone(our_dh_keypair),
-                    gy: *gy,
-                    key: *r,
-                    secrets,
-                };
-                Ok(OTRMessage::RevealSignature{
-                    key: *r,
-                    signature_encrypted: enc_b,
-                    signature_mac: mac_enc_b,
-                })
+                (
+                    Ok(OTRMessage::RevealSignature {
+                        key: r.clone(),
+                        signature_encrypted: enc_b,
+                        signature_mac: mac_enc_b,
+                    }),
+                    Some(AKEState::AwaitingSignature {
+                        our_dh_keypair: Rc::clone(our_dh_keypair),
+                        gy: gy.clone(),
+                        key: r.clone(),
+                        secrets,
+                    }),
+                )
             }
             AKEState::AwaitingRevealSignature {
                 our_dh_keypair: _,
@@ -181,11 +207,11 @@ impl AKEContext {
                 gx_hashed: _,
             } => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
-            AKEState::AwaitingSignature{
+            AKEState::AwaitingSignature {
                 our_dh_keypair,
-                key: key,
+                key,
                 gy: old_gy,
                 secrets,
             } => {
@@ -196,17 +222,21 @@ impl AKEContext {
                 // TODO the computations below could be cached during first handling of DH Key message.
                 // If this D-H Key message is the same the one you received earlier (when you entered AUTHSTATE_AWAITING_SIG):
                 //    Retransmit your Reveal Signature Message.
-                let pub_b: DSA::PublicKey;
+                let pub_b = self.host.public_key();
                 let keyid_b = 1u32;
-                let m_b = SHA256::hmac(&secrets.m1, &new_encoder()
-                    .write_mpi(&our_dh_keypair.public)
-                    .write_mpi(gy)
-                // FIXME acquire DSA public key from host, write to m_b.
-                    .write_public_key(&pub_b)
-                    .write_int(keyid_b)
-                    .to_vec());
+                let m_b = SHA256::hmac(
+                    &secrets.m1,
+                    &new_encoder()
+                        .write_mpi(&our_dh_keypair.public)
+                        .write_mpi(gy)
+                        // FIXME acquire DSA public key from host, write to m_b.
+                        .write_public_key(&pub_b)
+                        .write_int(keyid_b)
+                        .to_vec(),
+                );
                 // FIXME replace with actual signature calculation.
-                let sig_b = pub_b.sign(&m_b)
+                let sig_b = pub_b
+                    .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 let x_b = new_encoder()
                     .write_public_key(&pub_b)
@@ -214,16 +244,23 @@ impl AKEContext {
                     .write_signature(&sig_b)
                     .to_vec();
                 let enc_b = new_encoder()
-                    .write_data(&AES128::encrypt(&secrets.c, &[0u8;16], &x_b))
+                    .write_data(&AES128::encrypt(&secrets.c, &[0u8; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
-                return Ok(OTRMessage::RevealSignature{
-                    key: *key,
-                    signature_encrypted: enc_b,
-                    signature_mac: mac_enc_b,
-                });
+                (
+                    Ok(OTRMessage::RevealSignature {
+                        key: key.clone(),
+                        signature_encrypted: enc_b,
+                        signature_mac: mac_enc_b,
+                    }),
+                    None,
+                )
             }
         };
+        if transition.is_some() {
+            self.state = transition.unwrap();
+        }
+        return result;
     }
 
     pub fn handle_reveal_signature(
@@ -232,14 +269,17 @@ impl AKEContext {
         signature_encrypted: Vec<u8>,
         signature_mac: MAC,
     ) -> Result<OTRMessage, AKEError> {
-        return match &self.state {
+        let (result, transition) = match &self.state {
             AKEState::None => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
-            AKEState::AwaitingDHKey { our_dh_keypair: _, r: _ } => {
+            AKEState::AwaitingDHKey {
+                our_dh_keypair: _,
+                r: _,
+            } => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
             AKEState::AwaitingRevealSignature {
                 our_dh_keypair,
@@ -255,12 +295,13 @@ impl AKEContext {
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
 
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
-                let gxmpi = AES128::decrypt(&key, &[0u8;16], &gx_encrypted);
+                let gxmpi = AES128::decrypt(&key, &[0u8; 16], &gx_encrypted);
                 let gxmpihash = SHA256::digest(&gxmpi);
                 SHA256::verify(&gxmpihash, gx_hashed)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 // Verify acquired g^x value.
-                let gx = new_decoder(&gxmpi).read_mpi()
+                let gx = new_decoder(&gxmpi)
+                    .read_mpi()
                     .or(Err(AKEError::MessageIncomplete))?;
                 DH::verify_public_key(&gx)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
@@ -272,47 +313,58 @@ impl AKEContext {
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
 
                 // Acquire Bob's identity material from the encrypted x_b.
-                let x_b = AES128::decrypt(&secrets.c, &[0u8;16], &signature_encrypted);
+                let x_b = AES128::decrypt(&secrets.c, &[0u8; 16], &signature_encrypted);
                 let mut decoder = new_decoder(&x_b);
-                let pub_b = decoder.read_public_key().or(Err(AKEError::MessageIncomplete))?;
+                let pub_b = decoder
+                    .read_public_key()
+                    .or(Err(AKEError::MessageIncomplete))?;
                 let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
-                let sig_b = decoder.read_signature().or(Err(AKEError::MessageIncomplete))?;
+                let sig_b = decoder
+                    .read_signature()
+                    .or(Err(AKEError::MessageIncomplete))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
-                let m_b_bytes = new_encoder().write_mpi(&gx).write_mpi(&our_dh_keypair.public).write_public_key(&pub_b).write_int(keyid_b).to_vec();
+                let m_b_bytes = new_encoder()
+                    .write_mpi(&gx)
+                    .write_mpi(&our_dh_keypair.public)
+                    .write_public_key(&pub_b)
+                    .write_int(keyid_b)
+                    .to_vec();
                 let m_b = SHA256::hmac(&secrets.m1, &m_b_bytes);
-                pub_b.verify(&sig_b, &m_b)
+                pub_b
+                    .verify(&sig_b, &m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
-
-                self.state = AKEState::None;
                 // TODO need to compute Sending/Receiving AES/MAC keys.
                 // FIXME required to send OTRMessage::Signature. Put OTRMessage::Signature in the Completed? ... a little bit dirty but might be acceptable.
-                return Err(AKEError::Completed);
+                (Err(AKEError::Completed), Some(AKEState::None))
             }
-            AKEState::AwaitingSignature{
+            AKEState::AwaitingSignature {
                 our_dh_keypair: _,
                 key: _,
                 gy: _,
                 secrets: _,
             } => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
         };
+        if transition.is_some() {
+            self.state = transition.unwrap();
+        }
+        return result;
     }
 
-    pub fn handle_signature(
-        &mut self,
-        _: Vec<u8>,
-        _: MAC,
-    ) -> Result<OTRMessage, AKEError> {
-        return match &self.state {
+    pub fn handle_signature(&mut self, _: Vec<u8>, _: MAC) -> Result<OTRMessage, AKEError> {
+        let (result, transition) = match &self.state {
             AKEState::None => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
-            AKEState::AwaitingDHKey { r: _, our_dh_keypair: _ } => {
+            AKEState::AwaitingDHKey {
+                r: _,
+                our_dh_keypair: _,
+            } => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
             AKEState::AwaitingRevealSignature {
                 our_dh_keypair: _,
@@ -320,9 +372,9 @@ impl AKEContext {
                 gx_hashed: _,
             } => {
                 // Ignore the message.
-                Err(AKEError::MessageIgnored)
+                (Err(AKEError::MessageIgnored), None)
             }
-            AKEState::AwaitingSignature{
+            AKEState::AwaitingSignature {
                 our_dh_keypair: _,
                 key: _,
                 gy: _,
@@ -335,6 +387,10 @@ impl AKEContext {
                 todo!()
             }
         };
+        if transition.is_some() {
+            self.state = transition.unwrap();
+        }
+        return result;
     }
 }
 
