@@ -1,6 +1,12 @@
-use std::{rc::Rc, collections};
+use std::{collections, rc::Rc};
 
-use crate::{host::Host, InstanceTag, Message, OTRError, Version, authentication, encoding::{self, MessageType, OTRMessage}, fragment, protocol};
+use crate::{
+    authentication,
+    encoding::{parse, MessageType, OTRMessage},
+    fragment,
+    host::Host,
+    protocol, InstanceTag, Message, OTRError, Version,
+};
 
 pub struct Account {
     host: Rc<dyn Host>,
@@ -47,7 +53,7 @@ impl Account {
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
         // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
-        return match encoding::parse(&payload)? {
+        return match parse(&payload)? {
             MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(Message::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
@@ -133,7 +139,9 @@ impl Instance {
                 signature_encrypted,
                 signature_mac,
             } => {
-                let response = self.ake.handle_reveal_signature(key, signature_encrypted, signature_mac);
+                let response =
+                    self.ake
+                        .handle_reveal_signature(key, signature_encrypted, signature_mac);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 Ok(Message::ConfidentialSessionStarted)
@@ -142,7 +150,9 @@ impl Instance {
                 signature_encrypted,
                 signature_mac,
             } => {
-                let result = self.ake.handle_signature(signature_encrypted, signature_mac);
+                let result = self
+                    .ake
+                    .handle_signature(signature_encrypted, signature_mac);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
@@ -159,8 +169,11 @@ impl Instance {
                 revealed,
             } => {
                 // FIXME verify and validate message before passing on to state.
-                let (message, new_state) = self.state.handle(host, dh_y, ctr, encrypted, authenticator);
-                self._update(new_state);
+                let (message, transition) =
+                    self.state.handle(host, dh_y, ctr, encrypted, authenticator);
+                if transition.is_some() {
+                    self.state = transition.unwrap();
+                }
                 // FIXME in case of error, check for ignore-unreadable flag.
                 return message;
             }
@@ -176,13 +189,5 @@ impl Instance {
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         return self.state.send(content);
-    }
-
-    // TODO replace with macro?
-    fn _update(&mut self, new_state: Option<Box<dyn protocol::ProtocolState>>) {
-        if new_state.is_none() {
-            return;
-        }
-        self.state = new_state.unwrap();
     }
 }

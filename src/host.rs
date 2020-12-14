@@ -7,5 +7,6 @@ pub trait Host {
     fn inject(&self, message: &[u8]);
 
     // FIXME give this function a decent name!
+    // TODO need to distinguish between public keys for various accounts? (avoids linking identity over different chat networks)
     fn public_key(&self) -> DSA::PublicKey;
 }

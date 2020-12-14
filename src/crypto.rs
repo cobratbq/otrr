@@ -8,7 +8,7 @@ pub mod DH {
 
     use crate::encoding::new_encoder;
 
-    use super::{AES128, CryptoError, SHA256};
+    use super::{CryptoError, AES128, SHA256};
 
     lazy_static! {
         /// GENERATOR (g): 2
@@ -53,8 +53,10 @@ pub mod DH {
         return if public_key > &GENERATOR && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
         } else {
-            Err(CryptoError::VerificationFailure("DH public key fails verification."))
-        }
+            Err(CryptoError::VerificationFailure(
+                "DH public key fails verification.",
+            ))
+        };
     }
 
     pub struct Keypair {
@@ -69,7 +71,7 @@ pub mod DH {
             let secbytes = new_encoder().write_mpi(&s).to_vec();
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
-            return DerivedSecrets{
+            return DerivedSecrets {
                 ssid: h2secret0[..8].try_into().unwrap(),
                 c: AES128::Key(h2secret1[..16].try_into().unwrap()),
                 cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
@@ -82,51 +84,50 @@ pub mod DH {
     }
 
     pub struct DerivedSecrets {
-        pub ssid: [u8;8],
+        pub ssid: [u8; 8],
         pub c: AES128::Key,
         pub cp: AES128::Key,
-        pub m1: [u8;32],
-        pub m1p: [u8;32],
-        pub m2: [u8;32],
-        pub m2p: [u8;32],
+        pub m1: [u8; 32],
+        pub m1p: [u8; 32],
+        pub m2: [u8; 32],
+        pub m2p: [u8; 32],
     }
 
     impl Drop for DerivedSecrets {
         fn drop(&mut self) {
-            self.ssid = [0u8;8];
-            self.m1 = [0u8;32];
-            self.m1p = [0u8;32];
-            self.m2 = [0u8;32];
-            self.m2p = [0u8;32];
+            self.ssid = [0u8; 8];
+            self.m1 = [0u8; 32];
+            self.m1p = [0u8; 32];
+            self.m2 = [0u8; 32];
+            self.m2p = [0u8; 32];
         }
     }
 
-    fn h2(b: u8, secbytes: &[u8]) -> [u8;32] {
+    fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);
     }
-
 }
 
 #[allow(non_snake_case)]
 pub mod AES128 {
-    use std::ops::Drop;
     use aes_ctr::{
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
     };
+    use std::ops::Drop;
 
     const KEY_LENGTH: usize = 16;
 
-    type NONCE = [u8;16];
+    type NONCE = [u8; 16];
 
     #[derive(Clone)]
-    pub struct Key(pub [u8;KEY_LENGTH]);
+    pub struct Key(pub [u8; KEY_LENGTH]);
 
     impl Drop for Key {
         fn drop(&mut self) {
-            self.0 = [0u8;KEY_LENGTH];
+            self.0 = [0u8; KEY_LENGTH];
         }
     }
 
@@ -158,7 +159,7 @@ pub mod DSA {
 
     use super::CryptoError;
 
-    type HASH = [u8;32];
+    type HASH = [u8; 32];
 
     pub fn generate() -> PublicKey {
         todo!()
@@ -167,7 +168,6 @@ pub mod DSA {
     pub struct PublicKey {}
 
     impl PublicKey {
-
         pub fn sign(&self, content: &HASH) -> Result<Signature, CryptoError> {
             // FIXME implement signing
             todo!()
@@ -176,14 +176,16 @@ pub mod DSA {
         pub fn verify(&self, signature: &Signature, content: &HASH) -> Result<(), CryptoError> {
             // FIXME implement verification
             todo!()
-        }            
+        }
     }
 }
 
 #[allow(non_snake_case)]
 pub mod SHA1 {
 
-    pub fn digest(data: &[u8]) -> [u8; 20] {
+    type DIGEST = [u8; 20];
+
+    pub fn digest(data: &[u8]) -> DIGEST {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
         let mut result = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
@@ -195,8 +197,10 @@ pub mod SHA1 {
 pub mod SHA256 {
     use super::CryptoError;
 
+    type DIGEST = [u8; 32];
+
     /// digest calculates the SHA256 digest value.
-    pub fn digest(data: &[u8]) -> [u8; 32] {
+    pub fn digest(data: &[u8]) -> DIGEST {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         let mut result = [0u8; 32];
         result.clone_from_slice(digest.as_ref());
@@ -204,7 +208,7 @@ pub mod SHA256 {
     }
 
     /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTRv3 spec.
-    pub fn hmac(m1: &[u8], data: &[u8]) -> [u8; 32] {
+    pub fn hmac(m1: &[u8], data: &[u8]) -> DIGEST {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m1);
         let digest = ring::hmac::sign(&key, data);
         let mut result = [0u8; 32];
@@ -226,8 +230,10 @@ pub mod SHA256 {
         return if expected == actual {
             Ok(())
         } else {
-            Err(CryptoError::VerificationFailure("Hash does not match the expected hash value."))
-        }
+            Err(CryptoError::VerificationFailure(
+                "Hash does not match the expected hash value.",
+            ))
+        };
     }
 }
 

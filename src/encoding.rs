@@ -3,7 +3,7 @@ use std::{convert::TryInto, mem};
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{crypto::AES128, CTR, InstanceTag, MAC, OTRError, Signature, Version, crypto::DSA};
+use crate::{crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, MAC};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -224,15 +224,8 @@ pub enum OTRMessage {
     },
 }
 
-// TODO predefine TLVs according to spec or keep open for custom implementation? (seems that predefining with exact fields might be more useful/controllable)
-/// Type-Length-Value records that are optionally appended to content of an OTR Data Message.
-pub struct TLV {
-    typ: u16,
-    value: Vec<u8>,
-}
-
 pub fn new_decoder(content: &[u8]) -> OTRDecoder {
-    return OTRDecoder{content};
+    return OTRDecoder { content };
 }
 
 pub struct OTRDecoder<'a> {
@@ -334,7 +327,7 @@ impl OTRDecoder<'_> {
         if self.content.len() < 40 {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut sig: Signature = [0;40];
+        let mut sig: Signature = [0; 40];
         sig.copy_from_slice(&self.content[..40]);
         self.content = &self.content[40..];
         return Ok(sig);
@@ -356,7 +349,9 @@ impl OTRDecoder<'_> {
 }
 
 pub fn new_encoder() -> OTREncoder {
-    return OTREncoder{content: Vec::new()};
+    return OTREncoder {
+        content: Vec::new(),
+    };
 }
 
 pub struct OTREncoder {

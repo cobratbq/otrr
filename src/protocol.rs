@@ -166,3 +166,10 @@ impl ProtocolState for FinishedState {
 //     }
 //     return Ok(tlvs);
 // }
+
+// // TODO predefine TLVs according to spec or keep open for custom implementation? (seems that predefining with exact fields might be more useful/controllable)
+// /// Type-Length-Value records that are optionally appended to content of an OTR Data Message.
+// pub struct TLV {
+//     typ: u16,
+//     value: Vec<u8>,
+// }

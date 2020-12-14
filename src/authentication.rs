@@ -1,16 +1,14 @@
 use std::rc::Rc;
 
-use crypto::{AES128, DH, SHA256};
-use num_bigint::BigUint;
-
 use crate::{
-    crypto::{self, CryptoError},
+    crypto::{CryptoError, AES128, DH, SHA256},
     encoding::{new_decoder, new_encoder, OTRMessage},
     host::Host,
     MAC,
 };
+use num_bigint::BigUint;
 
-pub fn new_context<'a>(host: Rc<dyn Host>) -> AKEContext {
+pub fn new_context(host: Rc<dyn Host>) -> AKEContext {
     return AKEContext {
         host: host,
         state: AKEState::None,
