@@ -11,7 +11,7 @@ use num_bigint::BigUint;
 pub fn new_context(host: Rc<dyn Host>) -> AKEContext {
     return AKEContext {
         host: host,
-        state: AKEState::None,
+        state: AKEState::None(VerificationState::NONE),
     };
 }
 
@@ -21,7 +21,7 @@ pub struct AKEContext {
 }
 
 enum AKEState {
-    None,
+    None(VerificationState),
     AwaitingDHKey {
         r: AES128::Key,
         our_dh_keypair: Rc<DH::Keypair>,
@@ -39,6 +39,11 @@ enum AKEState {
     },
 }
 
+enum VerificationState {
+    NONE,
+    VERIFIED,
+}
+
 // FIXME check verification of public keys everywhere.
 // FIXME check updating of state everywhere where necessary.
 impl AKEContext {
@@ -48,7 +53,7 @@ impl AKEContext {
         gx_hashed: Vec<u8>,
     ) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => self._handle_commit_from_initial(gx_encrypted, gx_hashed),
+            AKEState::None(_) => self._handle_commit_from_initial(gx_encrypted, gx_hashed),
             AKEState::AwaitingDHKey { r, our_dh_keypair } => {
                 // This is the trickiest transition in the whole protocol. It indicates that you have already sent a
                 // D-H Commit message to your correspondent, but that he either didn't receive it, or just didn't
@@ -150,7 +155,7 @@ impl AKEContext {
 
     pub fn handle_key(&mut self, gy: &BigUint) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
+            AKEState::None(_) => {
                 // Ignore the message.
                 (Err(AKEError::MessageIgnored), None)
             }
@@ -268,7 +273,7 @@ impl AKEContext {
         signature_mac: MAC,
     ) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
+            AKEState::None(_) => {
                 // Ignore the message.
                 (Err(AKEError::MessageIgnored), None)
             }
@@ -333,7 +338,10 @@ impl AKEContext {
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 // TODO need to compute Sending/Receiving AES/MAC keys.
                 // FIXME required to send OTRMessage::Signature. Put OTRMessage::Signature in the Completed? ... a little bit dirty but might be acceptable.
-                (Err(AKEError::Completed), Some(AKEState::None))
+                (
+                    Err(AKEError::Completed),
+                    Some(AKEState::None(VerificationState::VERIFIED)),
+                )
             }
             AKEState::AwaitingSignature {
                 our_dh_keypair: _,
@@ -351,9 +359,13 @@ impl AKEContext {
         return result;
     }
 
-    pub fn handle_signature(&mut self, _: Vec<u8>, _: MAC) -> Result<OTRMessage, AKEError> {
+    pub fn handle_signature(
+        &mut self,
+        signature_encrypted: Vec<u8>,
+        signature_mac: MAC,
+    ) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
+            AKEState::None(_) => {
                 // Ignore the message.
                 (Err(AKEError::MessageIgnored), None)
             }
@@ -373,16 +385,49 @@ impl AKEContext {
                 (Err(AKEError::MessageIgnored), None)
             }
             AKEState::AwaitingSignature {
-                our_dh_keypair: _,
+                our_dh_keypair,
                 key: _,
-                gy: _,
-                secrets: _,
+                gy,
+                secrets,
             } => {
                 // Decrypt the encrypted signature, and verify the signature and the MACs. If everything checks out:
                 // - Transition authstate to AUTHSTATE_NONE.
                 // - Transition msgstate to MSGSTATE_ENCRYPTED.
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
-                todo!()
+                let mac = SHA256::hmac160(&secrets.m2p, &signature_encrypted);
+                SHA256::verify(&signature_mac, &mac)
+                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                let xa = AES128::decrypt(
+                    &secrets.cp,
+                    &[0u8; 16],
+                    &new_decoder(&signature_encrypted)
+                        .read_data()
+                        .or(Err(AKEError::MessageIncomplete))?,
+                );
+                let mut decoder = new_decoder(&xa);
+                let pub_a = decoder
+                    .read_public_key()
+                    .or(Err(AKEError::MessageIncomplete))?;
+                let keyid_a = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                let sig_ma = decoder
+                    .read_signature()
+                    .or(Err(AKEError::MessageIncomplete))?;
+                let ma = SHA256::hmac(
+                    &secrets.m1p,
+                    &new_encoder()
+                        .write_mpi(gy)
+                        .write_mpi(&our_dh_keypair.public)
+                        .write_public_key(&pub_a)
+                        .write_int(keyid_a)
+                        .to_vec(),
+                );
+                SHA256::verify(&sig_ma, &ma)
+                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                // FIXME done, successfully verified and ready for transition to encrypted messaging state?
+                (
+                    Err(AKEError::Completed),
+                    Some(AKEState::None(VerificationState::VERIFIED)),
+                )
             }
         };
         if transition.is_some() {

@@ -269,7 +269,7 @@ impl OTRDecoder<'_> {
     }
 
     /// read_data reads variable-length data from buffer.
-    fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
+    pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
         let len = self._read_length()?;
         if self.content.len() < len {
             return Err(OTRError::IncompleteMessage);
