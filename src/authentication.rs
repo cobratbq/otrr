@@ -2,16 +2,15 @@ use std::rc::Rc;
 
 use crate::{
     crypto::{CryptoError, AES128, DH, SHA256},
-    encoding::{new_decoder, new_encoder, OTRMessage},
-    host::Host,
-    MAC,
+    encoding::{OTRDecoder, OTREncoder, OTRMessage},
+    host::Host, MAC,
 };
 use num_bigint::BigUint;
 
 pub fn new_context(host: Rc<dyn Host>) -> AKEContext {
     return AKEContext {
         host: host,
-        state: AKEState::None(VerificationState::NONE),
+        state: AKEState::None(VerificationState::UNKNOWN),
     };
 }
 
@@ -20,33 +19,29 @@ pub struct AKEContext {
     state: AKEState,
 }
 
-enum AKEState {
-    None(VerificationState),
-    AwaitingDHKey {
-        r: AES128::Key,
-        our_dh_keypair: Rc<DH::Keypair>,
-    },
-    AwaitingRevealSignature {
-        our_dh_keypair: Rc<DH::Keypair>,
-        gx_encrypted: Vec<u8>,
-        gx_hashed: Vec<u8>,
-    },
-    AwaitingSignature {
-        our_dh_keypair: Rc<DH::Keypair>,
-        key: AES128::Key,
-        gy: BigUint,
-        secrets: DH::DerivedSecrets,
-    },
-}
-
-enum VerificationState {
-    NONE,
-    VERIFIED,
-}
-
 // FIXME check verification of public keys everywhere.
 // FIXME check updating of state everywhere where necessary.
+// FIXME there was a need to cut off 0x00 from head somewhereh, I believe in DSA public key serialized.
 impl AKEContext {
+    pub fn initiate(&mut self) -> Result<OTRMessage, AKEError> {
+        let keypair = DH::Keypair::generate();
+        let r = AES128::Key::generate();
+        let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
+        let gx_encrypted = OTREncoder::new()
+            .write_data(&r.encrypt(&[0; 16], &gxmpi))
+            .to_vec();
+        let gx_hashed = SHA256::digest(&gxmpi).to_vec();
+        // Send D-H Commit message and await D-H Key message.
+        self.state = AKEState::AwaitingDHKey {
+            our_dh_keypair: Rc::new(keypair),
+            r,
+        };
+        return Ok(OTRMessage::DHCommit {
+            gx_encrypted,
+            gx_hashed,
+        });
+    }
+
     pub fn handle_commit(
         &mut self,
         gx_encrypted: Vec<u8>,
@@ -60,13 +55,13 @@ impl AKEContext {
                 // receive it yet, and has sent you one as well. The symmetry will be broken by comparing the hashed gx
                 // you sent in your D-H Commit Message with the one you received, considered as 32-byte unsigned
                 // big-endian values.
-                let gxmpi = new_encoder().write_mpi(&our_dh_keypair.public).to_vec();
+                let gxmpi = OTREncoder::new().write_mpi(&our_dh_keypair.public).to_vec();
                 let our_gxmpi_hashed = SHA256::digest(&gxmpi);
                 let our_hash = BigUint::from_bytes_be(&our_gxmpi_hashed);
                 let their_hash = BigUint::from_bytes_be(&gx_hashed);
                 if our_hash.gt(&their_hash) {
                     // Ignore the incoming D-H Commit message, but resend your D-H Commit message.
-                    let our_gx_encrypted = AES128::encrypt(&r, &[0u8; 16], &gxmpi);
+                    let our_gx_encrypted = r.encrypt(&[0u8; 16], &gxmpi);
                     let dhcommit = OTRMessage::DHCommit {
                         gx_encrypted: our_gx_encrypted,
                         gx_hashed: Vec::from(our_gxmpi_hashed),
@@ -113,7 +108,7 @@ impl AKEContext {
                 secrets: _,
             } => {
                 // Reply with a new D-H Key message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
-                let our_dh_keypair = DH::generate();
+                let our_dh_keypair = DH::Keypair::generate();
                 let dhkey = OTRMessage::DHKey {
                     gy: our_dh_keypair.public.clone(),
                 };
@@ -139,7 +134,7 @@ impl AKEContext {
         gx_hashed: Vec<u8>,
     ) -> (Result<OTRMessage, AKEError>, Option<AKEState>) {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
-        let keypair = DH::generate();
+        let keypair = DH::Keypair::generate();
         let dhkey = OTRMessage::DHKey {
             gy: keypair.public.clone(),
         };
@@ -169,7 +164,7 @@ impl AKEContext {
                 let keyid_b = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
-                    &new_encoder()
+                    &OTREncoder::new()
                         .write_mpi(&our_dh_keypair.public)
                         .write_mpi(gy)
                         // FIXME acquire DSA public key from host, write to m_b.
@@ -181,13 +176,13 @@ impl AKEContext {
                 let sig_b = pub_b
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
-                let x_b = new_encoder()
+                let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
                     .write_signature(&sig_b)
                     .to_vec();
-                let enc_b = new_encoder()
-                    .write_data(&AES128::encrypt(&secrets.c, &[0u8; 16], &x_b))
+                let enc_b = OTREncoder::new()
+                    .write_data(&secrets.c.encrypt(&[0u8; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
                 (
@@ -229,7 +224,7 @@ impl AKEContext {
                 let keyid_b = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
-                    &new_encoder()
+                    &OTREncoder::new()
                         .write_mpi(&our_dh_keypair.public)
                         .write_mpi(gy)
                         // FIXME acquire DSA public key from host, write to m_b.
@@ -241,13 +236,13 @@ impl AKEContext {
                 let sig_b = pub_b
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
-                let x_b = new_encoder()
+                let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
                     .write_signature(&sig_b)
                     .to_vec();
-                let enc_b = new_encoder()
-                    .write_data(&AES128::encrypt(&secrets.c, &[0u8; 16], &x_b))
+                let enc_b = OTREncoder::new()
+                    .write_data(&secrets.c.encrypt(&[0u8; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
                 (
@@ -298,12 +293,12 @@ impl AKEContext {
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
 
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
-                let gxmpi = AES128::decrypt(&key, &[0u8; 16], &gx_encrypted);
+                let gxmpi = key.decrypt(&[0u8; 16], &gx_encrypted);
                 let gxmpihash = SHA256::digest(&gxmpi);
                 SHA256::verify(&gxmpihash, gx_hashed)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 // Verify acquired g^x value.
-                let gx = new_decoder(&gxmpi)
+                let gx = OTRDecoder::new(&gxmpi)
                     .read_mpi()
                     .or(Err(AKEError::MessageIncomplete))?;
                 DH::verify_public_key(&gx)
@@ -316,8 +311,8 @@ impl AKEContext {
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
 
                 // Acquire Bob's identity material from the encrypted x_b.
-                let x_b = AES128::decrypt(&secrets.c, &[0u8; 16], &signature_encrypted);
-                let mut decoder = new_decoder(&x_b);
+                let x_b = secrets.c.decrypt(&[0u8; 16], &signature_encrypted);
+                let mut decoder = OTRDecoder::new(&x_b);
                 let pub_b = decoder
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
@@ -326,7 +321,7 @@ impl AKEContext {
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
-                let m_b_bytes = new_encoder()
+                let m_b_bytes = OTREncoder::new()
                     .write_mpi(&gx)
                     .write_mpi(&our_dh_keypair.public)
                     .write_public_key(&pub_b)
@@ -397,14 +392,13 @@ impl AKEContext {
                 let mac = SHA256::hmac160(&secrets.m2p, &signature_encrypted);
                 SHA256::verify(&signature_mac, &mac)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
-                let xa = AES128::decrypt(
-                    &secrets.cp,
+                let xa = secrets.cp.decrypt(
                     &[0u8; 16],
-                    &new_decoder(&signature_encrypted)
+                    &OTRDecoder::new(&signature_encrypted)
                         .read_data()
                         .or(Err(AKEError::MessageIncomplete))?,
                 );
-                let mut decoder = new_decoder(&xa);
+                let mut decoder = OTRDecoder::new(&xa);
                 let pub_a = decoder
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
@@ -414,7 +408,7 @@ impl AKEContext {
                     .or(Err(AKEError::MessageIncomplete))?;
                 let ma = SHA256::hmac(
                     &secrets.m1p,
-                    &new_encoder()
+                    &OTREncoder::new()
                         .write_mpi(gy)
                         .write_mpi(&our_dh_keypair.public)
                         .write_public_key(&pub_a)
@@ -437,6 +431,32 @@ impl AKEContext {
     }
 }
 
+enum AKEState {
+    None(VerificationState),
+    AwaitingDHKey {
+        r: AES128::Key,
+        our_dh_keypair: Rc<DH::Keypair>,
+    },
+    AwaitingRevealSignature {
+        our_dh_keypair: Rc<DH::Keypair>,
+        gx_encrypted: Vec<u8>,
+        gx_hashed: Vec<u8>,
+    },
+    AwaitingSignature {
+        our_dh_keypair: Rc<DH::Keypair>,
+        key: AES128::Key,
+        gy: BigUint,
+        secrets: DH::DerivedSecrets,
+    },
+}
+
+enum VerificationState {
+    // FIXME should we ever transition back to UNKNOWN on failure during AKE?
+    UNKNOWN,
+    VERIFIED,
+}
+
+#[derive(std::fmt::Debug)]
 pub enum AKEError {
     CryptographicViolation(CryptoError),
     MessageIgnored,

@@ -1,3 +1,5 @@
+use authentication::AKEError;
+
 extern crate aes_ctr;
 extern crate base64;
 extern crate regex;
@@ -49,6 +51,8 @@ pub enum OTRError {
     ProtocolInFinishedState,
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
     CryptographicViolation(&'static str),
+    /// AuthenticationError indicates that there was an error during AKE.
+    AuthenticationError(AKEError),
 }
 
 /// Version contains the various supported OTR protocol versions.

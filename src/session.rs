@@ -15,6 +15,12 @@ pub struct Account {
 }
 
 impl Account {
+    pub fn status(&self, instance: InstanceTag) -> Option<protocol::ProtocolStatus> {
+        self.instances
+            .get(&instance)
+            .map(|instance| instance.status())
+    }
+
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
         if fragment::is_fragment(payload) {
@@ -112,6 +118,11 @@ impl Instance {
         return self.state.status();
     }
 
+    fn initiate(&mut self) -> Result<(), OTRError> {
+        let msg = self.ake.initiate().unwrap();
+        todo!()
+    }
+
     fn handle(
         &mut self,
         host: &dyn Host,
@@ -120,17 +131,20 @@ impl Instance {
         receiver: InstanceTag,
         message: OTRMessage,
     ) -> Result<Message, OTRError> {
+        // FIXME how to handle AKE errors in each case?
         return match message {
             OTRMessage::DHCommit {
                 gx_encrypted,
                 gx_hashed,
             } => {
-                let response = self.ake.handle_commit(gx_encrypted, gx_hashed);
+                let response = self.ake.handle_commit(gx_encrypted, gx_hashed)
+                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
             OTRMessage::DHKey { gy } => {
-                let response = self.ake.handle_key(&gy);
+                let response = self.ake.handle_key(&gy)
+                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
@@ -139,11 +153,13 @@ impl Instance {
                 signature_encrypted,
                 signature_mac,
             } => {
-                let response =
-                    self.ake
-                        .handle_reveal_signature(key, signature_encrypted, signature_mac);
+                let response = self
+                    .ake
+                    .handle_reveal_signature(key, signature_encrypted, signature_mac)
+                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
+                self.state = self.state.secure();
                 Ok(Message::ConfidentialSessionStarted)
             }
             OTRMessage::Signature {
@@ -152,7 +168,8 @@ impl Instance {
             } => {
                 let result = self
                     .ake
-                    .handle_signature(signature_encrypted, signature_mac);
+                    .handle_signature(signature_encrypted, signature_mac)
+                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();

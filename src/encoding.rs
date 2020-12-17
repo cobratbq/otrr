@@ -38,7 +38,7 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let mut decoder = OTRDecoder { content: data };
+    let mut decoder = OTRDecoder(data);
     let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
         _ => {
@@ -224,91 +224,90 @@ pub enum OTRMessage {
     },
 }
 
-pub fn new_decoder(content: &[u8]) -> OTRDecoder {
-    return OTRDecoder { content };
-}
-
-pub struct OTRDecoder<'a> {
-    content: &'a [u8],
-}
+pub struct OTRDecoder<'a>(&'a [u8]);
 
 // FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
 /// OTRDecoder contains the logic for reading entries from byte-buffer.
-impl OTRDecoder<'_> {
+impl<'a> OTRDecoder<'a> {
+    pub fn new(content: &'a [u8]) -> Self {
+        return Self(content);
+    }
+
     /// read_byte reads a single byte from buffer.
     pub fn read_byte(&mut self) -> Result<u8, OTRError> {
-        if self.content.len() < 1 {
+        if self.0.len() < 1 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = self.content[0];
-        self.content = &self.content[1..];
+        let value = self.0[0];
+        self.0 = &self.0[1..];
         return Ok(value);
     }
 
     /// read_short reads a short value (2 bytes, big-endian) from buffer.
     pub fn read_short(&mut self) -> Result<u16, OTRError> {
-        if self.content.len() < 2 {
+        if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = (self.content[0] as u16) << 8 + self.content[1] as u16;
-        self.content = &self.content[2..];
+        let value = (self.0[0] as u16) << 8 + self.0[1] as u16;
+        self.0 = &self.0[2..];
         return Ok(value);
     }
 
     /// read_int reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_int(&mut self) -> Result<u32, OTRError> {
-        if self.content.len() < 4 {
+        if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = (self.content[0] as u32)
-            << 24 + (self.content[1] as u32)
-            << 16 + (self.content[2] as u32)
-            << 8 + self.content[3] as u32;
-        self.content = &self.content[4..];
+        // FIXME error with operator precedence?
+        let value = (self.0[0] as u32)
+            << 24 + (self.0[1] as u32)
+            << 16 + (self.0[2] as u32)
+            << 8 + self.0[3] as u32;
+        self.0 = &self.0[4..];
         return Ok(value);
     }
 
     /// read_data reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
         let len = self._read_length()?;
-        if self.content.len() < len {
+        if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
-        let data = Vec::from(&self.content[..len]);
-        self.content = &self.content[len..];
+        let data = Vec::from(&self.0[..len]);
+        self.0 = &self.0[len..];
         return Ok(data);
     }
 
     /// read_mpi reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
         let len = self._read_length()?;
-        if self.content.len() < len {
+        if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
-        let mpi = BigUint::from_bytes_be(&self.content[..len]);
-        self.content = &self.content[len..];
+        let mpi = BigUint::from_bytes_be(&self.0[..len]);
+        self.0 = &self.0[len..];
         return Ok(mpi);
     }
 
     /// read_ctr reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
-        if self.content.len() < 8 {
+        if self.0.len() < 8 {
             return Err(OTRError::IncompleteMessage);
         }
         let mut ctr: CTR = [0; 8];
-        ctr.copy_from_slice(&self.content[..8]);
-        self.content = &self.content[8..];
+        ctr.copy_from_slice(&self.0[..8]);
+        self.0 = &self.0[8..];
         return Ok(ctr);
     }
 
     /// read_mac reads a MAC value from buffer.
     pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
-        if self.content.len() < 20 {
+        if self.0.len() < 20 {
             return Err(OTRError::IncompleteMessage);
         }
         let mut mac: MAC = [0; 20];
-        mac.copy_from_slice(&self.content[..20]);
-        self.content = &self.content[20..];
+        mac.copy_from_slice(&self.0[..20]);
+        self.0 = &self.0[20..];
         return Ok(mac);
     }
 
@@ -324,34 +323,28 @@ impl OTRDecoder<'_> {
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
     pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
-        if self.content.len() < 40 {
+        if self.0.len() < 40 {
             return Err(OTRError::IncompleteMessage);
         }
         let mut sig: Signature = [0; 40];
-        sig.copy_from_slice(&self.content[..40]);
-        self.content = &self.content[40..];
+        sig.copy_from_slice(&self.0[..40]);
+        self.0 = &self.0[40..];
         return Ok(sig);
     }
 
     /// _read_length reads 4-byte unsigned big-endian length.
     fn _read_length(&mut self) -> Result<usize, OTRError> {
-        if self.content.len() < 4 {
+        if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
-        let length = (self.content[0] as usize)
-            << 24 + (self.content[1] as usize)
-            << 16 + (self.content[2] as usize)
-            << 8 + self.content[3] as usize;
+        let length = (self.0[0] as usize)
+            << 24 + (self.0[1] as usize)
+            << 16 + (self.0[2] as usize)
+            << 8 + self.0[3] as usize;
         // FIXME verify/validate sane length values to prevent DoS strategies.
-        self.content = &self.content[4..];
+        self.0 = &self.0[4..];
         return Ok(length);
     }
-}
-
-pub fn new_encoder() -> OTREncoder {
-    return OTREncoder {
-        content: Vec::new(),
-    };
 }
 
 pub struct OTREncoder {
@@ -360,6 +353,13 @@ pub struct OTREncoder {
 
 // TODO can we use 'mut self' so that we move the original instance around mutably?
 impl OTREncoder {
+
+    pub fn new() -> Self {
+        return Self {
+            content: Vec::new(),
+        };
+    }
+
     pub fn write_byte(&mut self, v: u8) -> &mut Self {
         self.content.push(v);
         return self;

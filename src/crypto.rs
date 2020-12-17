@@ -1,4 +1,6 @@
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
+// TODO verify implementation
+// TODO what constant-time implementations needed?
 
 #[allow(non_snake_case)]
 pub mod DH {
@@ -6,7 +8,7 @@ pub mod DH {
 
     use num_bigint::BigUint;
 
-    use crate::encoding::new_encoder;
+    use crate::encoding::OTREncoder;
 
     use super::{CryptoError, AES128, SHA256};
 
@@ -45,10 +47,6 @@ pub mod DH {
             0xF1, 0x74, 0x6C, 0x08, 0xCA, 0x23, 0x73, 0x27, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD]);
     }
 
-    pub fn generate() -> Keypair {
-        todo!()
-    }
-
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
         return if public_key > &GENERATOR && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
@@ -65,10 +63,14 @@ pub mod DH {
     }
 
     impl Keypair {
+        pub fn generate() -> Self {
+            todo!()
+        }
+
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
         pub fn derive_secrets(&self, public_key: &BigUint) -> DerivedSecrets {
             let s = self.private.modpow(public_key, &MODULUS);
-            let secbytes = new_encoder().write_mpi(&s).to_vec();
+            let secbytes = OTREncoder::new().write_mpi(&s).to_vec();
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
             return DerivedSecrets {
@@ -116,39 +118,52 @@ pub mod AES128 {
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
     };
+    use ring::rand::{SecureRandom, SystemRandom};
     use std::ops::Drop;
+    use lazy_static::lazy_static;
 
     const KEY_LENGTH: usize = 16;
 
-    type NONCE = [u8; 16];
+    type Nonce = [u8; 16];
 
+    lazy_static! {
+        static ref RAND: SystemRandom = SystemRandom::new();
+    }
+    
     #[derive(Clone)]
     pub struct Key(pub [u8; KEY_LENGTH]);
 
-    impl Drop for Key {
-        fn drop(&mut self) {
-            self.0 = [0u8; KEY_LENGTH];
+    impl Key {
+        pub fn generate() -> Self {
+            let mut key = [0u8;16];
+            RAND.fill(&mut key).expect("Failed to acquire random bytes.");
+            return Key(key);
+        }    
+
+        pub fn encrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
+            return self.crypt(nonce, data);
+        }
+
+        pub fn decrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
+            return self.crypt(nonce, data);
+        }
+
+        /// crypt provides both encrypting and decrypting logic.
+        fn crypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
+            let mut result = Vec::from(data);
+            let key = GenericArray::from_slice(&self.0);
+            let nonce = GenericArray::from_slice(nonce);
+            let mut cipher = Aes128Ctr::new(&key, &nonce);
+            cipher.apply_keystream(result.as_mut_slice());
+            return result;
         }
     }
 
-    // FIXME verify implementation
-    pub fn encrypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
-        return crypt(key, nonce, data);
-    }
-
-    // FIXME verify implementation
-    pub fn decrypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
-        return crypt(key, nonce, data);
-    }
-
-    /// crypt provides both encrypting and decrypting logic.
-    fn crypt(key: &Key, nonce: &NONCE, data: &[u8]) -> Vec<u8> {
-        let mut result = Vec::from(data);
-        let key = GenericArray::from_slice(&key.0);
-        let nonce = GenericArray::from_slice(nonce);
-        let mut cipher = Aes128Ctr::new(&key, &nonce);
-        cipher.apply_keystream(result.as_mut_slice());
-        return result;
+    impl Drop for Key {
+        fn drop(&mut self) {
+            // TODO does this form of zeroing work?
+            self.0 = [0u8; KEY_LENGTH];
+        }
     }
 }
 
@@ -159,21 +174,21 @@ pub mod DSA {
 
     use super::CryptoError;
 
-    type HASH = [u8; 32];
-
-    pub fn generate() -> PublicKey {
-        todo!()
-    }
+    type Hash = [u8; 32];
 
     pub struct PublicKey {}
 
     impl PublicKey {
-        pub fn sign(&self, content: &HASH) -> Result<Signature, CryptoError> {
+        pub fn generate() -> Self {
+            todo!()
+        }
+
+        pub fn sign(&self, content: &Hash) -> Result<Signature, CryptoError> {
             // FIXME implement signing
             todo!()
         }
 
-        pub fn verify(&self, signature: &Signature, content: &HASH) -> Result<(), CryptoError> {
+        pub fn verify(&self, signature: &Signature, content: &Hash) -> Result<(), CryptoError> {
             // FIXME implement verification
             todo!()
         }
@@ -183,9 +198,9 @@ pub mod DSA {
 #[allow(non_snake_case)]
 pub mod SHA1 {
 
-    type DIGEST = [u8; 20];
+    type Digest = [u8; 20];
 
-    pub fn digest(data: &[u8]) -> DIGEST {
+    pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
         let mut result = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
@@ -197,10 +212,10 @@ pub mod SHA1 {
 pub mod SHA256 {
     use super::CryptoError;
 
-    type DIGEST = [u8; 32];
+    type Digest = [u8; 32];
 
     /// digest calculates the SHA256 digest value.
-    pub fn digest(data: &[u8]) -> DIGEST {
+    pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         let mut result = [0u8; 32];
         result.clone_from_slice(digest.as_ref());
@@ -208,7 +223,7 @@ pub mod SHA256 {
     }
 
     /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTRv3 spec.
-    pub fn hmac(m1: &[u8], data: &[u8]) -> DIGEST {
+    pub fn hmac(m1: &[u8], data: &[u8]) -> Digest {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m1);
         let digest = ring::hmac::sign(&key, data);
         let mut result = [0u8; 32];
@@ -237,6 +252,7 @@ pub mod SHA256 {
     }
 }
 
+#[derive(std::fmt::Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
 }
