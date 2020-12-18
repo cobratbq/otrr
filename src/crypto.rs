@@ -170,16 +170,22 @@ pub mod AES128 {
 // TODO do we need to verify any of the DSA components, also for encoding/decoding?
 #[allow(non_snake_case)]
 pub mod DSA {
+    use num_bigint::BigUint;
+
     use crate::Signature;
 
     use super::CryptoError;
 
     type Hash = [u8; 32];
 
-    pub struct PublicKey {}
+    pub struct Keypair {}
 
-    impl PublicKey {
+    impl Keypair {
         pub fn generate() -> Self {
+            todo!()
+        }
+
+        pub fn public_key(&self) -> PublicKey {
             todo!()
         }
 
@@ -187,7 +193,17 @@ pub mod DSA {
             // FIXME implement signing
             todo!()
         }
+    }
 
+    // FIXME do not make fields public to further encapsulate, protect against inconsistent changes.
+    pub struct PublicKey {
+        pub p: BigUint,
+        pub q: BigUint,
+        pub g: BigUint,
+        pub y: BigUint,
+    }
+
+    impl PublicKey {
         pub fn verify(&self, signature: &Signature, content: &Hash) -> Result<(), CryptoError> {
             // FIXME implement verification
             todo!()

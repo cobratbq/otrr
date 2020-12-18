@@ -7,13 +7,6 @@ use crate::{
 };
 use num_bigint::BigUint;
 
-pub fn new_context(host: Rc<dyn Host>) -> AKEContext {
-    return AKEContext {
-        host: host,
-        state: AKEState::None(VerificationState::UNKNOWN),
-    };
-}
-
 pub struct AKEContext {
     host: Rc<dyn Host>,
     state: AKEState,
@@ -23,6 +16,21 @@ pub struct AKEContext {
 // FIXME check updating of state everywhere where necessary.
 // FIXME there was a need to cut off 0x00 from head somewhereh, I believe in DSA public key serialized.
 impl AKEContext {
+    pub fn new(host: Rc<dyn Host>) -> Self {
+        Self {
+            host: host,
+            state: AKEState::None(VerificationState::UNKNOWN),
+        }
+    }
+
+    pub fn is_verified(&self) -> bool {
+        if let AKEState::None(VerificationState::VERIFIED) = self.state {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn initiate(&mut self) -> Result<OTRMessage, AKEError> {
         let keypair = DH::Keypair::generate();
         let r = AES128::Key::generate();
@@ -160,20 +168,20 @@ impl AKEContext {
                 // Reply with a Reveal Signature Message and transition authstate to AUTHSTATE_AWAITING_SIG.
                 let secrets = our_dh_keypair.derive_secrets(gy);
                 // TODO consider random starting key-id for initial key-id. (Spec: keyid > 0)
-                let pub_b = self.host.public_key();
+                // FIXME ensure keypair is only acquired once per AKE conversation (sequence).
+                let dsa_keypair = self.host.keypair();
+                let pub_b = dsa_keypair.public_key();
                 let keyid_b = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
                         .write_mpi(&our_dh_keypair.public)
                         .write_mpi(gy)
-                        // FIXME acquire DSA public key from host, write to m_b.
                         .write_public_key(&pub_b)
                         .write_int(keyid_b)
                         .to_vec(),
                 );
-                // FIXME replace with actual signature calculation.
-                let sig_b = pub_b
+                let sig_b = dsa_keypair
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 let x_b = OTREncoder::new()
@@ -220,7 +228,8 @@ impl AKEContext {
                 // TODO the computations below could be cached during first handling of DH Key message.
                 // If this D-H Key message is the same the one you received earlier (when you entered AUTHSTATE_AWAITING_SIG):
                 //    Retransmit your Reveal Signature Message.
-                let pub_b = self.host.public_key();
+                let dsa_keypair = self.host.keypair();
+                let pub_b = dsa_keypair.public_key();
                 let keyid_b = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
@@ -233,7 +242,7 @@ impl AKEContext {
                         .to_vec(),
                 );
                 // FIXME replace with actual signature calculation.
-                let sig_b = pub_b
+                let sig_b = dsa_keypair
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 let x_b = OTREncoder::new()
@@ -431,17 +440,22 @@ impl AKEContext {
     }
 }
 
+/// AKEState represents available/recognized AKE states.
 enum AKEState {
+    /// None indicates no AKE is in progress. Tuple contains predominant verification status for most recent previous execution.
     None(VerificationState),
+    /// AwaitingDHKey state contains data as present/needed upon transitioning to this state.
     AwaitingDHKey {
         r: AES128::Key,
         our_dh_keypair: Rc<DH::Keypair>,
     },
+    /// AwaitingRevealSignature state contains data up to transitioning to this state.
     AwaitingRevealSignature {
         our_dh_keypair: Rc<DH::Keypair>,
         gx_encrypted: Vec<u8>,
         gx_hashed: Vec<u8>,
     },
+    /// AwaitingSignature contains data up to transitioning to this state.
     AwaitingSignature {
         our_dh_keypair: Rc<DH::Keypair>,
         key: AES128::Key,
@@ -450,16 +464,24 @@ enum AKEState {
     },
 }
 
+/// VerificationState represents the various states of verification.
 enum VerificationState {
     // FIXME should we ever transition back to UNKNOWN on failure during AKE?
+    /// Unknown represents the verification status where we are not aware of a previous successful verification.
     UNKNOWN,
+    /// Verified indicates that the previous authentication process completed successfully.
     VERIFIED,
 }
 
+/// AKEError contains the variants of errors produced during AKE.
 #[derive(std::fmt::Debug)]
 pub enum AKEError {
+    /// AKE message processing produced an error due to a cryptographic violation.
     CryptographicViolation(CryptoError),
+    /// AKE message ignored due to it arriving in violation of protocol.
     MessageIgnored,
+    /// AKE message is incomplete. Errors were encountered while reading out message components.
     MessageIncomplete,
+    /// AKE completed and no response message is produced/necessary.
     Completed,
 }

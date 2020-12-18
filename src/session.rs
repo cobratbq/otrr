@@ -1,5 +1,7 @@
 use std::{collections, rc::Rc};
 
+use authentication::AKEContext;
+
 use crate::{
     authentication,
     encoding::{parse, MessageType, OTRMessage},
@@ -37,7 +39,7 @@ impl Account {
                     Instance {
                         assembler: fragment::new_assembler(),
                         state: protocol::new_protocol_state(),
-                        ake: authentication::new_context(Rc::clone(&self.host)),
+                        ake: AKEContext::new(Rc::clone(&self.host)),
                     },
                 );
             }
@@ -110,7 +112,7 @@ impl Account {
 struct Instance {
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
-    ake: authentication::AKEContext,
+    ake: AKEContext,
 }
 
 impl Instance {
@@ -168,8 +170,7 @@ impl Instance {
             } => {
                 let result = self
                     .ake
-                    .handle_signature(signature_encrypted, signature_mac)
-                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+                    .handle_signature(signature_encrypted, signature_mac);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();

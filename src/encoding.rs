@@ -313,12 +313,19 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_public_key reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
-        todo!();
-        //let typ = self.read_short()?;
-        //let p = self.read_mpi()?;
-        //let q = self.read_mpi()?;
-        //let g = self.read_mpi()?;
-        //let y = self.read_mpi()?;
+        let typ = self.read_short()?;
+        if typ != 0u16 {
+            return Err(OTRError::ProtocolViolation(
+                "Unsupported/invalid public key type.",
+            ));
+        }
+        // TODO: not sure if I like the fact that read_mpi is mutable, so fields must remain in this order or we're reading wrong data into wrong field.
+        Ok(DSA::PublicKey {
+            p: self.read_mpi()?,
+            q: self.read_mpi()?,
+            g: self.read_mpi()?,
+            y: self.read_mpi()?,
+        })
     }
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
@@ -353,7 +360,6 @@ pub struct OTREncoder {
 
 // TODO can we use 'mut self' so that we move the original instance around mutably?
 impl OTREncoder {
-
     pub fn new() -> Self {
         return Self {
             content: Vec::new(),
@@ -405,25 +411,13 @@ impl OTREncoder {
         return self;
     }
 
-    pub fn write_public_key(&mut self, public_key: &DSA::PublicKey) -> &mut Self {
-        todo!("To be implemented for DSA public keys.");
-        // Pubkey type (SHORT)
-        //   DSA public keys have type 0x0000
-        // p (MPI)
-        // q (MPI)
-        // g (MPI)
-        // y (MPI)
-        //   (p,q,g,y) are the DSA public key parameters
-        //let p: BigUint;
-        //let q: BigUint;
-        //let g: BigUint;
-        //let y: BigUint;
-        //self.write_short(0x00);
-        //self.write_mpi(&p);
-        //self.write_mpi(&q);
-        //self.write_mpi(&g);
-        //self.write_mpi(&y);
-        //return self;
+    // TODO solve using OTREncodable trait and implementation inside encodable types
+    pub fn write_public_key(&mut self, key: &DSA::PublicKey) -> &mut Self {
+        self.write_short(0u16)
+            .write_mpi(&key.p)
+            .write_mpi(&key.q)
+            .write_mpi(&key.g)
+            .write_mpi(&key.y)
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
