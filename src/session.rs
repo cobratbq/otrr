@@ -1,6 +1,7 @@
 use std::{collections, rc::Rc};
 
 use authentication::AKEContext;
+use fragment::{Assembler, AssemblingError};
 
 use crate::{
     authentication,
@@ -37,7 +38,7 @@ impl Account {
                 self.instances.insert(
                     fragment.sender,
                     Instance {
-                        assembler: fragment::new_assembler(),
+                        assembler: Assembler::new(),
                         state: protocol::new_protocol_state(),
                         ake: AKEContext::new(Rc::clone(&self.host)),
                     },
@@ -49,11 +50,11 @@ impl Account {
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
                 Ok(assembled) => return self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(fragment::AssemblingError::IncompleteResult) => return Ok(Message::None),
-                Err(fragment::AssemblingError::IllegalFragment) => {
+                Err(AssemblingError::IncompleteResult) => return Ok(Message::None),
+                Err(AssemblingError::IllegalFragment) => {
                     return Err(OTRError::ProtocolViolation("Illegal fragment received."))
                 }
-                Err(fragment::AssemblingError::UnexpectedFragment) => {
+                Err(AssemblingError::UnexpectedFragment) => {
                     todo!("handle unexpected fragments")
                 }
             }
@@ -110,7 +111,7 @@ impl Account {
 }
 
 struct Instance {
-    assembler: fragment::Assembler,
+    assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
 }
@@ -139,13 +140,17 @@ impl Instance {
                 gx_encrypted,
                 gx_hashed,
             } => {
-                let response = self.ake.handle_commit(gx_encrypted, gx_hashed)
+                let response = self
+                    .ake
+                    .handle_commit(gx_encrypted, gx_hashed)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
             OTRMessage::DHKey { gy } => {
-                let response = self.ake.handle_key(&gy)
+                let response = self
+                    .ake
+                    .handle_key(&gy)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)

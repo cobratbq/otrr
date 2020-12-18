@@ -83,14 +83,6 @@ pub enum FragmentError {
     IllegalFragment,
 }
 
-pub fn new_assembler() -> Assembler {
-    return Assembler {
-        total: 0,
-        last: 0,
-        content: Vec::new(),
-    };
-}
-
 pub struct Assembler {
     total: u16,
     last: u16,
@@ -98,6 +90,14 @@ pub struct Assembler {
 }
 
 impl Assembler {
+    pub fn new() -> Self {
+        Self {
+            total: 0,
+            last: 0,
+            content: Vec::new(),
+        }
+    }
+
     pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, AssemblingError> {
         verify(&fragment).or(Err(AssemblingError::IllegalFragment))?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
@@ -136,8 +136,8 @@ pub enum AssemblingError {
 }
 
 #[cfg(test)]
-mod tests{
-    use super::{Fragment, is_fragment, parse, verify};
+mod tests {
+    use super::{is_fragment, parse, verify, Fragment};
 
     #[test]
     fn test_is_fragment_empty_string() {
@@ -181,43 +181,85 @@ mod tests{
 
     #[test]
     fn test_verify_fragment_zero() {
-        let f = Fragment{sender: 0, receiver: 0, total: 0, part: 0, payload: Vec::new()};
+        let f = Fragment {
+            sender: 0,
+            receiver: 0,
+            total: 0,
+            part: 0,
+            payload: Vec::new(),
+        };
         assert!(verify(&f).is_err());
     }
 
     #[test]
     fn test_verify_fragment_correct() {
-        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 1, payload: Vec::from("Hello")};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 1,
+            part: 1,
+            payload: Vec::from("Hello"),
+        };
         assert!(verify(&f).is_ok());
     }
 
     #[test]
     fn test_verify_fragment_zero_part() {
-        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 0, payload: Vec::from("Hello")};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 1,
+            part: 0,
+            payload: Vec::from("Hello"),
+        };
         assert!(verify(&f).is_err());
     }
 
     #[test]
     fn test_verify_fragment_zero_total() {
-        let f = Fragment{sender: 256, receiver: 256, total: 0, part: 1, payload: Vec::from("Hello")};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 0,
+            part: 1,
+            payload: Vec::from("Hello"),
+        };
         assert!(verify(&f).is_err());
     }
 
     #[test]
     fn test_verify_fragment_empty_payload() {
-        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 1, payload: Vec::new()};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 1,
+            part: 1,
+            payload: Vec::new(),
+        };
         assert!(verify(&f).is_err());
     }
 
     #[test]
     fn test_verify_fragment_part_larger_total() {
-        let f = Fragment{sender: 256, receiver: 256, total: 1, part: 2, payload: Vec::from("Hello")};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 1,
+            part: 2,
+            payload: Vec::from("Hello"),
+        };
         assert!(verify(&f).is_err());
     }
 
     #[test]
     fn test_verify_fragment_last_part() {
-        let f = Fragment{sender: 256, receiver: 256, total: 11, part: 11, payload: Vec::from("Hello")};
+        let f = Fragment {
+            sender: 256,
+            receiver: 256,
+            total: 11,
+            part: 11,
+            payload: Vec::from("Hello"),
+        };
         assert!(verify(&f).is_ok());
     }
 
