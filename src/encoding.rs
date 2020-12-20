@@ -290,6 +290,16 @@ impl<'a> OTRDecoder<'a> {
         return Ok(mpi);
     }
 
+    /// Read sequence of MPI values as defined by SMP.
+    pub fn read_mpi_sequence(&mut self) -> Result<Vec<BigUint>, OTRError> {
+        let len = self.read_int()? as usize;
+        let mut mpis = Vec::new();
+        for _ in 0..len {
+            mpis.push(self.read_mpi()?);
+        }
+        Ok(mpis)
+    }
+
     /// read_ctr reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
         if self.0.len() < 8 {
@@ -391,6 +401,15 @@ impl OTREncoder {
 
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
         self.write_data(&v.to_bytes_be())
+    }
+
+    /// Write sequence of MPI values in format defined in SMP: num_mpis, mpi1, mpi2, ...
+    pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
+        self.write_int(mpis.len() as u32);
+        for mpi in mpis {
+            self.write_mpi(mpi);
+        }
+        self
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
