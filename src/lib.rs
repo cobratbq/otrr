@@ -14,6 +14,7 @@ mod crypto;
 mod encoding;
 mod fragment;
 mod protocol;
+mod smp;
 
 pub mod host;
 pub mod session;
@@ -73,6 +74,7 @@ type CTR = [u8; 8];
 /// MAC type represents the 20-byte MAC value.
 type MAC = [u8; 20];
 
+/// Signature type represents a DSA signature in IEEE-P1363 representation.
 type Signature = [u8; 40];
 
 // TODO early implementation assumptions:

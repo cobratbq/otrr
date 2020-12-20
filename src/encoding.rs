@@ -1,4 +1,4 @@
-use std::{convert::TryInto, mem};
+use std::convert::TryInto;
 
 use num_bigint::BigUint;
 use regex::bytes::Regex;
@@ -27,6 +27,7 @@ lazy_static! {
         Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
 }
 
+// TODO over all necessary writes, do usize size-of assertions.
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
 
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
@@ -104,14 +105,14 @@ fn interpret_encoded_content(
             let authenticator = decoder.read_mac()?;
             let revealed = decoder.read_data()?;
             Ok(OTRMessage::Data {
-                flags: flags,
-                sender_keyid: sender_keyid,
-                receiver_keyid: receiver_keyid,
-                dh_y: dh_y,
-                ctr: ctr,
-                encrypted: encrypted,
-                authenticator: authenticator,
-                revealed: revealed,
+                flags,
+                sender_keyid,
+                receiver_keyid,
+                dh_y,
+                ctr,
+                encrypted,
+                authenticator,
+                revealed,
             })
         }
         _ => Err(OTRError::ProtocolViolation(
@@ -269,7 +270,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_data reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
-        let len = self._read_length()?;
+        let len = self.read_int()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
@@ -280,7 +281,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_mpi reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
-        let len = self._read_length()?;
+        let len = self.read_int()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
@@ -339,18 +340,13 @@ impl<'a> OTRDecoder<'a> {
         return Ok(sig);
     }
 
-    /// _read_length reads 4-byte unsigned big-endian length.
-    fn _read_length(&mut self) -> Result<usize, OTRError> {
-        if self.0.len() < 4 {
-            return Err(OTRError::IncompleteMessage);
-        }
-        let length = (self.0[0] as usize)
-            << 24 + (self.0[1] as usize)
-            << 16 + (self.0[2] as usize)
-            << 8 + self.0[3] as usize;
-        // FIXME verify/validate sane length values to prevent DoS strategies.
-        self.0 = &self.0[4..];
-        return Ok(length);
+    /// read_tlv reads a type-length-value record from the content.
+    pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
+        let typ = self.read_short()?;
+        let len = self.read_short()? as usize;
+        let data = Vec::from(&self.0[..len]);
+        self.0 = &self.0[len..];
+        Ok(TLV(typ, data))
     }
 }
 
@@ -368,14 +364,14 @@ impl OTREncoder {
 
     pub fn write_byte(&mut self, v: u8) -> &mut Self {
         self.content.push(v);
-        return self;
+        self
     }
 
     pub fn write_short(&mut self, v: u16) -> &mut Self {
         let b = v.to_be_bytes();
         self.content.push(b[0]);
         self.content.push(b[1]);
-        return self;
+        self
     }
 
     pub fn write_int(&mut self, v: u32) -> &mut Self {
@@ -384,31 +380,29 @@ impl OTREncoder {
         self.content.push(b[1]);
         self.content.push(b[2]);
         self.content.push(b[3]);
-        return self;
+        self
     }
 
     pub fn write_data(&mut self, v: &Vec<u8>) -> &mut Self {
-        self._write_length(v.len());
+        self.write_int(v.len() as u32);
         self.content.extend_from_slice(v);
-        return self;
+        self
     }
 
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
-        let v = v.to_bytes_be();
-        self.write_data(&v);
-        return self;
+        self.write_data(&v.to_bytes_be())
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
         assert_eq!(8, v.len());
         self.content.extend_from_slice(v);
-        return self;
+        self
     }
 
     pub fn write_mac(&mut self, v: &MAC) -> &mut Self {
         assert_eq!(20, v.len());
         self.content.extend_from_slice(v);
-        return self;
+        self
     }
 
     // TODO solve using OTREncodable trait and implementation inside encodable types
@@ -423,21 +417,19 @@ impl OTREncoder {
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
         assert_eq!(40, sig.len());
         self.content.extend_from_slice(sig);
-        return self;
+        self
+    }
+
+    pub fn write_tlv(&mut self, tlv: TLV) -> &mut Self {
+        assert!(tlv.1.len() <= u16::MAX as usize);
+        self.write_short(tlv.0).write_short(tlv.1.len() as u16);
+        self.content.extend(tlv.1);
+        self
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        return Vec::from(&self.content[..]);
-    }
-
-    // TODO perform size-of check at initialization such that we can immediately detect unsupported configurations?
-    fn _write_length(&mut self, v: usize) -> &mut Self {
-        assert_eq!(4, mem::size_of::<usize>());
-        let b = v.to_be_bytes();
-        self.content.push(b[0]);
-        self.content.push(b[1]);
-        self.content.push(b[2]);
-        self.content.push(b[3]);
-        return self;
+        self.content.clone()
     }
 }
+
+pub struct TLV(pub u16, pub Vec<u8>);
