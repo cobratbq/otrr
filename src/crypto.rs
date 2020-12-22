@@ -7,6 +7,7 @@ pub mod DH {
     use std::convert::TryInto;
 
     use num_bigint::BigUint;
+    use ring::rand::{SecureRandom, SystemRandom};
 
     use crate::encoding::OTREncoder;
 
@@ -45,6 +46,8 @@ pub mod DH {
             0x83, 0x65, 0x5D, 0x23, 0xDC, 0xA3, 0xAD, 0x96, 0x1C, 0x62, 0xF3, 0x56, 0x20, 0x85, 0x52, 0xBB,
             0x9E, 0xD5, 0x29, 0x07, 0x70, 0x96, 0x96, 0x6D, 0x67, 0x0C, 0x35, 0x4E, 0x4A, 0xBC, 0x98, 0x04,
             0xF1, 0x74, 0x6C, 0x08, 0xCA, 0x23, 0x73, 0x27, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD]);
+
+        static ref RAND: SystemRandom = SystemRandom::new();
     }
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
@@ -109,6 +112,13 @@ pub mod DH {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);
+    }
+
+    pub fn random() -> BigUint {
+        let mut v = [0u8; 192];
+        RAND.fill(&mut v)
+            .expect("Failed to produce random bytes for random big unsigned integer value.");
+        BigUint::from_bytes_be(&v)
     }
 }
 

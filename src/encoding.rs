@@ -220,7 +220,7 @@ pub enum OTRMessage {
         ctr: CTR,
         encrypted: Vec<u8>,
         authenticator: MAC,
-        /// revealed contains all the keys previously used for authentication.
+        /// revealed contains recent keys previously used for authentication.
         revealed: Vec<u8>,
     },
 }

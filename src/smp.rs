@@ -1,4 +1,5 @@
 use num_bigint::BigUint;
+use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
     crypto::SHA256,
