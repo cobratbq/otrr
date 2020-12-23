@@ -354,9 +354,26 @@ impl<'a> OTRDecoder<'a> {
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
         let typ = self.read_short()?;
         let len = self.read_short()? as usize;
+        if self.0.len() < len {
+            return Err(OTRError::IncompleteMessage);
+        }
         let data = Vec::from(&self.0[..len]);
         self.0 = &self.0[len..];
         Ok(TLV(typ, data))
+    }
+
+    pub fn read_ssid(&mut self) -> Result<SSID, OTRError> {
+        if self.0.len() < 8 {
+            return Err(OTRError::IncompleteMessage);
+        }
+        let mut ssid = [0u8; 8];
+        ssid.clone_from_slice(&self.0[..8]);
+        self.0 = &self.0[8..];
+        Ok(ssid)
+    }
+
+    pub fn read_bytes_null_terminated(&mut self) -> Result<Vec<u8>, OTRError> {
+        todo!()
     }
 }
 
@@ -393,7 +410,7 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_data(&mut self, v: &Vec<u8>) -> &mut Self {
+    pub fn write_data(&mut self, v: &[u8]) -> &mut Self {
         self.write_int(v.len() as u32);
         self.content.extend_from_slice(v);
         self
@@ -446,9 +463,29 @@ impl OTREncoder {
         self
     }
 
+    pub fn write_bytes_null_terminated(&mut self, data: &[u8]) -> &mut Self {
+        self.content.extend_from_slice(data);
+        self.content.push(0u8);
+        self
+    }
+
+    pub fn write_fingerprint(&mut self, fingerprint: Fingerprint) -> &mut Self {
+        self.content.extend_from_slice(&fingerprint);
+        self
+    }
+
+    pub fn write_ssid(&mut self, ssid: SSID) -> &mut Self {
+        self.content.extend_from_slice(&ssid);
+        self
+    }
+
     pub fn to_vec(&self) -> Vec<u8> {
         self.content.clone()
     }
 }
 
 pub struct TLV(pub u16, pub Vec<u8>);
+
+pub type Fingerprint = [u8; 20];
+
+type SSID = [u8; 8];
