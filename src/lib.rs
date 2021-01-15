@@ -1,4 +1,5 @@
 use authentication::AKEError;
+use crypto::CryptoError;
 
 extern crate aes_ctr;
 extern crate base64;
@@ -6,6 +7,7 @@ extern crate regex;
 #[macro_use]
 extern crate lazy_static;
 extern crate hex;
+extern crate num;
 extern crate num_bigint;
 extern crate ring;
 
@@ -51,9 +53,12 @@ pub enum OTRError {
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     ProtocolInFinishedState,
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
-    CryptographicViolation(&'static str),
-    /// AuthenticationError indicates that there was an error during AKE.
+    CryptographicViolation(CryptoError),
+    /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
+    /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
+    /// the previous one needs to be aborted first.
+    SMPInProgress,
 }
 
 /// Version contains the various supported OTR protocol versions.

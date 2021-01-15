@@ -4,7 +4,7 @@
 
 #[allow(non_snake_case)]
 pub mod DH {
-    use std::convert::TryInto;
+    use std::{convert::TryInto};
 
     use num_bigint::BigUint;
     use ring::rand::{SecureRandom, SystemRandom};
@@ -14,11 +14,8 @@ pub mod DH {
     use super::{CryptoError, AES128, SHA256};
 
     lazy_static! {
-        /// GENERATOR (g): 2
-        static ref GENERATOR: BigUint = BigUint::new(vec![2]);
-
         /// Modulus
-        static ref MODULUS: BigUint = BigUint::from_bytes_be(&[
+        pub static ref MODULUS: BigUint = BigUint::from_bytes_be(&[
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34,
             0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08, 0x8A, 0x67, 0xCC, 0x74,
             0x02, 0x0B, 0xBE, 0xA6, 0x3B, 0x13, 0x9B, 0x22, 0x51, 0x4A, 0x08, 0x79, 0x8E, 0x34, 0x04, 0xDD,
@@ -51,7 +48,7 @@ pub mod DH {
     }
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
-        return if public_key > &GENERATOR && public_key <= &MODULUS_MINUS_TWO {
+        return if public_key > &generator() && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
@@ -61,22 +58,43 @@ pub mod DH {
     }
 
     pub struct Keypair {
-        private: num_bigint::BigUint,
-        pub public: num_bigint::BigUint,
+        generator: BigUint,
+        private: BigUint,
+        pub public: BigUint,
     }
 
     impl Keypair {
         pub fn generate() -> Self {
-            todo!()
+            let mut v = [0u8; 192];
+            RAND.fill(&mut v)
+                .expect("Failed to produce random bytes for random big unsigned integer value.");
+            Self::new(BigUint::from_bytes_be(&v))
+        }
+    
+        pub fn new(private: BigUint) -> Self {
+            Self::new_custom(private, generator())
+        }
+
+        pub fn new_custom(private: BigUint, generator: BigUint) -> Self {
+            let public = generator.modpow(&private, &MODULUS);
+            Self {
+                generator,
+                private,
+                public,
+            }
+        }
+
+        pub fn generate_shared_secret(&self, public_key: &BigUint) -> BigUint {
+            public_key.modpow(&self.private, &MODULUS)
         }
 
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
         pub fn derive_secrets(&self, public_key: &BigUint) -> DerivedSecrets {
-            let s = self.private.modpow(public_key, &MODULUS);
+            let s = self.generate_shared_secret(public_key);
             let secbytes = OTREncoder::new().write_mpi(&s).to_vec();
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
-            return DerivedSecrets {
+            DerivedSecrets {
                 ssid: h2secret0[..8].try_into().unwrap(),
                 c: AES128::Key(h2secret1[..16].try_into().unwrap()),
                 cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
@@ -84,8 +102,14 @@ pub mod DH {
                 m2: h2(0x03, &secbytes),
                 m1p: h2(0x04, &secbytes),
                 m2p: h2(0x05, &secbytes),
-            };
+            }
         }
+    }
+
+    /// GENERATOR (g): 2
+    pub fn generator() -> BigUint {
+        // TODO how do I make this a one-time initialized, then-reused constant?
+        BigUint::from_slice(&[2])
     }
 
     pub struct DerivedSecrets {
@@ -114,11 +138,13 @@ pub mod DH {
         return SHA256::digest(&bytes);
     }
 
-    pub fn random() -> BigUint {
-        let mut v = [0u8; 192];
-        RAND.fill(&mut v)
-            .expect("Failed to produce random bytes for random big unsigned integer value.");
-        BigUint::from_bytes_be(&v)
+    // TODO needs constant-time?
+    pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(CryptoError::VerificationFailure("Provided values are not equal."))
+        }
     }
 }
 
@@ -245,7 +271,15 @@ pub mod SHA256 {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         let mut result = [0u8; 32];
         result.clone_from_slice(digest.as_ref());
-        return result;
+        result
+    }
+
+    pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
+        let mut payload = vec![b];
+        payload.extend_from_slice(data);
+        let mut result = [0u8; 32];
+        result.clone_from_slice(ring::digest::digest(&ring::digest::SHA256, &payload).as_ref());
+        result
     }
 
     /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTRv3 spec.

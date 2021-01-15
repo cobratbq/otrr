@@ -469,13 +469,13 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_fingerprint(&mut self, fingerprint: Fingerprint) -> &mut Self {
-        self.content.extend_from_slice(&fingerprint);
+    pub fn write_fingerprint(&mut self, fingerprint: &Fingerprint) -> &mut Self {
+        self.content.extend_from_slice(fingerprint);
         self
     }
 
-    pub fn write_ssid(&mut self, ssid: SSID) -> &mut Self {
-        self.content.extend_from_slice(&ssid);
+    pub fn write_ssid(&mut self, ssid: &SSID) -> &mut Self {
+        self.content.extend_from_slice(ssid);
         self
     }
 
@@ -488,4 +488,4 @@ pub struct TLV(pub u16, pub Vec<u8>);
 
 pub type Fingerprint = [u8; 20];
 
-type SSID = [u8; 8];
+pub type SSID = [u8; 8];
