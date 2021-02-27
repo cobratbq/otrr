@@ -266,19 +266,24 @@ pub mod SHA256 {
 
     type Digest = [u8; 32];
 
+    pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
+        let mut payload = vec![b];
+        payload.extend_from_slice(data);
+        digest(&payload)
+    }
+
+    pub fn digest_2_with_prefix(b: u8, data: &[u8], data2: &[u8]) -> Digest {
+        let mut payload = vec![b];
+        payload.extend_from_slice(data);
+        payload.extend_from_slice(data2);
+        digest(&payload)
+    }
+
     /// digest calculates the SHA256 digest value.
     pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         let mut result = [0u8; 32];
         result.clone_from_slice(digest.as_ref());
-        result
-    }
-
-    pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
-        let mut payload = vec![b];
-        payload.extend_from_slice(data);
-        let mut result = [0u8; 32];
-        result.clone_from_slice(ring::digest::digest(&ring::digest::SHA256, &payload).as_ref());
         result
     }
 

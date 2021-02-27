@@ -59,6 +59,8 @@ pub enum OTRError {
     /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,
+    SMPAborted(TLV),
+    SMPProtocolViolation,
 }
 
 /// Version contains the various supported OTR protocol versions.
@@ -81,6 +83,9 @@ type MAC = [u8; 20];
 
 /// Signature type represents a DSA signature in IEEE-P1363 representation.
 type Signature = [u8; 40];
+
+#[derive(Debug)]
+pub struct TLV(pub u16, pub Vec<u8>);
 
 // TODO early implementation assumptions:
 // 1. injections of messages into the transport never fails.

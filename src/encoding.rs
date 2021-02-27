@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use num_bigint::BigUint;
 use regex::bytes::Regex;
 
-use crate::{crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, MAC};
+use crate::{CTR, InstanceTag, MAC, OTRError, Signature, TLV, Version, crypto::AES128, crypto::DSA};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -377,6 +377,11 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
+// TODO where to move (obvious) utility function?
+pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
+    OTREncoder::new().write_mpi(v).to_vec()
+}
+
 pub struct OTREncoder {
     content: Vec<u8>,
 }
@@ -483,8 +488,6 @@ impl OTREncoder {
         self.content.clone()
     }
 }
-
-pub struct TLV(pub u16, pub Vec<u8>);
 
 pub type Fingerprint = [u8; 20];
 
