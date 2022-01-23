@@ -66,54 +66,45 @@ fn interpret_encoded_content(
 ) -> Result<OTRMessage, OTRError> {
     return match message_type {
         OTR_DH_COMMIT_TYPE_CODE => {
-            let encrypted = decoder.read_data()?;
-            let hashed = decoder.read_data()?;
-            Ok(OTRMessage::DHCommit {
-                gx_encrypted: encrypted,
-                gx_hashed: hashed,
-            })
+            let msg = DHCommitMessage {
+                gx_encrypted: decoder.read_data()?,
+                gx_hashed: decoder.read_data()?,
+            };
+            Ok(OTRMessage::DHCommit(msg))
         }
         OTR_DH_KEY_TYPE_CODE => {
-            let gy = decoder.read_mpi()?;
-            Ok(OTRMessage::DHKey { gy })
+            let msg = DHKeyMessage {
+                gy: decoder.read_mpi()?,
+            };
+            Ok(OTRMessage::DHKey(msg))
         }
         OTR_REVEAL_SIGNATURE_TYPE_CODE => {
-            let key = decoder.read_data()?;
-            let encrypted = decoder.read_data()?;
-            let mac = decoder.read_mac()?;
-            Ok(OTRMessage::RevealSignature {
-                key: AES128::Key(key.try_into().unwrap()),
-                signature_encrypted: Vec::from(encrypted),
-                signature_mac: mac,
-            })
+            let msg = RevealSignatureMessage {
+                key: AES128::Key(decoder.read_data()?.try_into().unwrap()),
+                signature_encrypted: Vec::from(decoder.read_data()?),
+                signature_mac: decoder.read_mac()?,
+            };
+            Ok(OTRMessage::RevealSignature(msg))
         }
         OTR_SIGNATURE_TYPE_CODE => {
-            let encrypted = decoder.read_data()?;
-            let mac = decoder.read_mac()?;
-            Ok(OTRMessage::Signature {
-                signature_encrypted: Vec::from(encrypted),
-                signature_mac: mac,
-            })
+            let msg = SignatureMessage {
+                signature_encrypted: decoder.read_data()?,
+                signature_mac: decoder.read_mac()?,
+            };
+            Ok(OTRMessage::Signature(msg))
         }
         OTR_DATA_TYPE_CODE => {
-            let flags = decoder.read_byte()?;
-            let sender_keyid = decoder.read_int()?;
-            let receiver_keyid = decoder.read_int()?;
-            let dh_y = decoder.read_mpi()?;
-            let ctr = decoder.read_ctr()?;
-            let encrypted = decoder.read_data()?;
-            let authenticator = decoder.read_mac()?;
-            let revealed = decoder.read_data()?;
-            Ok(OTRMessage::Data {
-                flags,
-                sender_keyid,
-                receiver_keyid,
-                dh_y,
-                ctr,
-                encrypted,
-                authenticator,
-                revealed,
-            })
+            let msg = DataMessage {
+                flags: decoder.read_byte()?,
+                sender_keyid: decoder.read_int()?,
+                receiver_keyid: decoder.read_int()?,
+                dh_y: decoder.read_mpi()?,
+                ctr: decoder.read_ctr()?,
+                encrypted: decoder.read_data()?,
+                authenticator: decoder.read_mac()?,
+                revealed: decoder.read_data()?,
+            };
+            Ok(OTRMessage::Data(msg))
         }
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type.",
@@ -196,33 +187,43 @@ pub enum MessageType {
 }
 
 pub enum OTRMessage {
-    DHCommit {
-        gx_encrypted: Vec<u8>,
-        gx_hashed: Vec<u8>,
-    },
-    DHKey {
-        gy: BigUint,
-    },
-    RevealSignature {
-        key: AES128::Key,
-        signature_encrypted: Vec<u8>,
-        signature_mac: MAC,
-    },
-    Signature {
-        signature_encrypted: Vec<u8>,
-        signature_mac: MAC,
-    },
-    Data {
-        flags: u8,
-        sender_keyid: u32,
-        receiver_keyid: u32,
-        dh_y: BigUint,
-        ctr: CTR,
-        encrypted: Vec<u8>,
-        authenticator: MAC,
-        /// revealed contains recent keys previously used for authentication.
-        revealed: Vec<u8>,
-    },
+    DHCommit(DHCommitMessage),
+    DHKey(DHKeyMessage),
+    RevealSignature(RevealSignatureMessage),
+    Signature(SignatureMessage),
+    Data(DataMessage),
+}
+
+pub struct DHCommitMessage {
+    pub gx_encrypted: Vec<u8>,
+    pub gx_hashed: Vec<u8>,
+}
+
+pub struct DHKeyMessage {
+    pub gy: BigUint,
+}
+
+pub struct RevealSignatureMessage {
+    pub key: AES128::Key,
+    pub signature_encrypted: Vec<u8>,
+    pub signature_mac: MAC,
+}
+
+pub struct SignatureMessage {
+    pub signature_encrypted: Vec<u8>,
+    pub signature_mac: MAC,
+}
+
+pub struct DataMessage {
+    pub flags: u8,
+    pub sender_keyid: u32,
+    pub receiver_keyid: u32,
+    pub dh_y: BigUint,
+    pub ctr: CTR,
+    pub encrypted: Vec<u8>,
+    pub authenticator: MAC,
+    /// revealed contains recent keys previously used for authentication.
+    pub revealed: Vec<u8>,
 }
 
 pub struct OTRDecoder<'a>(&'a [u8]);

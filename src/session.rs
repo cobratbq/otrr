@@ -136,64 +136,45 @@ impl Instance {
     ) -> Result<Message, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match message {
-            OTRMessage::DHCommit {
-                gx_encrypted,
-                gx_hashed,
-            } => {
+            OTRMessage::DHCommit(msg) => {
                 let response = self
                     .ake
-                    .handle_commit(gx_encrypted, gx_hashed)
+                    .handle_commit(&msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
-            OTRMessage::DHKey { gy } => {
+            OTRMessage::DHKey(msg) => {
                 let response = self
                     .ake
-                    .handle_key(&gy)
+                    .handle_key(&msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
-            OTRMessage::RevealSignature {
-                key,
-                signature_encrypted,
-                signature_mac,
-            } => {
+            OTRMessage::RevealSignature(msg) => {
                 let response = self
                     .ake
-                    .handle_reveal_signature(key, signature_encrypted, signature_mac)
+                    .handle_reveal_signature(&msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
                 Ok(Message::ConfidentialSessionStarted)
             }
-            OTRMessage::Signature {
-                signature_encrypted,
-                signature_mac,
-            } => {
+            OTRMessage::Signature(msg) => {
                 let result = self
                     .ake
-                    .handle_signature(signature_encrypted, signature_mac);
+                    .handle_signature(&msg);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
                 Ok(Message::ConfidentialSessionStarted)
             }
-            OTRMessage::Data {
-                flags,
-                sender_keyid,
-                receiver_keyid,
-                dh_y,
-                ctr,
-                encrypted,
-                authenticator,
-                revealed,
-            } => {
+            OTRMessage::Data(msg) => {
                 // FIXME verify and validate message before passing on to state.
                 let (message, transition) =
-                    self.state.handle(host, dh_y, ctr, encrypted, authenticator);
+                    self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }

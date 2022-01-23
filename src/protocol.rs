@@ -1,14 +1,10 @@
-use crate::{CTR, host::Host, Message, OTRError};
+use crate::{encoding::DataMessage, Message, OTRError};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn handle(
         &mut self,
-        host: &dyn Host,
-        dh_y: num_bigint::BigUint,
-        ctr: CTR,
-        encrypted: Vec<u8>,
-        authenticator: [u8;20],
+        msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     fn secure(&self) -> Box<EncryptedState>;
     // FIXME consider simplifying return value below.
@@ -35,14 +31,10 @@ impl ProtocolState for PlaintextState {
 
     fn handle(
         &mut self,
-        host: &dyn Host,
-        dh_y: num_bigint::BigUint,
-        ctr: CTR,
-        encrypted: Vec<u8>,
-        authenticator: [u8;20],
+        msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // FIXME assumes that this only needs to handle encrypted (OTR Data messages).
-        return (Err(OTRError::UnreadableMessage), None)
+        return (Err(OTRError::UnreadableMessage), None);
     }
 
     fn secure(&self) -> Box<EncryptedState> {
@@ -74,11 +66,7 @@ impl ProtocolState for EncryptedState {
 
     fn handle(
         &mut self,
-        host: &dyn Host,
-        dh_y: num_bigint::BigUint,
-        ctr: CTR,
-        encrypted: Vec<u8>,
-        authenticator: [u8;20],
+        msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         todo!("To be implemented")
@@ -107,13 +95,9 @@ impl ProtocolState for FinishedState {
 
     fn handle(
         &mut self,
-        host: &dyn Host,
-        dh_y: num_bigint::BigUint,
-        ctr: CTR,
-        encrypted: Vec<u8>,
-        authenticator: [u8;20],
+        msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        return (Err(OTRError::UnreadableMessage), None)
+        return (Err(OTRError::UnreadableMessage), None);
     }
 
     fn secure(&self) -> Box<EncryptedState> {
