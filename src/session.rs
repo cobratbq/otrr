@@ -8,7 +8,7 @@ use crate::{
     encoding::{parse, MessageType, OTRMessage},
     fragment,
     host::Host,
-    protocol, InstanceTag, Message, OTRError, Version,
+    protocol, InstanceTag, UserMessage, OTRError, Version,
 };
 
 pub struct Account {
@@ -25,7 +25,7 @@ impl Account {
     }
 
     // TODO fuzzing target
-    pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
+    pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         if fragment::match_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
             let fragment = fragment::parse(payload).or(Err(OTRError::ProtocolViolation(
@@ -51,14 +51,14 @@ impl Account {
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(AssemblingError::IncompleteResult) => Ok(Message::None),
+                Err(AssemblingError::IncompleteResult) => Ok(UserMessage::None),
                 Err(AssemblingError::IllegalFragment) => {
                     Err(OTRError::ProtocolViolation("Illegal fragment received."))
                 }
                 Err(AssemblingError::UnexpectedFragment) => {
                     // TODO debug info, keep?
                     println!("Unexpected fragment received. Assembler reset.");
-                    Ok(Message::None)
+                    Ok(UserMessage::None)
                 }
             }
         }
@@ -66,15 +66,15 @@ impl Account {
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
         // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
         return match parse(&payload)? {
-            MessageType::ErrorMessage(error) => Ok(Message::Error(error)),
-            MessageType::PlaintextMessage(content) => Ok(Message::Plaintext(content)),
+            MessageType::ErrorMessage(error) => Ok(UserMessage::Error(error)),
+            MessageType::PlaintextMessage(content) => Ok(UserMessage::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
                 self.initiate(versions);
-                Ok(Message::Plaintext(content))
+                Ok(UserMessage::Plaintext(content))
             }
             MessageType::QueryMessage(versions) => {
                 self.initiate(versions);
-                Ok(Message::None)
+                Ok(UserMessage::None)
             }
             MessageType::EncodedMessage {
                 version,
@@ -136,7 +136,7 @@ impl Instance {
         sender: InstanceTag,
         receiver: InstanceTag,
         message: OTRMessage,
-    ) -> Result<Message, OTRError> {
+    ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match message {
             OTRMessage::DHCommit(mut msg) => {
@@ -145,7 +145,7 @@ impl Instance {
                     .handle_commit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
-                Ok(Message::None)
+                Ok(UserMessage::None)
             }
             OTRMessage::DHKey(mut msg) => {
                 let response = self
@@ -153,7 +153,7 @@ impl Instance {
                     .handle_key(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
-                Ok(Message::None)
+                Ok(UserMessage::None)
             }
             OTRMessage::RevealSignature(mut msg) => {
                 let response = self
@@ -163,7 +163,7 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
-                Ok(Message::ConfidentialSessionStarted)
+                Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessage::Signature(mut msg) => {
                 let result = self
@@ -172,7 +172,7 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
-                Ok(Message::ConfidentialSessionStarted)
+                Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessage::Data(msg) => {
                 // FIXME verify and validate message before passing on to state.
@@ -187,11 +187,11 @@ impl Instance {
         };
     }
 
-    fn finish(&mut self) -> Result<Message, OTRError> {
+    fn finish(&mut self) -> Result<UserMessage, OTRError> {
         // FIXME verify and validate message before passing on to state.
         self.state = self.state.finish();
         // FIXME how to determine if we aborted an existing confidential session?
-        return Ok(Message::Reset);
+        return Ok(UserMessage::Reset);
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {

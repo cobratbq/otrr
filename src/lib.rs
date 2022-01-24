@@ -15,13 +15,12 @@ mod crypto;
 mod encoding;
 mod fragment;
 mod protocol;
-mod smp;
 
 pub mod host;
 pub mod session;
 
 /// Message represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
-pub enum Message {
+pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.
     None,
     /// Message for user received over open, plaintext transport.
