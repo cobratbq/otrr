@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, MAC, TLV,
+    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, CTR_LEN, MAC, TLV, MAC_LEN, SIGNATURE_LEN,
 };
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
@@ -260,11 +260,10 @@ impl<'a> OTRDecoder<'a> {
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
-        // FIXME error with operator precedence?
-        let value = (self.0[0] as u32)
-            << 24 + (self.0[1] as u32)
-            << 16 + (self.0[2] as u32)
-            << 8 + self.0[3] as u32;
+        let value = ((self.0[0] as u32) << 24)
+            + ((self.0[1] as u32) << 16)
+            + ((self.0[2] as u32) << 8)
+            + (self.0[3] as u32);
         self.0 = &self.0[4..];
         return Ok(value);
     }
@@ -303,30 +302,30 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_ctr reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
-        if self.0.len() < 8 {
+        if self.0.len() < CTR_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut ctr: CTR = [0; 8];
-        ctr.copy_from_slice(&self.0[..8]);
-        self.0 = &self.0[8..];
+        let mut ctr: CTR = [0; CTR_LEN];
+        ctr.copy_from_slice(&self.0[..CTR_LEN]);
+        self.0 = &self.0[CTR_LEN..];
         return Ok(ctr);
     }
 
     /// read_mac reads a MAC value from buffer.
     pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
-        if self.0.len() < 20 {
+        if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut mac: MAC = [0; 20];
-        mac.copy_from_slice(&self.0[..20]);
-        self.0 = &self.0[20..];
+        let mut mac: MAC = [0; MAC_LEN];
+        mac.copy_from_slice(&self.0[..MAC_LEN]);
+        self.0 = &self.0[MAC_LEN..];
         return Ok(mac);
     }
 
     /// read_public_key reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
-        let typ = self.read_short()?;
-        if typ != 0u16 {
+        let pktype = self.read_short()?;
+        if pktype != 0u16 {
             return Err(OTRError::ProtocolViolation(
                 "Unsupported/invalid public key type.",
             ));
@@ -342,12 +341,12 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
     pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
-        if self.0.len() < 40 {
+        if self.0.len() < SIGNATURE_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut sig: Signature = [0; 40];
-        sig.copy_from_slice(&self.0[..40]);
-        self.0 = &self.0[40..];
+        let mut sig: Signature = [0; SIGNATURE_LEN];
+        sig.copy_from_slice(&self.0[..SIGNATURE_LEN]);
+        self.0 = &self.0[SIGNATURE_LEN..];
         return Ok(sig);
     }
 
@@ -363,13 +362,23 @@ impl<'a> OTRDecoder<'a> {
         Ok(TLV(typ, data))
     }
 
-    pub fn read_ssid(&mut self) -> Result<SSID, OTRError> {
-        if self.0.len() < 8 {
+    pub fn read_fingerprint(&mut self) -> Result<Fingerprint, OTRError> {
+        if self.0.len() < FINGERPRINT_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut ssid = [0u8; 8];
-        ssid.clone_from_slice(&self.0[..8]);
-        self.0 = &self.0[8..];
+        let mut fingerprint = [0u8; FINGERPRINT_LEN];
+        fingerprint.clone_from_slice(&self.0[..FINGERPRINT_LEN]);
+        self.0 = &self.0[FINGERPRINT_LEN..];
+        Ok(fingerprint)
+    }
+
+    pub fn read_ssid(&mut self) -> Result<SSID, OTRError> {
+        if self.0.len() < SSID_LEN {
+            return Err(OTRError::IncompleteMessage);
+        }
+        let mut ssid = [0u8; SSID_LEN];
+        ssid.clone_from_slice(&self.0[..SSID_LEN]);
+        self.0 = &self.0[SSID_LEN..];
         Ok(ssid)
     }
 
@@ -384,41 +393,40 @@ pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
 }
 
 pub struct OTREncoder {
-    content: Vec<u8>,
+    buffer: Vec<u8>,
 }
 
 // TODO can we use 'mut self' so that we move the original instance around mutably?
 impl OTREncoder {
     pub fn new() -> Self {
-        return Self {
-            content: Vec::new(),
-        };
+        return Self { buffer: Vec::new() };
     }
 
     pub fn write_byte(&mut self, v: u8) -> &mut Self {
-        self.content.push(v);
+        self.buffer.push(v);
         self
     }
 
     pub fn write_short(&mut self, v: u16) -> &mut Self {
         let b = v.to_be_bytes();
-        self.content.push(b[0]);
-        self.content.push(b[1]);
+        self.buffer.push(b[0]);
+        self.buffer.push(b[1]);
         self
     }
 
     pub fn write_int(&mut self, v: u32) -> &mut Self {
         let b = v.to_be_bytes();
-        self.content.push(b[0]);
-        self.content.push(b[1]);
-        self.content.push(b[2]);
-        self.content.push(b[3]);
+        self.buffer.push(b[0]);
+        self.buffer.push(b[1]);
+        self.buffer.push(b[2]);
+        self.buffer.push(b[3]);
         self
     }
 
     pub fn write_data(&mut self, v: &[u8]) -> &mut Self {
+        assert!(v.len() <= (u32::MAX as usize));
         self.write_int(v.len() as u32);
-        self.content.extend_from_slice(v);
+        self.buffer.extend_from_slice(v);
         self
     }
 
@@ -430,20 +438,18 @@ impl OTREncoder {
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
         self.write_int(mpis.len() as u32);
         for mpi in mpis {
-            self.write_mpi(mpi);
+            self.write_mpi(*mpi);
         }
         self
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
-        assert_eq!(8, v.len());
-        self.content.extend_from_slice(v);
+        self.buffer.extend_from_slice(v);
         self
     }
 
     pub fn write_mac(&mut self, v: &MAC) -> &mut Self {
-        assert_eq!(20, v.len());
-        self.content.extend_from_slice(v);
+        self.buffer.extend_from_slice(v);
         self
     }
 
@@ -457,39 +463,40 @@ impl OTREncoder {
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
-        assert_eq!(40, sig.len());
-        self.content.extend_from_slice(sig);
+        self.buffer.extend_from_slice(sig);
         self
     }
 
     pub fn write_tlv(&mut self, tlv: TLV) -> &mut Self {
-        assert!(tlv.1.len() <= u16::MAX as usize);
+        assert!(tlv.1.len() <= (u16::MAX as usize));
         self.write_short(tlv.0).write_short(tlv.1.len() as u16);
-        self.content.extend(tlv.1);
+        self.buffer.extend(tlv.1);
         self
     }
 
     pub fn write_bytes_null_terminated(&mut self, data: &[u8]) -> &mut Self {
-        self.content.extend_from_slice(data);
-        self.content.push(0u8);
+        self.buffer.extend_from_slice(data);
+        self.buffer.push(0u8);
         self
     }
 
     pub fn write_fingerprint(&mut self, fingerprint: &Fingerprint) -> &mut Self {
-        self.content.extend_from_slice(fingerprint);
+        self.buffer.extend_from_slice(fingerprint);
         self
     }
 
     pub fn write_ssid(&mut self, ssid: &SSID) -> &mut Self {
-        self.content.extend_from_slice(ssid);
+        self.buffer.extend_from_slice(ssid);
         self
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        self.content.clone()
+        self.buffer.clone()
     }
 }
 
-pub type Fingerprint = [u8; 20];
+const FINGERPRINT_LEN: usize = 20;
+type Fingerprint = [u8; FINGERPRINT_LEN];
 
-pub type SSID = [u8; 8];
+const SSID_LEN: usize = 8;
+type SSID = [u8; SSID_LEN];
