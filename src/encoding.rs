@@ -1,9 +1,12 @@
 use std::convert::TryInto;
 
 use num_bigint::BigUint;
+use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
-use crate::{CTR, InstanceTag, MAC, OTRError, Signature, TLV, Version, crypto::AES128, crypto::DSA};
+use crate::{
+    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, MAC, TLV,
+};
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -21,11 +24,8 @@ const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
 const FLAG_IGNORE_UNREADABLE: u8 = 0b00000001;
 
-lazy_static! {
-    static ref QUERY_PATTERN: Regex = Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap();
-    static ref WHITESPACE_PATTERN: Regex =
-        Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap();
-}
+static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
+static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
 
 // TODO over all necessary writes, do usize size-of assertions.
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.

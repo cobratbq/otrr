@@ -3,12 +3,11 @@ use crypto::CryptoError;
 
 extern crate aes_ctr;
 extern crate base64;
-extern crate regex;
-#[macro_use]
-extern crate lazy_static;
 extern crate hex;
 extern crate num;
 extern crate num_bigint;
+extern crate once_cell;
+extern crate regex;
 extern crate ring;
 
 mod authentication;

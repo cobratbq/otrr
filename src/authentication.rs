@@ -50,7 +50,7 @@ impl AKEContext {
         }));
     }
 
-    pub fn handle_commit(&mut self, msg: &DHCommitMessage) -> Result<OTRMessage, AKEError> {
+    pub fn handle_commit(&mut self, mut msg: DHCommitMessage) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => self._handle_commit_from_initial(msg),
             AKEState::AwaitingDHKey { r, our_dh_keypair } => {
@@ -134,7 +134,7 @@ impl AKEContext {
         return result;
     }
 
-    fn _handle_commit_from_initial(&self, msg: &DHCommitMessage) -> (Result<OTRMessage, AKEError>, Option<AKEState>) {
+    fn _handle_commit_from_initial(&self, mut msg: DHCommitMessage) -> (Result<OTRMessage, AKEError>, Option<AKEState>) {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
         let keypair = DH::Keypair::generate();
         let dhkey = OTRMessage::DHKey(DHKeyMessage{
@@ -152,7 +152,7 @@ impl AKEContext {
         )
     }
 
-    pub fn handle_key(&mut self, msg: &DHKeyMessage) -> Result<OTRMessage, AKEError> {
+    pub fn handle_key(&mut self, mut msg: DHKeyMessage) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
@@ -268,7 +268,7 @@ impl AKEContext {
 
     pub fn handle_reveal_signature(
         &mut self,
-        msg: &RevealSignatureMessage
+        mut msg: RevealSignatureMessage
     ) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
@@ -359,7 +359,7 @@ impl AKEContext {
 
     pub fn handle_signature(
         &mut self,
-        msg: &SignatureMessage
+        mut msg: SignatureMessage
     ) -> Result<OTRMessage, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {

@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::InstanceTag;
@@ -8,12 +9,12 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
-lazy_static! {
-    static ref FRAGMENT_PATTERN: Regex = Regex::new(
-        r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),"
+static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 pub fn is_fragment(content: &[u8]) -> bool {
     return (content.starts_with(OTR_FRAGMENT_V2_PREFIX)

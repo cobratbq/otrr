@@ -1,11 +1,18 @@
-use std::ops::Sub;
+use std::ops::{Mul, Sub};
 
-use num::{FromPrimitive, integer::{Integer, mod_floor}};
+use num::{
+    integer::{mod_floor, Integer},
+    FromPrimitive,
+};
 use num_bigint::BigUint;
 use ring::rand::{SecureRandom, SystemRandom};
 
-use crate::{OTRError, TLV, crypto::{DH, SHA256}, encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID, encodeBigUint}};
-use DH::{MODULUS, verify_public_key};
+use crate::{
+    crypto::{CryptoError, DH, SHA256},
+    encoding::{encodeBigUint, Fingerprint, OTRDecoder, OTREncoder, SSID},
+    OTRError, TLV,
+};
+use DH::{verify_public_key, MODULUS, MODULUS_MINUS_TWO};
 
 /// TLV for initiating SMP
 const TLV_TYPE_SMP_MESSAGE_1: u16 = 2u16;
@@ -17,13 +24,11 @@ const TLV_TYPE_SMP_ABORT: u16 = 6u16;
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
 const TLV_TYPE_SMP_MESSAGE_1Q: u16 = 7u16;
 
-lazy_static! {
-    static ref RAND: SystemRandom = SystemRandom::new();
-    // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
-    // "D values are calculated modulo `q = (p - 1) / 2`"
-    // FIXME why should we clone this value??????
-    static ref Q: BigUint = MODULUS.clone().sub(BigUint::from_u8(1).unwrap()) / BigUint::from_u8(2).unwrap();
-}
+static RAND: SystemRandom = SystemRandom::new();
+// FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
+// "D values are calculated modulo `q = (p - 1) / 2`"
+// FIXME why should we clone this value??????
+static Q: BigUint = MODULUS.clone().sub(BigUint::from_u8(1).unwrap()) / BigUint::from_u8(2).unwrap();
 
 pub struct SMPContext {
     /// fingerprint of the other party

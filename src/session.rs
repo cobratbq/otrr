@@ -45,17 +45,18 @@ impl Account {
                 );
             }
             let instance = self.instances.get_mut(&fragment.sender).unwrap();
-            match instance.assembler.assemble(fragment) {
+            return match instance.assembler.assemble(fragment) {
                 // FIXME check whether fragment sender tag corresponds to message sender tag?
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
-                Ok(assembled) => return self.receive(assembled.as_slice()),
+                Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(AssemblingError::IncompleteResult) => return Ok(Message::None),
+                Err(AssemblingError::IncompleteResult) => Ok(Message::None),
                 Err(AssemblingError::IllegalFragment) => {
-                    return Err(OTRError::ProtocolViolation("Illegal fragment received."))
+                    Err(OTRError::ProtocolViolation("Illegal fragment received."))
                 }
                 Err(AssemblingError::UnexpectedFragment) => {
-                    todo!("handle unexpected fragments")
+                    todo!("handle unexpected fragments");
+                    Ok(Message::None)
                 }
             }
         }
@@ -136,36 +137,36 @@ impl Instance {
     ) -> Result<Message, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match message {
-            OTRMessage::DHCommit(msg) => {
+            OTRMessage::DHCommit(mut msg) => {
                 let response = self
                     .ake
-                    .handle_commit(&msg)
+                    .handle_commit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
-            OTRMessage::DHKey(msg) => {
+            OTRMessage::DHKey(mut msg) => {
                 let response = self
                     .ake
-                    .handle_key(&msg)
+                    .handle_key(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(Message::None)
             }
-            OTRMessage::RevealSignature(msg) => {
+            OTRMessage::RevealSignature(mut msg) => {
                 let response = self
                     .ake
-                    .handle_reveal_signature(&msg)
+                    .handle_reveal_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
                 Ok(Message::ConfidentialSessionStarted)
             }
-            OTRMessage::Signature(msg) => {
+            OTRMessage::Signature(mut msg) => {
                 let result = self
                     .ake
-                    .handle_signature(&msg);
+                    .handle_signature(msg);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
