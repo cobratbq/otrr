@@ -25,7 +25,8 @@ const OTR_DATA_TYPE_CODE: u8 = 0x03;
 const FLAG_IGNORE_UNREADABLE: u8 = 0b00000001;
 
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
-static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
+static WHITESPACE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
 
 // TODO over all necessary writes, do usize size-of assertions.
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
