@@ -15,6 +15,9 @@ pub mod DH {
 
     use super::{CryptoError, AES128, SHA256};
 
+    /// GENERATOR (g): 2
+    pub static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+
     /// Modulus
     pub static MODULUS: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_bytes_be(&[
@@ -41,7 +44,7 @@ pub mod DH {
     static RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
-        return if public_key > &generator() && public_key <= &MODULUS_MINUS_TWO {
+        return if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
@@ -65,7 +68,7 @@ pub mod DH {
         }
 
         pub fn new(private: BigUint) -> Self {
-            Self::new_custom(private, generator())
+            Self::new_custom(private, (*GENERATOR).clone())
         }
 
         pub fn new_custom(private: BigUint, generator: BigUint) -> Self {
@@ -97,12 +100,6 @@ pub mod DH {
                 m2p: h2(0x05, &secbytes),
             }
         }
-    }
-
-    /// GENERATOR (g): 2
-    pub fn generator() -> BigUint {
-        // TODO how do I make this a one-time initialized, then-reused constant?
-        BigUint::from_slice(&[2])
     }
 
     pub struct DerivedSecrets {

@@ -66,7 +66,7 @@ impl AKEContext {
                 let our_gxmpi_hashed = SHA256::digest(&gxmpi);
                 let our_hash = BigUint::from_bytes_be(&our_gxmpi_hashed);
                 let their_hash = BigUint::from_bytes_be(&msg.gx_hashed);
-                if our_hash.gt(&their_hash) {
+                if our_hash > their_hash {
                     // Ignore the incoming D-H Commit message, but resend your D-H Commit message.
                     let our_gx_encrypted = r.encrypt(&[0u8; 16], &gxmpi);
                     let dhcommit = OTRMessage::DHCommit(DHCommitMessage {
