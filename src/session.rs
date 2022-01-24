@@ -139,7 +139,7 @@ impl Instance {
     ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match message {
-            OTRMessage::DHCommit(mut msg) => {
+            OTRMessage::DHCommit(msg) => {
                 let response = self
                     .ake
                     .handle_commit(msg)
@@ -147,7 +147,7 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 Ok(UserMessage::None)
             }
-            OTRMessage::DHKey(mut msg) => {
+            OTRMessage::DHKey(msg) => {
                 let response = self
                     .ake
                     .handle_key(msg)
@@ -155,7 +155,7 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 Ok(UserMessage::None)
             }
-            OTRMessage::RevealSignature(mut msg) => {
+            OTRMessage::RevealSignature(msg) => {
                 let response = self
                     .ake
                     .handle_reveal_signature(msg)
@@ -165,7 +165,7 @@ impl Instance {
                 self.state = self.state.secure();
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
-            OTRMessage::Signature(mut msg) => {
+            OTRMessage::Signature(msg) => {
                 let result = self
                     .ake
                     .handle_signature(msg);
