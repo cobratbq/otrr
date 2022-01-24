@@ -12,13 +12,7 @@ pub trait ProtocolState {
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }
 
-pub enum ProtocolStatus {
-    Plaintext,
-    Encrypted,
-    Finished,
-}
-
-pub fn new_protocol_state() -> Box<dyn ProtocolState> {
+pub fn new() -> Box<dyn ProtocolState> {
     return Box::new(PlaintextState {});
 }
 
@@ -111,4 +105,10 @@ impl ProtocolState for FinishedState {
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         return Err(OTRError::ProtocolInFinishedState);
     }
+}
+
+pub enum ProtocolStatus {
+    Plaintext,
+    Encrypted,
+    Finished,
 }

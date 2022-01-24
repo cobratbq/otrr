@@ -16,7 +16,7 @@ static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     .unwrap()
 });
 
-pub fn is_fragment(content: &[u8]) -> bool {
+pub fn match_fragment(content: &[u8]) -> bool {
     return (content.starts_with(OTR_FRAGMENT_V2_PREFIX)
         || content.starts_with(OTR_FRAGMENT_V3_PREFIX))
         && content.ends_with(OTR_FRAGMENT_SUFFIX);
@@ -26,7 +26,7 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
     let fragment_caps = FRAGMENT_PATTERN.captures(content);
     if fragment_caps.is_none() {
         // TODO this currently includes OTRv2 fragments, which we will not support but maybe should handle gracefully.
-        return Err(FragmentError::IllegalFragment);
+        return Err(FragmentError::InvalidFormat);
     }
     let captures = fragment_caps.unwrap();
     // FIXME can these arrays be smaller than 4 bytes?
@@ -65,7 +65,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
         || fragment.part > fragment.total
         || fragment.payload.is_empty()
     {
-        Err(FragmentError::IllegalFragment)
+        Err(FragmentError::InvalidPartition)
     } else {
         Ok(())
     };
@@ -81,7 +81,8 @@ pub struct Fragment {
 
 #[derive(std::fmt::Debug)]
 pub enum FragmentError {
-    IllegalFragment,
+    InvalidFormat,
+    InvalidPartition,
 }
 
 pub struct Assembler {
@@ -100,6 +101,7 @@ impl Assembler {
     }
 
     pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, AssemblingError> {
+        // TODO second time verifying fragment. Assume valid fragment here and only verify directly after parsing?
         verify(&fragment).or(Err(AssemblingError::IllegalFragment))?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
             // First fragment encountered.
@@ -138,46 +140,46 @@ pub enum AssemblingError {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_fragment, parse, verify, Fragment};
+    use super::{match_fragment, parse, verify, Fragment};
 
     #[test]
     fn test_is_fragment_empty_string() {
-        assert_eq!(false, is_fragment(b""));
+        assert_eq!(false, match_fragment(b""));
     }
 
     #[test]
     fn test_is_fragment_arbitrary_string() {
-        assert_eq!(false, is_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
+        assert_eq!(false, match_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
     }
 
     #[test]
     fn test_is_fragment_otrv2_fragment() {
-        assert_eq!(true, is_fragment(b"?OTR,"));
+        assert_eq!(true, match_fragment(b"?OTR,"));
     }
 
     #[test]
     fn test_is_fragment_otrv3_fragment_incomplete() {
-        assert_eq!(false, is_fragment(b"?OTR|"));
+        assert_eq!(false, match_fragment(b"?OTR|"));
     }
 
     #[test]
     fn test_is_fragment_otrv3_fragment() {
-        assert_eq!(true, is_fragment(b"?OTR|,"));
+        assert_eq!(true, match_fragment(b"?OTR|,"));
     }
 
     #[test]
     fn test_is_fragment_otr_partly_arbitrary() {
-        assert_eq!(false, is_fragment(b"?OTRsomethingrandom,"));
+        assert_eq!(false, match_fragment(b"?OTRsomethingrandom,"));
     }
 
     #[test]
     fn test_is_fragment_otr_encoded() {
-        assert_eq!(false, is_fragment(b"?OTR:."));
+        assert_eq!(false, match_fragment(b"?OTR:."));
     }
 
     #[test]
     fn test_is_fragment_otr_encoded_mixed() {
-        assert_eq!(false, is_fragment(b"?OTR:,"));
+        assert_eq!(false, match_fragment(b"?OTR:,"));
     }
 
     #[test]

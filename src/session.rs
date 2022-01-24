@@ -26,11 +26,12 @@ impl Account {
 
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<Message, OTRError> {
-        if fragment::is_fragment(payload) {
+        if fragment::match_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
             let fragment = fragment::parse(payload).or(Err(OTRError::ProtocolViolation(
                 "Illegal or unsupported fragment.",
             )))?;
+            fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
             if fragment.receiver != self.tag && fragment.receiver != 0u32 {
                 return Err(OTRError::MessageForOtherInstance);
             }
@@ -39,7 +40,7 @@ impl Account {
                     fragment.sender,
                     Instance {
                         assembler: Assembler::new(),
-                        state: protocol::new_protocol_state(),
+                        state: protocol::new(),
                         ake: AKEContext::new(Rc::clone(&self.host)),
                     },
                 );
@@ -55,7 +56,8 @@ impl Account {
                     Err(OTRError::ProtocolViolation("Illegal fragment received."))
                 }
                 Err(AssemblingError::UnexpectedFragment) => {
-                    todo!("handle unexpected fragments");
+                    // TODO debug info, keep?
+                    println!("Unexpected fragment received. Assembler reset.");
                     Ok(Message::None)
                 }
             }
