@@ -5,7 +5,7 @@ use fragment::{Assembler, AssemblingError};
 
 use crate::{
     authentication,
-    encoding::{parse, EncodedMessage, MessageType, OTRMessage},
+    encoding::{parse, EncodedMessage, MessageType, OTRMessage, OTREncoder},
     fragment,
     host::Host,
     protocol, InstanceTag, OTRError, UserMessage, Version,
@@ -101,7 +101,10 @@ impl Account {
             .send(content)
     }
 
-    fn initiate(&mut self, _accepted_versions: Vec<Version>) {
+    fn initiate(&mut self, accepted_versions: Vec<Version>) {
+        let msg = MessageType::QueryMessage(accepted_versions);
+        todo!("continue implementation of sending message");
+        self.host.inject();
         todo!("Implement sending/injecting DH-Commit message.")
     }
 

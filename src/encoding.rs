@@ -190,6 +190,21 @@ pub struct EncodedMessage {
     pub message: OTRMessage,
 }
 
+impl OTREncodable for EncodedMessage {
+
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: correctly derive short-value from Version-type. (now hard-coded)
+        encoder.write_short(3u16).write_int(self.sender).write_int(self.receiver);
+        encoder.write_encodable(match &self.message {
+            OTRMessage::DHCommit(msg) => msg,
+            OTRMessage::DHKey(msg) => msg,
+            OTRMessage::RevealSignature(msg) => msg,
+            OTRMessage::Signature(msg) => msg,
+            OTRMessage::Data(msg) => msg,
+        });
+    }
+}
+
 pub enum OTRMessage {
     DHCommit(DHCommitMessage),
     DHKey(DHKeyMessage),
@@ -203,8 +218,22 @@ pub struct DHCommitMessage {
     pub gx_hashed: Vec<u8>,
 }
 
+impl OTREncodable for DHCommitMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: implement encoding DHCommitMessage
+        todo!()
+    }
+}
+
 pub struct DHKeyMessage {
     pub gy: BigUint,
+}
+
+impl OTREncodable for DHKeyMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: implement encoding DHKeyMessage
+        todo!()
+    }
 }
 
 pub struct RevealSignatureMessage {
@@ -213,9 +242,23 @@ pub struct RevealSignatureMessage {
     pub signature_mac: MAC,
 }
 
+impl OTREncodable for RevealSignatureMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: implement encoding RevealSignatureMessage
+        todo!()
+    }
+}
+
 pub struct SignatureMessage {
     pub signature_encrypted: Vec<u8>,
     pub signature_mac: MAC,
+}
+
+impl OTREncodable for SignatureMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: implement encoding SignatureMessage
+        todo!()
+    }
 }
 
 pub struct DataMessage {
@@ -228,6 +271,53 @@ pub struct DataMessage {
     pub authenticator: MAC,
     /// revealed contains recent keys previously used for authentication.
     pub revealed: Vec<u8>,
+}
+
+impl OTREncodable for DataMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        // FIXME: implement encoding DataMessage
+        todo!()
+    }
+}
+
+pub fn encode_otr_message(msg: &MessageType) -> Vec<u8> {
+    let mut buffer = Vec::<u8>::new();
+    match msg {
+        MessageType::ErrorMessage(error) => {
+            buffer.extend_from_slice(b"?OTR Error:");
+            buffer.extend(error);
+            buffer
+        }
+        MessageType::PlaintextMessage(message) => {
+            buffer.extend(message);
+            buffer
+        }
+        MessageType::TaggedMessage(versions, message) => {
+            // FIXME: implement whitespace-encoding versions in message -- at best/reasonable location"
+            buffer.extend(message);
+            buffer
+        }
+        MessageType::QueryMessage(versions) => {
+            buffer.extend_from_slice(b"?OTRv");
+            for v in versions {
+                match v {
+                    Version::V3 => {
+                        buffer.push(b'3');
+                    }
+                    Version::Unsupported(unsupported) => {
+                        panic!("BUG: unsupported version {} leaked into encoding logic.", unsupported)
+                    }
+                }
+            }
+            buffer.push(b'?');
+            // TODO: tweak / make accompanying message changeable
+            buffer.extend_from_slice(b" An Off-The-Record conversation has been requested.");
+            buffer
+        }
+        MessageType::EncodedMessage(encoded_message) => {
+            buffer
+        }
+    }
 }
 
 pub struct OTRDecoder<'a>(&'a [u8]);
@@ -397,6 +487,10 @@ pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
     OTREncoder::new().write_mpi(v).to_vec()
 }
 
+trait OTREncodable {
+    fn encode(&self, encoder: &mut OTREncoder);
+}
+
 pub struct OTREncoder {
     buffer: Vec<u8>,
 }
@@ -406,6 +500,10 @@ pub struct OTREncoder {
 impl OTREncoder {
     pub fn new() -> Self {
         return Self { buffer: Vec::new() };
+    }
+
+    pub fn write_encodable(&mut self, encodable: &dyn OTREncodable) {
+        encodable.encode(self);
     }
 
     pub fn write_byte(&mut self, v: u8) -> &mut Self {
