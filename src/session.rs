@@ -5,15 +5,18 @@ use fragment::{Assembler, AssemblingError};
 
 use crate::{
     authentication,
-    encoding::{parse, EncodedMessage, MessageType, OTRMessage, OTREncoder},
+    encoding::{encode_otr_message, parse, EncodedMessage, MessageType, OTRMessage},
     fragment,
     host::Host,
-    protocol, InstanceTag, OTRError, UserMessage, Version,
+    protocol, InstanceTag, OTRError, UserMessage, Version, INSTANCE_ZERO,
 };
 
 pub struct Account {
     host: Rc<dyn Host>,
     tag: InstanceTag,
+    /// instances contains all individual instances (clients) that have been
+    /// encountered. Instance 0 is used for clients that have not yet announced
+    /// their instance tag. Typically, before or during initial stages of OTR.
     instances: collections::HashMap<InstanceTag, Instance>,
 }
 
@@ -71,13 +74,19 @@ impl Account {
             MessageType::PlaintextMessage(content) => Ok(UserMessage::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
                 // TODO: take policies into account before initiating.
-                self.initiate(versions);
+                self.initiate(
+                    self.select_version(&versions)
+                        .ok_or(OTRError::NoAcceptableVersion)?,
+                )?;
                 Ok(UserMessage::Plaintext(content))
             }
             MessageType::QueryMessage(versions) => {
                 // TODO: take policies into account before initiating.
-                self.initiate(versions);
-                Ok(UserMessage::Initiated)
+                self.initiate(
+                    self.select_version(&versions)
+                        .ok_or(OTRError::NoAcceptableVersion)?,
+                )?;
+                Ok(UserMessage::None)
             }
             MessageType::EncodedMessage(msg) => {
                 // FIXME add more precise instane tag (sender/receiver) validation.
@@ -92,6 +101,11 @@ impl Account {
         };
     }
 
+    fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
+        // TODO: take policies into account before initiating.
+        todo!("To be implemented")
+    }
+
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
@@ -101,15 +115,26 @@ impl Account {
             .send(content)
     }
 
-    fn initiate(&mut self, accepted_versions: Vec<Version>) {
-        let msg = MessageType::QueryMessage(accepted_versions);
-        todo!("continue implementation of sending message");
-        self.host.inject();
-        todo!("Implement sending/injecting DH-Commit message.")
+    fn initiate(&mut self, version: Version) -> Result<(), OTRError> {
+        let receiver = INSTANCE_ZERO;
+        let initMessage = self
+            .instances
+            .get_mut(&receiver)
+            .get_or_insert(&mut Instance::new(Rc::clone(&self.host)))
+            .initiate()?;
+        let msg = MessageType::EncodedMessage(EncodedMessage {
+            version,
+            sender: self.tag,
+            receiver: receiver,
+            message: initMessage,
+        });
+        self.host.inject(&encode_otr_message(&msg));
+        Ok(())
     }
 
-    fn query(&mut self, _possible_versions: Vec<Version>) {
-        todo!("Query by sending query message.")
+    fn query(&mut self, possible_versions: Vec<Version>) {
+        let msg = MessageType::QueryMessage(possible_versions);
+        self.host.inject(&encode_otr_message(&msg));
     }
 }
 
@@ -121,11 +146,19 @@ struct Instance {
 }
 
 impl Instance {
+    fn new(host: Rc<dyn Host>) -> Instance {
+        Instance {
+            ake: AKEContext::new(host),
+            assembler: Assembler::new(),
+            state: protocol::new(),
+        }
+    }
+
     fn status(&self) -> protocol::ProtocolStatus {
         return self.state.status();
     }
 
-    fn initiate(&mut self) -> Result<(), OTRError> {
+    fn initiate(&mut self) -> Result<OTRMessage, OTRError> {
         let msg = self.ake.initiate().unwrap();
         todo!()
     }

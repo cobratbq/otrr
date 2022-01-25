@@ -38,8 +38,6 @@ pub enum UserMessage {
     Plaintext(Vec<u8>),
     /// OTR error message received.
     Error(Vec<u8>),
-    /// Message indicating that OTR initiation has started.
-    Initiated,
     /// Message state reset to "plaintext". (by user action)
     Reset,
     /// Confidential session started, transitioned to "encrypted" state.
@@ -63,6 +61,9 @@ pub enum OTRError {
     MessageForOtherInstance,
     /// Message to be sent to an unknown instance. (FIXME need to check with spec on details)
     UnknownInstance,
+    // FIXME: not sure if this is the way to go...
+    /// No acceptable version available in proposed protocol versions.
+    NoAcceptableVersion,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     ProtocolInFinishedState,
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
@@ -86,6 +87,7 @@ pub enum Version {
 }
 
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
+const INSTANCE_ZERO: InstanceTag = 0u32;
 pub type InstanceTag = u32;
 
 // TODO: how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
