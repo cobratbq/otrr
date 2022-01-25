@@ -17,6 +17,7 @@ pub struct Account {
     instances: collections::HashMap<InstanceTag, Instance>,
 }
 
+#[allow(dead_code)]
 impl Account {
     pub fn status(&self, instance: InstanceTag) -> Option<protocol::ProtocolStatus> {
         self.instances
@@ -96,14 +97,15 @@ impl Account {
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         self.instances
             .get_mut(&instance)
-            .map_or(Err(OTRError::UnknownInstance), |i| i.send(content))
+            .ok_or(OTRError::UnknownInstance)?
+            .send(content)
     }
 
-    fn initiate(&mut self, accepted_versions: Vec<Version>) {
+    fn initiate(&mut self, _accepted_versions: Vec<Version>) {
         todo!("Implement sending/injecting DH-Commit message.")
     }
 
-    fn query(&mut self, possible_versions: Vec<Version>) {
+    fn query(&mut self, _possible_versions: Vec<Version>) {
         todo!("Query by sending query message.")
     }
 }
@@ -178,10 +180,11 @@ impl Instance {
         };
     }
 
+    // TODO: probably an API function => pub
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
         // FIXME verify and validate message before passing on to state.
         self.state = self.state.finish();
-        // FIXME how to determine if we aborted an existing confidential session?
+        // FIXME how to determine if we aborted an existing confidential session? (Do we really care?)
         return Ok(UserMessage::Reset);
     }
 

@@ -1,11 +1,14 @@
-use crate::{encoding::DataMessage, UserMessage, OTRError};
+use crate::{encoding::DataMessage, OTRError, UserMessage};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn handle(
         &mut self,
         msg: &DataMessage,
-    ) -> (Result<UserMessage, OTRError>, Option<Box<dyn ProtocolState>>);
+    ) -> (
+        Result<UserMessage, OTRError>,
+        Option<Box<dyn ProtocolState>>,
+    );
     fn secure(&self) -> Box<EncryptedState>;
     fn finish(&self) -> Box<PlaintextState>;
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
@@ -24,8 +27,11 @@ impl ProtocolState for PlaintextState {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
-    ) -> (Result<UserMessage, OTRError>, Option<Box<dyn ProtocolState>>) {
+        _msg: &DataMessage,
+    ) -> (
+        Result<UserMessage, OTRError>,
+        Option<Box<dyn ProtocolState>>,
+    ) {
         // FIXME assumes that this only needs to handle encrypted (OTR Data messages).
         return (Err(OTRError::UnreadableMessage), None);
     }
@@ -59,8 +65,11 @@ impl ProtocolState for EncryptedState {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
-    ) -> (Result<UserMessage, OTRError>, Option<Box<dyn ProtocolState>>) {
+        _msg: &DataMessage,
+    ) -> (
+        Result<UserMessage, OTRError>,
+        Option<Box<dyn ProtocolState>>,
+    ) {
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         todo!("To be implemented")
     }
@@ -74,7 +83,7 @@ impl ProtocolState for EncryptedState {
         return Box::new(PlaintextState {});
     }
 
-    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn send(&mut self, _content: &[u8]) -> Result<Vec<u8>, OTRError> {
         todo!()
     }
 }
@@ -88,8 +97,11 @@ impl ProtocolState for FinishedState {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
-    ) -> (Result<UserMessage, OTRError>, Option<Box<dyn ProtocolState>>) {
+        _: &DataMessage,
+    ) -> (
+        Result<UserMessage, OTRError>,
+        Option<Box<dyn ProtocolState>>,
+    ) {
         return (Err(OTRError::UnreadableMessage), None);
     }
 
@@ -101,7 +113,7 @@ impl ProtocolState for FinishedState {
         return Box::new(PlaintextState {});
     }
 
-    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn send(&mut self, _: &[u8]) -> Result<Vec<u8>, OTRError> {
         return Err(OTRError::ProtocolInFinishedState);
     }
 }

@@ -245,7 +245,7 @@ pub mod SHA1 {
 
     pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
-        let mut result = [0u8; 20];
+        let mut result: Digest = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
         return result;
     }

@@ -17,7 +17,7 @@ pub struct AKEContext {
 
 // FIXME check verification of public keys everywhere.
 // FIXME check updating of state everywhere where necessary.
-// FIXME there was a need to cut off 0x00 from head somewhereh, I believe in DSA public key serialized.
+// FIXME there was a need to cut off 0x00 from head somewhere. I believe in DSA public key serialized.
 impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
