@@ -15,6 +15,7 @@ pub mod DH {
 
     use super::{CryptoError, AES128, SHA256};
 
+    // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
     pub static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 

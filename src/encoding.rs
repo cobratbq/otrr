@@ -392,6 +392,11 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
+// TODO where to move (obvious) utility function?
+pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
+    OTREncoder::new().write_mpi(v).to_vec()
+}
+
 pub struct OTREncoder {
     buffer: Vec<u8>,
 }
@@ -497,7 +502,7 @@ impl OTREncoder {
 }
 
 const FINGERPRINT_LEN: usize = 20;
-type Fingerprint = [u8; FINGERPRINT_LEN];
+pub type Fingerprint = [u8; FINGERPRINT_LEN];
 
 const SSID_LEN: usize = 8;
-type SSID = [u8; SSID_LEN];
+pub type SSID = [u8; SSID_LEN];

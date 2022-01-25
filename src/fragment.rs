@@ -119,11 +119,11 @@ impl Assembler {
             self.content.clear();
             return Err(AssemblingError::UnexpectedFragment);
         }
-        return if self.last == self.total {
+        if self.last == self.total {
             Ok(Vec::from(self.content.as_slice()))
         } else {
             Err(AssemblingError::IncompleteResult)
-        };
+        }
     }
 }
 
