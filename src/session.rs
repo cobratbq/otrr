@@ -5,7 +5,7 @@ use fragment::{Assembler, AssemblingError};
 
 use crate::{
     authentication,
-    encoding::{parse, MessageType, OTRMessage},
+    encoding::{parse, EncodedMessage, MessageType, OTRMessage},
     fragment,
     host::Host,
     protocol, InstanceTag, OTRError, UserMessage, Version,
@@ -69,31 +69,24 @@ impl Account {
             MessageType::ErrorMessage(error) => Ok(UserMessage::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(UserMessage::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
+                // TODO: take policies into account before initiating.
                 self.initiate(versions);
                 Ok(UserMessage::Plaintext(content))
             }
             MessageType::QueryMessage(versions) => {
+                // TODO: take policies into account before initiating.
                 self.initiate(versions);
-                Ok(UserMessage::None)
+                Ok(UserMessage::Initiated)
             }
-            MessageType::EncodedMessage {
-                version,
-                sender,
-                receiver,
-                message,
-            } => {
+            MessageType::EncodedMessage(msg) => {
                 // FIXME add more precise instane tag (sender/receiver) validation.
-                if receiver != 0u32 && receiver != self.tag {
+                if msg.receiver != 0u32 && msg.receiver != self.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }
-                // FIXME look-up or create instance, delegate handling to instance
-                self.instances.get_mut(&sender).unwrap().handle(
-                    self.host.as_ref(),
-                    version,
-                    sender,
-                    receiver,
-                    message,
-                )
+                self.instances
+                    .get_mut(&msg.sender)
+                    .ok_or(OTRError::UnknownInstance)?
+                    .handle(self.host.as_ref(), msg)
             }
         };
     }
@@ -115,6 +108,7 @@ impl Account {
     }
 }
 
+/// Instance serves a single communication session, ensuring that messages always go to the same single client.
 struct Instance {
     assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
@@ -134,18 +128,16 @@ impl Instance {
     fn handle(
         &mut self,
         host: &dyn Host,
-        version: Version,
-        sender: InstanceTag,
-        receiver: InstanceTag,
-        message: OTRMessage,
+        encodedmessage: EncodedMessage,
     ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
-        return match message {
+        return match encodedmessage.message {
             OTRMessage::DHCommit(msg) => {
                 let response = self
                     .ake
                     .handle_commit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+
                 // FIXME handle errors and inject response.
                 Ok(UserMessage::None)
             }

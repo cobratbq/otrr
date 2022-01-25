@@ -5,7 +5,8 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, CTR_LEN, MAC, TLV, MAC_LEN, SIGNATURE_LEN,
+    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, CTR_LEN, MAC,
+    MAC_LEN, SIGNATURE_LEN, TLV,
 };
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
@@ -28,7 +29,7 @@ static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))
 static WHITESPACE_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
 
-// TODO over all necessary writes, do usize size-of assertions.
+// TODO over all necessary writes, do usize size-of assertions. (or use type-aliasing to ensure appropriate size)
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
 
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
@@ -53,12 +54,12 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let sender = decoder.read_int()?;
     let receiver = decoder.read_int()?;
     let encoded = interpret_encoded_content(message_type, decoder)?;
-    return Result::Ok(MessageType::EncodedMessage {
+    return Result::Ok(MessageType::EncodedMessage(EncodedMessage {
         version: version,
         sender: sender,
         receiver: receiver,
         message: encoded,
-    });
+    }));
 }
 
 fn interpret_encoded_content(
@@ -179,12 +180,14 @@ pub enum MessageType {
     PlaintextMessage(Vec<u8>),
     TaggedMessage(Vec<Version>, Vec<u8>),
     QueryMessage(Vec<Version>),
-    EncodedMessage {
-        version: Version,
-        sender: InstanceTag,
-        receiver: InstanceTag,
-        message: OTRMessage,
-    },
+    EncodedMessage(EncodedMessage),
+}
+
+pub struct EncodedMessage {
+    pub version: Version,
+    pub sender: InstanceTag,
+    pub receiver: InstanceTag,
+    pub message: OTRMessage,
 }
 
 pub enum OTRMessage {
@@ -231,6 +234,7 @@ pub struct OTRDecoder<'a>(&'a [u8]);
 
 // FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
 /// OTRDecoder contains the logic for reading entries from byte-buffer.
+#[allow(dead_code)]
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
         return Self(content);
@@ -388,16 +392,12 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
-// TODO where to move (obvious) utility function?
-pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
-    OTREncoder::new().write_mpi(v).to_vec()
-}
-
 pub struct OTREncoder {
     buffer: Vec<u8>,
 }
 
 // TODO can we use 'mut self' so that we move the original instance around mutably?
+#[allow(dead_code)]
 impl OTREncoder {
     pub fn new() -> Self {
         return Self { buffer: Vec::new() };

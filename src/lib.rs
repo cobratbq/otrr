@@ -38,6 +38,8 @@ pub enum UserMessage {
     Plaintext(Vec<u8>),
     /// OTR error message received.
     Error(Vec<u8>),
+    /// Message indicating that OTR initiation has started.
+    Initiated,
     /// Message state reset to "plaintext". (by user action)
     Reset,
     /// Confidential session started, transitioned to "encrypted" state.
@@ -86,7 +88,7 @@ pub enum Version {
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
 pub type InstanceTag = u32;
 
-// FIXME: can we do without CTR_LEN and other length const?
+// TODO: how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 const CTR_LEN: usize = 8;
 type CTR = [u8; CTR_LEN];

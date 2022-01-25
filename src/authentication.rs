@@ -288,6 +288,15 @@ impl AKEContext {
                 // Ignore the message.
                 (Err(AKEError::MessageIgnored), None)
             }
+            AKEState::AwaitingSignature {
+                our_dh_keypair: _,
+                key: _,
+                gy: _,
+                secrets: _,
+            } => {
+                // Ignore the message.
+                (Err(AKEError::MessageIgnored), None)
+            }
             AKEState::AwaitingRevealSignature {
                 our_dh_keypair,
                 gx_encrypted,
@@ -346,15 +355,6 @@ impl AKEContext {
                     Err(AKEError::Completed),
                     Some(AKEState::None(VerificationState::VERIFIED)),
                 )
-            }
-            AKEState::AwaitingSignature {
-                our_dh_keypair: _,
-                key: _,
-                gy: _,
-                secrets: _,
-            } => {
-                // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
             }
         };
         if transition.is_some() {
