@@ -7,7 +7,6 @@ pub trait ProtocolState {
         msg: &DataMessage,
     ) -> (Result<UserMessage, OTRError>, Option<Box<dyn ProtocolState>>);
     fn secure(&self) -> Box<EncryptedState>;
-    // FIXME consider simplifying return value below.
     fn finish(&self) -> Box<PlaintextState>;
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }

@@ -59,6 +59,8 @@ pub enum OTRError {
     UnreadableMessage,
     /// An OTR message was received that is intended for a different instance (client).
     MessageForOtherInstance,
+    /// Message to be sent to an unknown instance. (FIXME need to check with spec on details)
+    UnknownInstance,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     ProtocolInFinishedState,
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
@@ -84,7 +86,7 @@ pub enum Version {
 /// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
 pub type InstanceTag = u32;
 
-// FIXME: can we do without CTR_LEN const?
+// FIXME: can we do without CTR_LEN and other length const?
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 const CTR_LEN: usize = 8;
 type CTR = [u8; CTR_LEN];

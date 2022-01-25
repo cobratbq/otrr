@@ -8,7 +8,7 @@ use crate::{
     encoding::{parse, MessageType, OTRMessage},
     fragment,
     host::Host,
-    protocol, InstanceTag, UserMessage, OTRError, Version,
+    protocol, InstanceTag, OTRError, UserMessage, Version,
 };
 
 pub struct Account {
@@ -60,11 +60,11 @@ impl Account {
                     println!("Unexpected fragment received. Assembler reset.");
                     Ok(UserMessage::None)
                 }
-            }
+            };
         }
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
-        // FIXME we need to route non-OTR-encoded message through the session too, so that the session instancce can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
+        // FIXME we need to route non-OTR-encoded message through the session too, so that the session instance can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
         return match parse(&payload)? {
             MessageType::ErrorMessage(error) => Ok(UserMessage::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(UserMessage::Plaintext(content)),
@@ -101,7 +101,9 @@ impl Account {
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
-        todo!()
+        self.instances
+            .get_mut(&instance)
+            .map_or(Err(OTRError::UnknownInstance), |i| i.send(content))
     }
 
     fn initiate(&mut self, accepted_versions: Vec<Version>) {
@@ -166,9 +168,7 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessage::Signature(msg) => {
-                let result = self
-                    .ake
-                    .handle_signature(msg);
+                let result = self.ake.handle_signature(msg);
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
@@ -176,8 +176,7 @@ impl Instance {
             }
             OTRMessage::Data(msg) => {
                 // FIXME verify and validate message before passing on to state.
-                let (message, transition) =
-                    self.state.handle(&msg);
+                let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
