@@ -22,6 +22,7 @@ pub struct Account {
 
 #[allow(dead_code)]
 impl Account {
+    /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
     pub fn status(&self, instance: InstanceTag) -> Option<protocol::ProtocolStatus> {
         self.instances
             .get(&instance)
@@ -44,7 +45,7 @@ impl Account {
                 .entry(fragment.sender)
                 .or_insert_with(|| Instance {
                     assembler: Assembler::new(),
-                    state: protocol::new(),
+                    state: protocol::new_state(),
                     ake: AKEContext::new(Rc::clone(&self.host)),
                 });
             return match instance.assembler.assemble(fragment) {
@@ -94,14 +95,19 @@ impl Account {
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
-                    .handle(self.host.as_ref(), msg)
+                    .handle(msg)
             }
         };
     }
 
+    // TODO: should rely on some pool of accepted versions instead of hard-coding.
     fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
         // TODO: take policies into account before initiating.
-        todo!("To be implemented")
+        if versions.contains(&Version::V3) {
+            Some(Version::V3)
+        } else {
+            None
+        }
     }
 
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -113,7 +119,7 @@ impl Account {
             .send(content)
     }
 
-    fn initiate(&mut self, version: Version) -> Result<(), OTRError> {
+    pub fn initiate(&mut self, version: Version) -> Result<(), OTRError> {
         let receiver = INSTANCE_ZERO;
         let initMessage = self
             .instances
@@ -130,7 +136,8 @@ impl Account {
         Ok(())
     }
 
-    fn query(&mut self, possible_versions: Vec<Version>) {
+    pub fn query(&mut self, possible_versions: Vec<Version>) {
+        // FIXME: verify possible versions against supported (non-blocked) versions.
         let msg = MessageType::QueryMessage(possible_versions);
         self.host.inject(&encode_otr_message(&msg));
     }
@@ -148,7 +155,7 @@ impl Instance {
         Instance {
             ake: AKEContext::new(host),
             assembler: Assembler::new(),
-            state: protocol::new(),
+            state: protocol::new_state(),
         }
     }
 
@@ -162,11 +169,8 @@ impl Instance {
             .or_else(|err| Err(OTRError::AuthenticationError(err)))
     }
 
-    fn handle(
-        &mut self,
-        host: &dyn Host,
-        encodedmessage: EncodedMessage,
-    ) -> Result<UserMessage, OTRError> {
+    // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
+    fn handle(&mut self, encodedmessage: EncodedMessage) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match encodedmessage.message {
             OTRMessage::DHCommit(msg) => {
@@ -214,12 +218,11 @@ impl Instance {
         };
     }
 
-    // TODO: probably an API function => pub
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
         let previous = self.state.status();
         // TODO: what happens with verification status when we force-reset? (prefer always reset for safety)
         self.state = self.state.finish();
-        if previous == self.status() {
+        if previous == self.state.status() {
             Ok(UserMessage::None)
         } else {
             Ok(UserMessage::Reset)

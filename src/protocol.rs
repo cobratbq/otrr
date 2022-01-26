@@ -14,7 +14,7 @@ pub trait ProtocolState {
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }
 
-pub fn new() -> Box<dyn ProtocolState> {
+pub fn new_state() -> Box<dyn ProtocolState> {
     return Box::new(PlaintextState {});
 }
 
