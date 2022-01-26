@@ -39,17 +39,14 @@ impl Account {
             if fragment.receiver != self.tag && fragment.receiver != INSTANCE_ZERO {
                 return Err(OTRError::MessageForOtherInstance);
             }
-            if !self.instances.contains_key(&fragment.sender) {
-                self.instances.insert(
-                    fragment.sender,
-                    Instance {
-                        assembler: Assembler::new(),
-                        state: protocol::new(),
-                        ake: AKEContext::new(Rc::clone(&self.host)),
-                    },
-                );
-            }
-            let instance = self.instances.get_mut(&fragment.sender).unwrap();
+            let instance = self
+                .instances
+                .entry(fragment.sender)
+                .or_insert_with(|| Instance {
+                    assembler: Assembler::new(),
+                    state: protocol::new(),
+                    ake: AKEContext::new(Rc::clone(&self.host)),
+                });
             return match instance.assembler.assemble(fragment) {
                 // FIXME check whether fragment sender tag corresponds to message sender tag?
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
@@ -120,8 +117,8 @@ impl Account {
         let receiver = INSTANCE_ZERO;
         let initMessage = self
             .instances
-            .get_mut(&receiver)
-            .get_or_insert(&mut Instance::new(Rc::clone(&self.host)))
+            .entry(receiver)
+            .or_insert_with(|| Instance::new(Rc::clone(&self.host)))
             .initiate()?;
         let msg = MessageType::EncodedMessage(EncodedMessage {
             version,
