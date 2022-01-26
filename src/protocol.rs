@@ -1,4 +1,4 @@
-use crate::{encoding::DataMessage, OTRError, UserMessage};
+use crate::{encoding::DataMessage, OTRError, UserMessage, Version};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -50,7 +50,9 @@ impl ProtocolState for PlaintextState {
     }
 }
 
-pub struct EncryptedState {}
+pub struct EncryptedState {
+    version: Version,
+}
 
 impl Drop for EncryptedState {
     fn drop(&mut self) {

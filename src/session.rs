@@ -43,11 +43,7 @@ impl Account {
             let instance = self
                 .instances
                 .entry(fragment.sender)
-                .or_insert_with(|| Instance {
-                    assembler: Assembler::new(),
-                    state: protocol::new_state(),
-                    ake: AKEContext::new(Rc::clone(&self.host)),
-                });
+                .or_insert_with(|| Instance::new(fragment.sender, Rc::clone(&self.host)));
             return match instance.assembler.assemble(fragment) {
                 // FIXME check whether fragment sender tag corresponds to message sender tag?
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
@@ -91,11 +87,11 @@ impl Account {
                 if msg.receiver != INSTANCE_ZERO && msg.receiver != self.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }
-                // FIXME message needs to be decrypted too. Not currently in the control flow :-P
+                // FIXME need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
-                    .handle(msg)
+                    .handle(self.host.as_ref(), msg)
             }
         };
     }
@@ -124,7 +120,7 @@ impl Account {
         let initMessage = self
             .instances
             .entry(receiver)
-            .or_insert_with(|| Instance::new(Rc::clone(&self.host)))
+            .or_insert_with(|| Instance::new(receiver, Rc::clone(&self.host)))
             .initiate()?;
         let msg = MessageType::EncodedMessage(EncodedMessage {
             version,
@@ -145,17 +141,19 @@ impl Account {
 
 /// Instance serves a single communication session, ensuring that messages always go to the same single client.
 struct Instance {
+    tag: InstanceTag,
     assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
 }
 
 impl Instance {
-    fn new(host: Rc<dyn Host>) -> Instance {
+    fn new(tag: InstanceTag, host: Rc<dyn Host>) -> Instance {
         Instance {
-            ake: AKEContext::new(host),
+            tag: tag,
             assembler: Assembler::new(),
             state: protocol::new_state(),
+            ake: AKEContext::new(host),
         }
     }
 
@@ -170,7 +168,11 @@ impl Instance {
     }
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
-    fn handle(&mut self, encodedmessage: EncodedMessage) -> Result<UserMessage, OTRError> {
+    fn handle(
+        &mut self,
+        host: &dyn Host,
+        encodedmessage: EncodedMessage,
+    ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match encodedmessage.message {
             OTRMessage::DHCommit(msg) => {

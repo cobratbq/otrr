@@ -205,11 +205,17 @@ impl OTREncodable for EncodedMessage {
     }
 }
 
+/// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
 pub enum OTRMessage {
+    /// DH-Commit-message in the AKE-process.
     DHCommit(DHCommitMessage),
+    /// DH-Key-message in the AKE-process.
     DHKey(DHKeyMessage),
+    /// RevealSignature-message in the AKE-process.
     RevealSignature(RevealSignatureMessage),
+    /// Signature-message in the AKE-process.
     Signature(SignatureMessage),
+    /// (Encrypted) data message.
     Data(DataMessage),
 }
 
