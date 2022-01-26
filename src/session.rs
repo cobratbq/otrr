@@ -217,10 +217,14 @@ impl Instance {
 
     // TODO: probably an API function => pub
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
-        // FIXME verify and validate message before passing on to state.
+        let previous = self.state.status();
+        // TODO: what happens with verification status when we force-reset? (prefer always reset for safety)
         self.state = self.state.finish();
-        // FIXME how to determine if we aborted an existing confidential session? (Do we really care?)
-        return Ok(UserMessage::Reset);
+        if previous == self.status() {
+            Ok(UserMessage::None)
+        } else {
+            Ok(UserMessage::Reset)
+        }
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {

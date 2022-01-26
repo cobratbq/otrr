@@ -118,6 +118,7 @@ impl ProtocolState for FinishedState {
     }
 }
 
+#[derive(PartialEq)]
 pub enum ProtocolStatus {
     Plaintext,
     Encrypted,
