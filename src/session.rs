@@ -5,7 +5,7 @@ use fragment::{Assembler, AssemblingError};
 
 use crate::{
     authentication,
-    encoding::{encode_otr_message, parse, EncodedMessage, MessageType, OTRMessage},
+    encoding::{encode, parse, EncodedMessage, MessageType, OTRMessage},
     fragment,
     host::Host,
     protocol, InstanceTag, OTRError, UserMessage, Version, INSTANCE_ZERO,
@@ -20,6 +20,7 @@ pub struct Account {
     instances: collections::HashMap<InstanceTag, Instance>,
 }
 
+// TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 #[allow(dead_code)]
 impl Account {
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
@@ -128,14 +129,14 @@ impl Account {
             receiver: receiver,
             message: initMessage,
         });
-        self.host.inject(&encode_otr_message(&msg));
+        self.host.inject(&encode(&msg));
         Ok(())
     }
 
     pub fn query(&mut self, possible_versions: Vec<Version>) {
         // FIXME: verify possible versions against supported (non-blocked) versions.
         let msg = MessageType::QueryMessage(possible_versions);
-        self.host.inject(&encode_otr_message(&msg));
+        self.host.inject(&encode(&msg));
     }
 }
 

@@ -25,6 +25,7 @@ const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
 const FLAG_IGNORE_UNREADABLE: u8 = 0b00000001;
 
+// TODO does this pattern support the OTRv1 query-pattern, as it deviates from the others, in order to correctly identify the protocol being present.
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
 static WHITESPACE_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
@@ -53,7 +54,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let message_type = decoder.read_byte()?;
     let sender = decoder.read_int()?;
     let receiver = decoder.read_int()?;
-    let encoded = interpret_encoded_content(message_type, decoder)?;
+    let encoded = parse_encoded_content(message_type, decoder)?;
     return Result::Ok(MessageType::EncodedMessage(EncodedMessage {
         version: version,
         sender: sender,
@@ -62,52 +63,20 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     }));
 }
 
-fn interpret_encoded_content(
+fn parse_encoded_content(
     message_type: u8,
     mut decoder: OTRDecoder,
 ) -> Result<OTRMessage, OTRError> {
     return match message_type {
-        OTR_DH_COMMIT_TYPE_CODE => {
-            let msg = DHCommitMessage {
-                gx_encrypted: decoder.read_data()?,
-                gx_hashed: decoder.read_data()?,
-            };
-            Ok(OTRMessage::DHCommit(msg))
-        }
-        OTR_DH_KEY_TYPE_CODE => {
-            let msg = DHKeyMessage {
-                gy: decoder.read_mpi()?,
-            };
-            Ok(OTRMessage::DHKey(msg))
-        }
-        OTR_REVEAL_SIGNATURE_TYPE_CODE => {
-            let msg = RevealSignatureMessage {
-                key: AES128::Key(decoder.read_data()?.try_into().unwrap()),
-                signature_encrypted: Vec::from(decoder.read_data()?),
-                signature_mac: decoder.read_mac()?,
-            };
-            Ok(OTRMessage::RevealSignature(msg))
-        }
-        OTR_SIGNATURE_TYPE_CODE => {
-            let msg = SignatureMessage {
-                signature_encrypted: decoder.read_data()?,
-                signature_mac: decoder.read_mac()?,
-            };
-            Ok(OTRMessage::Signature(msg))
-        }
-        OTR_DATA_TYPE_CODE => {
-            let msg = DataMessage {
-                flags: decoder.read_byte()?,
-                sender_keyid: decoder.read_int()?,
-                receiver_keyid: decoder.read_int()?,
-                dh_y: decoder.read_mpi()?,
-                ctr: decoder.read_ctr()?,
-                encrypted: decoder.read_data()?,
-                authenticator: decoder.read_mac()?,
-                revealed: decoder.read_data()?,
-            };
-            Ok(OTRMessage::Data(msg))
-        }
+        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessage::DHCommit(DHCommitMessage::decode(&mut decoder)?)),
+        OTR_DH_KEY_TYPE_CODE => Ok(OTRMessage::DHKey(DHKeyMessage::decode(&mut decoder)?)),
+        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(OTRMessage::RevealSignature(
+            RevealSignatureMessage::decode(&mut decoder)?,
+        )),
+        OTR_SIGNATURE_TYPE_CODE => Ok(OTRMessage::Signature(SignatureMessage::decode(
+            &mut decoder,
+        )?)),
+        OTR_DATA_TYPE_CODE => Ok(OTRMessage::Data(DataMessage::decode(&mut decoder)?)),
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type.",
         )),
@@ -233,6 +202,15 @@ pub struct DHCommitMessage {
     pub gx_hashed: Vec<u8>,
 }
 
+impl DHCommitMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<DHCommitMessage, OTRError> {
+        Ok(DHCommitMessage {
+            gx_encrypted: decoder.read_data()?,
+            gx_hashed: decoder.read_data()?,
+        })
+    }
+}
+
 impl OTREncodable for DHCommitMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
@@ -243,6 +221,14 @@ impl OTREncodable for DHCommitMessage {
 
 pub struct DHKeyMessage {
     pub gy: BigUint,
+}
+
+impl DHKeyMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<DHKeyMessage, OTRError> {
+        Ok(DHKeyMessage {
+            gy: decoder.read_mpi()?,
+        })
+    }
 }
 
 impl OTREncodable for DHKeyMessage {
@@ -257,6 +243,18 @@ pub struct RevealSignatureMessage {
     pub signature_mac: MAC,
 }
 
+impl RevealSignatureMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<RevealSignatureMessage, OTRError> {
+        Ok(RevealSignatureMessage {
+            key: AES128::Key(decoder.read_data()?.try_into().or(Err(
+                OTRError::ProtocolViolation("Invalid format for 128-bit AES key."),
+            ))?),
+            signature_encrypted: decoder.read_data()?,
+            signature_mac: decoder.read_mac()?,
+        })
+    }
+}
+
 impl OTREncodable for RevealSignatureMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
@@ -269,6 +267,15 @@ impl OTREncodable for RevealSignatureMessage {
 pub struct SignatureMessage {
     pub signature_encrypted: Vec<u8>,
     pub signature_mac: MAC,
+}
+
+impl SignatureMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<SignatureMessage, OTRError> {
+        Ok(SignatureMessage {
+            signature_encrypted: decoder.read_data()?,
+            signature_mac: decoder.read_mac()?,
+        })
+    }
 }
 
 impl OTREncodable for SignatureMessage {
@@ -291,6 +298,21 @@ pub struct DataMessage {
     pub revealed: Vec<u8>,
 }
 
+impl DataMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<DataMessage, OTRError> {
+        Ok(DataMessage {
+            flags: decoder.read_byte()?,
+            sender_keyid: decoder.read_int()?,
+            receiver_keyid: decoder.read_int()?,
+            dh_y: decoder.read_mpi()?,
+            ctr: decoder.read_ctr()?,
+            encrypted: decoder.read_data()?,
+            authenticator: decoder.read_mac()?,
+            revealed: decoder.read_data()?,
+        })
+    }
+}
+
 impl OTREncodable for DataMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
@@ -305,7 +327,7 @@ impl OTREncodable for DataMessage {
     }
 }
 
-pub fn encode_otr_message(msg: &MessageType) -> Vec<u8> {
+pub fn encode(msg: &MessageType) -> Vec<u8> {
     let mut buffer = Vec::<u8>::new();
     match msg {
         MessageType::ErrorMessage(error) => {
@@ -342,13 +364,20 @@ pub fn encode_otr_message(msg: &MessageType) -> Vec<u8> {
             buffer.extend_from_slice(b" An Off-The-Record conversation has been requested.");
             buffer
         }
-        MessageType::EncodedMessage(encoded_message) => buffer,
+        MessageType::EncodedMessage(encoded_message) => {
+            buffer.extend_from_slice(b"?OTR:");
+            buffer.extend(base64encode(
+                OTREncoder::new().write_encodable(encoded_message).to_vec(),
+            ));
+            buffer.push(b'.');
+            buffer
+        }
     }
 }
 
-// FIXME implement OTRDecodable for decoding into composite types.
-trait OTRDecodable {
-    fn decode(&self, decoder: &mut OTRDecoder) -> Result<(), OTRError>;
+fn base64encode(content: Vec<u8>) -> Vec<u8> {
+    // FIXME implement base64-encoding for serializing OTR-encoded messages.
+    todo!("To be implemented")
 }
 
 pub struct OTRDecoder<'a>(&'a [u8]);
@@ -518,7 +547,7 @@ pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
     OTREncoder::new().write_mpi(v).to_vec()
 }
 
-trait OTREncodable {
+pub trait OTREncodable {
     fn encode(&self, encoder: &mut OTREncoder);
 }
 
@@ -533,8 +562,9 @@ impl OTREncoder {
         return Self { buffer: Vec::new() };
     }
 
-    pub fn write_encodable(&mut self, encodable: &dyn OTREncodable) {
+    pub fn write_encodable(&mut self, encodable: &dyn OTREncodable) -> &mut Self {
         encodable.encode(self);
+        self
     }
 
     pub fn write_byte(&mut self, v: u8) -> &mut Self {
