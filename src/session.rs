@@ -36,7 +36,7 @@ impl Account {
                 "Illegal or unsupported fragment.",
             )))?;
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
-            if fragment.receiver != self.tag && fragment.receiver != 0u32 {
+            if fragment.receiver != self.tag && fragment.receiver != INSTANCE_ZERO {
                 return Err(OTRError::MessageForOtherInstance);
             }
             if !self.instances.contains_key(&fragment.sender) {
@@ -90,9 +90,10 @@ impl Account {
             }
             MessageType::EncodedMessage(msg) => {
                 // FIXME add more precise instane tag (sender/receiver) validation.
-                if msg.receiver != 0u32 && msg.receiver != self.tag {
+                if msg.receiver != INSTANCE_ZERO && msg.receiver != self.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }
+                // FIXME message needs to be decrypted too. Not currently in the control flow :-P
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
