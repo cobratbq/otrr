@@ -191,17 +191,26 @@ pub struct EncodedMessage {
 }
 
 impl OTREncodable for EncodedMessage {
-
     fn encode(&self, encoder: &mut OTREncoder) {
         // FIXME: correctly derive short-value from Version-type. (now hard-coded)
-        encoder.write_short(3u16).write_int(self.sender).write_int(self.receiver);
-        encoder.write_encodable(match &self.message {
-            OTRMessage::DHCommit(msg) => msg,
-            OTRMessage::DHKey(msg) => msg,
-            OTRMessage::RevealSignature(msg) => msg,
-            OTRMessage::Signature(msg) => msg,
-            OTRMessage::Data(msg) => msg,
-        });
+        encoder
+            .write_short(3u16)
+            .write_byte(match self.message {
+                OTRMessage::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
+                OTRMessage::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
+                OTRMessage::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
+                OTRMessage::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
+                OTRMessage::Data(_) => OTR_DATA_TYPE_CODE,
+            })
+            .write_int(self.sender)
+            .write_int(self.receiver)
+            .write_encodable(match &self.message {
+                OTRMessage::DHCommit(msg) => msg,
+                OTRMessage::DHKey(msg) => msg,
+                OTRMessage::RevealSignature(msg) => msg,
+                OTRMessage::Signature(msg) => msg,
+                OTRMessage::Data(msg) => msg,
+            });
     }
 }
 
@@ -226,8 +235,9 @@ pub struct DHCommitMessage {
 
 impl OTREncodable for DHCommitMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: implement encoding DHCommitMessage
-        todo!()
+        encoder
+            .write_data(&self.gx_encrypted)
+            .write_data(&self.gx_hashed);
     }
 }
 
@@ -237,8 +247,7 @@ pub struct DHKeyMessage {
 
 impl OTREncodable for DHKeyMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: implement encoding DHKeyMessage
-        todo!()
+        encoder.write_mpi(&self.gy);
     }
 }
 
@@ -250,8 +259,10 @@ pub struct RevealSignatureMessage {
 
 impl OTREncodable for RevealSignatureMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: implement encoding RevealSignatureMessage
-        todo!()
+        encoder
+            .write_data(&self.key.0)
+            .write_data(&self.signature_encrypted)
+            .write_mac(&self.signature_mac);
     }
 }
 
@@ -262,8 +273,9 @@ pub struct SignatureMessage {
 
 impl OTREncodable for SignatureMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: implement encoding SignatureMessage
-        todo!()
+        encoder
+            .write_data(&self.signature_encrypted)
+            .write_mac(&self.signature_mac);
     }
 }
 
@@ -275,14 +287,21 @@ pub struct DataMessage {
     pub ctr: CTR,
     pub encrypted: Vec<u8>,
     pub authenticator: MAC,
-    /// revealed contains recent keys previously used for authentication.
+    /// revealed contains recent keys, previously used for authentication, that should now become public.
     pub revealed: Vec<u8>,
 }
 
 impl OTREncodable for DataMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: implement encoding DataMessage
-        todo!()
+        encoder
+            .write_byte(self.flags)
+            .write_int(self.sender_keyid)
+            .write_int(self.receiver_keyid)
+            .write_mpi(&self.dh_y)
+            .write_ctr(&self.ctr)
+            .write_data(&self.encrypted)
+            .write_mac(&self.authenticator)
+            .write_data(&self.revealed);
     }
 }
 
@@ -311,7 +330,10 @@ pub fn encode_otr_message(msg: &MessageType) -> Vec<u8> {
                         buffer.push(b'3');
                     }
                     Version::Unsupported(unsupported) => {
-                        panic!("BUG: unsupported version {} leaked into encoding logic.", unsupported)
+                        panic!(
+                            "BUG: unsupported version {} leaked into encoding logic.",
+                            unsupported
+                        )
                     }
                 }
             }
@@ -320,10 +342,13 @@ pub fn encode_otr_message(msg: &MessageType) -> Vec<u8> {
             buffer.extend_from_slice(b" An Off-The-Record conversation has been requested.");
             buffer
         }
-        MessageType::EncodedMessage(encoded_message) => {
-            buffer
-        }
+        MessageType::EncodedMessage(encoded_message) => buffer,
     }
+}
+
+// FIXME implement OTRDecodable for decoding into composite types.
+trait OTRDecodable {
+    fn decode(&self, decoder: &mut OTRDecoder) -> Result<(), OTRError>;
 }
 
 pub struct OTRDecoder<'a>(&'a [u8]);
