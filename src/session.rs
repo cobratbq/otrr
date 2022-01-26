@@ -173,16 +173,15 @@ impl Instance {
             OTRMessage::DHCommit(msg) => {
                 let response = self
                     .ake
-                    .handle_commit(msg)
+                    .handle_dhcommit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-
                 // FIXME handle errors and inject response.
                 Ok(UserMessage::None)
             }
             OTRMessage::DHKey(msg) => {
                 let response = self
                     .ake
-                    .handle_key(msg)
+                    .handle_dhkey(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 Ok(UserMessage::None)
