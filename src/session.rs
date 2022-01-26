@@ -157,8 +157,9 @@ impl Instance {
     }
 
     fn initiate(&mut self) -> Result<OTRMessage, OTRError> {
-        let msg = self.ake.initiate().unwrap();
-        todo!()
+        self.ake
+            .initiate()
+            .or_else(|err| Err(OTRError::AuthenticationError(err)))
     }
 
     fn handle(
