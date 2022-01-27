@@ -19,12 +19,22 @@ bitflags! {
 }
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
+const OTR_QUERY_PREFIX: &[u8] = b"?OTRv";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 const OTR_ENCODED_SUFFIX: &[u8] = b".";
 
+// TODO: tweak / make accompanying message changeable
+const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";
+
+const WHITESPACE_PREFIX: &[u8] = b" \t  \t\t\t\t \t \t \t  ";
 const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
+
+// TODO does this pattern support the OTRv1 query-pattern, as it deviates from the others, in order to correctly identify the protocol being present.
+static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
+static WHITESPACE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
 
 const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
 const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
@@ -32,24 +42,22 @@ const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
 const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
 const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
-// TODO does this pattern support the OTRv1 query-pattern, as it deviates from the others, in order to correctly identify the protocol being present.
-static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
-static WHITESPACE_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
-
 // TODO over all necessary writes, do usize size-of assertions. (or use type-aliasing to ensure appropriate size)
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
 
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
     return if data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX) {
-        parse_encoded_message(data)
+        let start = OTR_ENCODED_PREFIX.len();
+        let end = data.len() - OTR_ENCODED_SUFFIX.len();
+        parse_encoded_message(&data[start..end])
     } else {
         parse_plain_message(data)
     };
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let mut decoder = OTRDecoder(data);
+    let data = decode_base64(&data)?;
+    let mut decoder = OTRDecoder(&data);
     let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
         _ => {
@@ -338,7 +346,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
     let mut buffer = Vec::<u8>::new();
     match msg {
         MessageType::ErrorMessage(error) => {
-            buffer.extend_from_slice(b"?OTR Error:");
+            buffer.extend_from_slice(OTR_ERROR_PREFIX);
             buffer.extend(error);
             buffer
         }
@@ -347,13 +355,26 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             buffer
         }
         MessageType::TaggedMessage(versions, message) => {
-            // FIXME: implement whitespace-encoding versions in message -- at best/reasonable location"
+            if !versions.is_empty() {
+                // TODO test for valid versions before adding whitespace-prefix.
+                // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
+                buffer.extend_from_slice(WHITESPACE_PREFIX);
+                for v in versions {
+                    // FIXME strictly speaking there must be at least one tag or we violate spec.
+                    match v {
+                        Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
+                        Version::Unsupported(_) => {},
+                    }
+                }
+            }
             buffer.extend(message);
             buffer
         }
         MessageType::QueryMessage(versions) => {
-            buffer.extend_from_slice(b"?OTRv");
+            buffer.extend_from_slice(OTR_QUERY_PREFIX);
             for v in versions {
+                // TODO versions not guaranteed unique.
+                // TODO versions not necessarily ordered.
                 match v {
                     Version::V3 => {
                         buffer.push(b'3');
@@ -367,24 +388,19 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
                 }
             }
             buffer.push(b'?');
-            // TODO: tweak / make accompanying message changeable
-            buffer.extend_from_slice(b" An Off-The-Record conversation has been requested.");
+            buffer.push(b' ');
+            buffer.extend_from_slice(OTR_USE_INFORMATION_MESSAGE);
             buffer
         }
         MessageType::EncodedMessage(encoded_message) => {
-            buffer.extend_from_slice(b"?OTR:");
-            buffer.extend(base64encode(
+            buffer.extend_from_slice(OTR_ENCODED_PREFIX);
+            buffer.extend(encode_base64(
                 OTREncoder::new().write_encodable(encoded_message).to_vec(),
             ));
             buffer.push(b'.');
             buffer
         }
     }
-}
-
-fn base64encode(content: Vec<u8>) -> Vec<u8> {
-    // FIXME implement base64-encoding for serializing OTR-encoded messages.
-    todo!("To be implemented")
 }
 
 pub struct OTRDecoder<'a>(&'a [u8]);
@@ -549,11 +565,6 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
-// TODO where to move (obvious) utility function?
-pub fn encodeBigUint(v: &BigUint) -> Vec<u8> {
-    OTREncoder::new().write_mpi(v).to_vec()
-}
-
 pub trait OTREncodable {
     fn encode(&self, encoder: &mut OTREncoder);
 }
@@ -665,6 +676,16 @@ impl OTREncoder {
     pub fn to_vec(&self) -> Vec<u8> {
         self.buffer.clone()
     }
+}
+
+fn encode_base64(content: Vec<u8>) -> Vec<u8> {
+    base64::encode(&content).into_bytes()
+}
+
+fn decode_base64(content: &[u8]) -> Result<Vec<u8>, OTRError> {
+    base64::decode(content).or(Err(OTRError::ProtocolViolation(
+        "Invalid message content: content cannot be decoded from base64.",
+    )))
 }
 
 const FINGERPRINT_LEN: usize = 20;

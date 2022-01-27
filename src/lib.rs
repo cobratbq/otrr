@@ -8,6 +8,7 @@ extern crate bitflags;
 extern crate hex;
 extern crate num;
 extern crate num_bigint;
+// TODO std::lazy::Lazy is in rust nightly, consider using that once available.
 extern crate once_cell;
 extern crate regex;
 extern crate ring;
