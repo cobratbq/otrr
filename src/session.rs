@@ -8,7 +8,7 @@ use crate::{
     encoding::{encode, parse, EncodedMessage, MessageType, OTRMessage},
     fragment::{self, FragmentError},
     host::Host,
-    protocol, InstanceTag, OTRError, UserMessage, Version, INSTANCE_ZERO,
+    protocol, OTRError, UserMessage, Version, instancetag::{InstanceTag, INSTANCE_ZERO},
 };
 
 pub struct Account {
@@ -87,7 +87,6 @@ impl Account {
                 Ok(UserMessage::None)
             }
             MessageType::EncodedMessage(msg) => {
-                // FIXME add more precise instane tag (sender/receiver) validation.
                 if msg.receiver != INSTANCE_ZERO && msg.receiver != self.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }

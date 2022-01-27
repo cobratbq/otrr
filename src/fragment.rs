@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
-use crate::InstanceTag;
+use crate::{instancetag::{verify_instance_tag, InstanceTag}};
 
 const OTR_FRAGMENT_V2_PREFIX: &[u8] = b"?OTR,";
 const OTR_FRAGMENT_V3_PREFIX: &[u8] = b"?OTR|";
@@ -34,18 +34,18 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present, therefore decodes into 4 bytes of data.
     return Ok(Fragment {
-        sender: u32::from_be_bytes([
+        sender: verify_instance_tag(u32::from_be_bytes([
             sender_bytes[0],
             sender_bytes[1],
             sender_bytes[2],
             sender_bytes[3],
-        ]),
-        receiver: u32::from_be_bytes([
+        ])).or(Err(FragmentError::InvalidFormat))?,
+        receiver: verify_instance_tag(u32::from_be_bytes([
             receiver_bytes[0],
             receiver_bytes[1],
             receiver_bytes[2],
             receiver_bytes[3],
-        ]),
+        ])).or(Err(FragmentError::InvalidFormat))?,
         part: u16::from_str_radix(
             std::str::from_utf8(captures.get(3).unwrap().as_bytes()).unwrap(),
             10,

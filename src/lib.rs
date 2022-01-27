@@ -17,6 +17,7 @@ mod authentication;
 mod crypto;
 mod encoding;
 mod fragment;
+mod instancetag;
 mod protocol;
 
 pub mod host;
@@ -86,10 +87,6 @@ pub enum Version {
     // V2, // will not be supported.
     V3,
 }
-
-/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
-const INSTANCE_ZERO: InstanceTag = 0u32;
-pub type InstanceTag = u32;
 
 // TODO how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.

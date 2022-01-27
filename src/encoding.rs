@@ -6,8 +6,8 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, CTR_LEN, MAC,
-    MAC_LEN, SIGNATURE_LEN, TLV,
+    crypto::AES128, crypto::DSA, OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN,
+    SIGNATURE_LEN, TLV, instancetag::{InstanceTag, verify_instance_tag},
 };
 
 bitflags! {
@@ -67,8 +67,8 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
         }
     };
     let message_type = decoder.read_byte()?;
-    let sender = decoder.read_int()?;
-    let receiver = decoder.read_int()?;
+    let sender: InstanceTag = decoder.read_instance_tag()?;
+    let receiver: InstanceTag = decoder.read_instance_tag()?;
     let encoded = parse_encoded_content(message_type, decoder)?;
     return Result::Ok(MessageType::EncodedMessage(EncodedMessage {
         version: version,
@@ -444,6 +444,10 @@ impl<'a> OTRDecoder<'a> {
             + (self.0[3] as u32);
         self.0 = &self.0[4..];
         return Ok(value);
+    }
+
+    pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
+        verify_instance_tag(self.read_int()?)
     }
 
     /// read_data reads variable-length data from buffer.
