@@ -363,7 +363,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
                     // FIXME strictly speaking there must be at least one tag or we violate spec.
                     match v {
                         Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
-                        Version::Unsupported(_) => {},
+                        Version::Unsupported(_) => panic!("BUG: unsupported versions should be avoided."),
                     }
                 }
             }
