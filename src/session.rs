@@ -68,7 +68,7 @@ impl Account {
             MessageType::ErrorMessage(error) => Ok(UserMessage::Error(error)),
             MessageType::PlaintextMessage(content) => Ok(UserMessage::Plaintext(content)),
             MessageType::TaggedMessage(versions, content) => {
-                // TODO: take policies into account before initiating.
+                // TODO take policies into account before initiating.
                 self.initiate(
                     self.select_version(&versions)
                         .ok_or(OTRError::NoAcceptableVersion)?,
@@ -76,7 +76,7 @@ impl Account {
                 Ok(UserMessage::Plaintext(content))
             }
             MessageType::QueryMessage(versions) => {
-                // TODO: take policies into account before initiating.
+                // TODO take policies into account before initiating.
                 self.initiate(
                     self.select_version(&versions)
                         .ok_or(OTRError::NoAcceptableVersion)?,
@@ -97,9 +97,9 @@ impl Account {
         };
     }
 
-    // TODO: should rely on some pool of accepted versions instead of hard-coding.
+    // TODO should rely on some pool of accepted versions instead of hard-coding.
     fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
-        // TODO: take policies into account before initiating.
+        // TODO take policies into account before initiating.
         if versions.contains(&Version::V3) {
             Some(Version::V3)
         } else {
@@ -134,7 +134,7 @@ impl Account {
     }
 
     pub fn query(&mut self, possible_versions: Vec<Version>) {
-        // FIXME: verify possible versions against supported (non-blocked) versions.
+        // FIXME verify possible versions against supported (non-blocked) versions.
         let msg = MessageType::QueryMessage(possible_versions);
         self.host.inject(&encode(&msg));
     }
@@ -223,7 +223,7 @@ impl Instance {
 
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
         let previous = self.state.status();
-        // TODO: what happens with verification status when we force-reset? (prefer always reset for safety)
+        // TODO what happens with verification status when we force-reset? (prefer always reset for safety)
         self.state = self.state.finish();
         if previous == self.state.status() {
             Ok(UserMessage::None)

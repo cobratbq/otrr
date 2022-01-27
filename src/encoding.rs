@@ -23,7 +23,7 @@ const OTR_QUERY_PREFIX: &[u8] = b"?OTRv";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 const OTR_ENCODED_SUFFIX: &[u8] = b".";
 
-// TODO: tweak / make accompanying message changeable
+// TODO tweak / make accompanying message changeable
 const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";
 
 const WHITESPACE_PREFIX: &[u8] = b" \t  \t\t\t\t \t \t \t  ";
@@ -508,7 +508,7 @@ impl<'a> OTRDecoder<'a> {
                 "Unsupported/invalid public key type.",
             ));
         }
-        // TODO: not sure if I like the fact that read_mpi is mutable, so fields must remain in this order or we're reading wrong data into wrong field.
+        // TODO not sure if I like the fact that read_mpi is mutable, so fields must remain in this order or we're reading wrong data into wrong field.
         Ok(DSA::PublicKey {
             p: self.read_mpi()?,
             q: self.read_mpi()?,

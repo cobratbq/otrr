@@ -1,7 +1,7 @@
-// FIXME: move tests to appropriate modules.
+// FIXME move tests to appropriate modules.
 #[cfg(test)]
 mod tests {
-    // FIXME: add test for mid-string query tag, at start and at end of message.
+    // FIXME add test for mid-string query tag, at start and at end of message.
     use crate::message::{parse_message, MessageType, Version};
 
     #[test]

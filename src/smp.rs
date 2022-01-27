@@ -398,7 +398,7 @@ impl SMPContext {
         // If smpstate is not SMPSTATE_EXPECT3:
         //     Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
 
-        // FIXME: do we handle the bad case here, or is it handled by the caller before reaching here?
+        // FIXME do we handle the bad case here, or is it handled by the caller before reaching here?
 
         // If smpstate is SMPSTATE_EXPECT3:
         let g3a: BigUint;

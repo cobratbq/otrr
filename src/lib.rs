@@ -62,7 +62,7 @@ pub enum OTRError {
     MessageForOtherInstance,
     /// Message to be sent to an unknown instance. (FIXME need to check with spec on details)
     UnknownInstance,
-    // FIXME: not sure if this is the way to go...
+    // FIXME not sure if this is the way to go...
     /// No acceptable version available in proposed protocol versions.
     NoAcceptableVersion,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
@@ -91,7 +91,7 @@ pub enum Version {
 const INSTANCE_ZERO: InstanceTag = 0u32;
 pub type InstanceTag = u32;
 
-// TODO: how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
+// TODO how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 const CTR_LEN: usize = 8;
 type CTR = [u8; CTR_LEN];
