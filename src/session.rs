@@ -8,7 +8,8 @@ use crate::{
     encoding::{encode, parse, EncodedMessage, MessageType, OTRMessage},
     fragment::{self, FragmentError},
     host::Host,
-    protocol, OTRError, UserMessage, Version, instancetag::{InstanceTag, INSTANCE_ZERO},
+    instancetag::{InstanceTag, INSTANCE_ZERO},
+    protocol, OTRError, UserMessage, Version,
 };
 
 pub struct Account {
@@ -54,8 +55,8 @@ impl Account {
                 Err(FragmentError::InvalidFormat) => {
                     Err(OTRError::ProtocolViolation("Fragment with invalid format."))
                 }
-                Err(FragmentError::InvalidPartition) => {
-                    Err(OTRError::ProtocolViolation("Fragment with invalid part information."))
+                Err(FragmentError::InvalidData) => {
+                    Err(OTRError::ProtocolViolation("Fragment with invalid data."))
                 }
                 Err(FragmentError::UnexpectedFragment) => {
                     // TODO debug info, keep?

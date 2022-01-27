@@ -39,13 +39,13 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
             sender_bytes[1],
             sender_bytes[2],
             sender_bytes[3],
-        ])).or(Err(FragmentError::InvalidFormat))?,
+        ])).or(Err(FragmentError::InvalidData))?,
         receiver: verify_instance_tag(u32::from_be_bytes([
             receiver_bytes[0],
             receiver_bytes[1],
             receiver_bytes[2],
             receiver_bytes[3],
-        ])).or(Err(FragmentError::InvalidFormat))?,
+        ])).or(Err(FragmentError::InvalidData))?,
         part: u16::from_str_radix(
             std::str::from_utf8(captures.get(3).unwrap().as_bytes()).unwrap(),
             10,
@@ -66,7 +66,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
         || fragment.part > fragment.total
         || fragment.payload.is_empty()
     {
-        Err(FragmentError::InvalidPartition)
+        Err(FragmentError::InvalidData)
     } else {
         Ok(())
     };
@@ -126,7 +126,7 @@ pub enum FragmentError {
     /// Fragment has invalid format and cannot be parsed.
     InvalidFormat,
     /// Fragment contains invalid part information that would result in an invalid partitioning of the content.
-    InvalidPartition,
+    InvalidData,
     /// Incomplete result. Waiting for more fragments to arrive.
     IncompleteResult,
     /// Unexpected fragment received. Resetting assembler.

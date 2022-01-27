@@ -6,8 +6,10 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::AES128, crypto::DSA, OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN,
-    SIGNATURE_LEN, TLV, instancetag::{InstanceTag, verify_instance_tag},
+    crypto::AES128,
+    crypto::DSA,
+    instancetag::{verify_instance_tag, InstanceTag},
+    OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN, SIGNATURE_LEN, TLV,
 };
 
 bitflags! {
@@ -363,7 +365,9 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
                     // FIXME strictly speaking there must be at least one tag or we violate spec.
                     match v {
                         Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
-                        Version::Unsupported(_) => panic!("BUG: unsupported versions should be avoided."),
+                        Version::Unsupported(_) => {
+                            panic!("BUG: unsupported versions should be avoided.")
+                        }
                     }
                 }
             }
@@ -448,6 +452,7 @@ impl<'a> OTRDecoder<'a> {
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
         verify_instance_tag(self.read_int()?)
+            .or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
     /// read_data reads variable-length data from buffer.
