@@ -79,12 +79,6 @@ pub struct Fragment {
     payload: Vec<u8>,
 }
 
-#[derive(std::fmt::Debug)]
-pub enum FragmentError {
-    InvalidFormat,
-    InvalidPartition,
-}
-
 pub struct Assembler {
     total: u16,
     last: u16,
@@ -100,9 +94,9 @@ impl Assembler {
         }
     }
 
-    pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, AssemblingError> {
+    pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, FragmentError> {
         // TODO second time verifying fragment. Assume valid fragment here and only verify directly after parsing?
-        verify(&fragment).or(Err(AssemblingError::IllegalFragment))?;
+        verify(&fragment)?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
             // First fragment encountered.
             self.total = fragment.total;
@@ -117,21 +111,22 @@ impl Assembler {
             self.total = 0;
             self.last = 0;
             self.content.clear();
-            return Err(AssemblingError::UnexpectedFragment);
+            return Err(FragmentError::UnexpectedFragment);
         }
         if self.last == self.total {
             Ok(Vec::from(self.content.as_slice()))
         } else {
-            Err(AssemblingError::IncompleteResult)
+            Err(FragmentError::IncompleteResult)
         }
     }
 }
 
-/// Errors that may occur while assembling message fragments into a full OTR-encoded message.
 #[derive(std::fmt::Debug)]
-pub enum AssemblingError {
-    /// Illegal fragment received. Fragment contains bad data and cannot be processed.
-    IllegalFragment,
+pub enum FragmentError {
+    /// Fragment has invalid format and cannot be parsed.
+    InvalidFormat,
+    /// Fragment contains invalid part information that would result in an invalid partitioning of the content.
+    InvalidPartition,
     /// Incomplete result. Waiting for more fragments to arrive.
     IncompleteResult,
     /// Unexpected fragment received. Resetting assembler.

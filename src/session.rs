@@ -1,12 +1,12 @@
 use std::{collections, rc::Rc};
 
 use authentication::AKEContext;
-use fragment::{Assembler, AssemblingError};
+use fragment::Assembler;
 
 use crate::{
     authentication,
     encoding::{encode, parse, EncodedMessage, MessageType, OTRMessage},
-    fragment,
+    fragment::{self, FragmentError},
     host::Host,
     protocol, InstanceTag, OTRError, UserMessage, Version, INSTANCE_ZERO,
 };
@@ -50,11 +50,14 @@ impl Account {
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(AssemblingError::IncompleteResult) => Ok(UserMessage::None),
-                Err(AssemblingError::IllegalFragment) => {
-                    Err(OTRError::ProtocolViolation("Illegal fragment received."))
+                Err(FragmentError::IncompleteResult) => Ok(UserMessage::None),
+                Err(FragmentError::InvalidFormat) => {
+                    Err(OTRError::ProtocolViolation("Fragment with invalid format."))
                 }
-                Err(AssemblingError::UnexpectedFragment) => {
+                Err(FragmentError::InvalidPartition) => {
+                    Err(OTRError::ProtocolViolation("Fragment with invalid part information."))
+                }
+                Err(FragmentError::UnexpectedFragment) => {
                     // TODO debug info, keep?
                     println!("Unexpected fragment received. Assembler reset.");
                     Ok(UserMessage::None)
@@ -110,6 +113,7 @@ impl Account {
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
+        // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
         self.instances
             .get_mut(&instance)
             .ok_or(OTRError::UnknownInstance)?
