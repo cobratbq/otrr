@@ -9,9 +9,10 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
+// TODO for now assuming that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
 static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
+        r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
     )
     .unwrap()
 });
@@ -29,9 +30,9 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
         return Err(FragmentError::InvalidFormat);
     }
     let captures = fragment_caps.unwrap();
-    // FIXME can these arrays be smaller than 4 bytes?
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
+    // NOTE that in the conversion to bytes we assume that a full-size instance tag is present, therefore decodes into 4 bytes of data.
     return Ok(Fragment {
         sender: u32::from_be_bytes([
             sender_bytes[0],
@@ -95,7 +96,6 @@ impl Assembler {
     }
 
     pub fn assemble(&mut self, fragment: Fragment) -> Result<Vec<u8>, FragmentError> {
-        // TODO second time verifying fragment. Assume valid fragment here and only verify directly after parsing?
         verify(&fragment)?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
             // First fragment encountered.
