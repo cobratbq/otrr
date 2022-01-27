@@ -161,6 +161,20 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     return result;
 }
 
+pub fn new_encoded_message(
+    version: Version,
+    sender: InstanceTag,
+    receiver: InstanceTag,
+    message: OTRMessage,
+) -> MessageType {
+    MessageType::EncodedMessage(EncodedMessage {
+        version,
+        sender,
+        receiver,
+        message,
+    })
+}
+
 pub enum MessageType {
     ErrorMessage(Vec<u8>),
     PlaintextMessage(Vec<u8>),

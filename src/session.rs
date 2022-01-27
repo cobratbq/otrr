@@ -5,7 +5,7 @@ use fragment::Assembler;
 
 use crate::{
     authentication,
-    encoding::{encode, parse, EncodedMessage, MessageType, OTRMessage},
+    encoding::{encode, new_encoded_message, parse, EncodedMessage, MessageType, OTRMessage},
     fragment::{self, FragmentError},
     host::Host,
     instancetag::{InstanceTag, INSTANCE_ZERO},
@@ -91,7 +91,7 @@ impl Account {
                 if msg.receiver != INSTANCE_ZERO && msg.receiver != self.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }
-                // FIXME need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
+                // FIXME at some point, need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
@@ -120,25 +120,16 @@ impl Account {
             .send(content)
     }
 
-    pub fn initiate(&mut self, version: Version) -> Result<(), OTRError> {
+    pub fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
         let receiver = INSTANCE_ZERO;
-        let initMessage = self
-            .instances
+        self.instances
             .entry(receiver)
             .or_insert_with(|| Instance::new(receiver, Rc::clone(&self.host)))
-            .initiate()?;
-        let msg = MessageType::EncodedMessage(EncodedMessage {
-            version,
-            sender: self.tag,
-            receiver: receiver,
-            message: initMessage,
-        });
-        self.host.inject(&encode(&msg));
-        Ok(())
+            .initiate()
     }
 
     pub fn query(&mut self, possible_versions: Vec<Version>) {
-        // FIXME verify possible versions against supported (non-blocked) versions.
+        // TODO verify possible versions against supported (non-blocked) versions.
         let msg = MessageType::QueryMessage(possible_versions);
         self.host.inject(&encode(&msg));
     }
@@ -147,6 +138,7 @@ impl Account {
 /// Instance serves a single communication session, ensuring that messages always go to the same single client.
 struct Instance {
     tag: InstanceTag,
+    host: Rc<dyn Host>,
     assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
@@ -154,11 +146,13 @@ struct Instance {
 
 impl Instance {
     fn new(tag: InstanceTag, host: Rc<dyn Host>) -> Instance {
+        // FIXME include both our and their tags for repeated use?
         Instance {
             tag: tag,
             assembler: Assembler::new(),
             state: protocol::new_state(),
-            ake: AKEContext::new(host),
+            ake: AKEContext::new(Rc::clone(&host)),
+            host: host,
         }
     }
 
@@ -166,26 +160,39 @@ impl Instance {
         return self.state.status();
     }
 
-    fn initiate(&mut self) -> Result<OTRMessage, OTRError> {
-        self.ake
+    fn initiate(&mut self) -> Result<UserMessage, OTRError> {
+        let msg = self
+            .ake
             .initiate()
-            .or_else(|err| Err(OTRError::AuthenticationError(err)))
+            .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+        self.host.inject(&encode(&new_encoded_message(
+            Version::V3,
+            self.tag,
+            INSTANCE_ZERO,
+            msg,
+        )));
+        Ok(UserMessage::None)
     }
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(
         &mut self,
         host: &dyn Host,
-        encodedmessage: EncodedMessage,
+        encoded_message: EncodedMessage,
     ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
-        return match encodedmessage.message {
+        return match encoded_message.message {
             OTRMessage::DHCommit(msg) => {
                 let response = self
                     .ake
                     .handle_dhcommit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                // FIXME handle errors and inject response.
+                self.host.inject(&encode(&new_encoded_message(
+                    Version::V3,
+                    self.tag,
+                    encoded_message.sender,
+                    response,
+                )));
                 Ok(UserMessage::None)
             }
             OTRMessage::DHKey(msg) => {
@@ -193,7 +200,12 @@ impl Instance {
                     .ake
                     .handle_dhkey(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                // FIXME handle errors and inject response.
+                self.host.inject(&encode(&new_encoded_message(
+                    Version::V3,
+                    self.tag,
+                    encoded_message.sender,
+                    response,
+                )));
                 Ok(UserMessage::None)
             }
             OTRMessage::RevealSignature(msg) => {
@@ -204,13 +216,28 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
+                self.host.inject(&encode(&new_encoded_message(
+                    Version::V3,
+                    self.tag,
+                    encoded_message.sender,
+                    response,
+                )));
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessage::Signature(msg) => {
-                let result = self.ake.handle_signature(msg);
+                let response = self
+                    .ake
+                    .handle_signature(msg)
+                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
+                self.host.inject(&encode(&new_encoded_message(
+                    Version::V3,
+                    self.tag,
+                    encoded_message.sender,
+                    response,
+                )));
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessage::Data(msg) => {
@@ -228,7 +255,12 @@ impl Instance {
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
         let previous = self.state.status();
         // TODO what happens with verification status when we force-reset? (prefer always reset for safety)
-        self.state = self.state.finish();
+        let (datamsg, newstate) = self.state.finish();
+        self.state = newstate;
+        // let msg = MessageType{
+        //     version:
+        // }
+        // self.host.inject(encode_otr_message)
         if previous == self.state.status() {
             Ok(UserMessage::None)
         } else {

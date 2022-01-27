@@ -1,4 +1,4 @@
-use crate::{encoding::DataMessage, OTRError, UserMessage, Version};
+use crate::{encoding::{DataMessage}, OTRError, UserMessage, Version};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -10,7 +10,7 @@ pub trait ProtocolState {
         Option<Box<dyn ProtocolState>>,
     );
     fn secure(&self) -> Box<EncryptedState>;
-    fn finish(&self) -> Box<PlaintextState>;
+    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>);
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }
 
@@ -22,7 +22,7 @@ pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
     fn status(&self) -> ProtocolStatus {
-        return ProtocolStatus::Plaintext;
+        ProtocolStatus::Plaintext
     }
 
     fn handle(
@@ -33,20 +33,20 @@ impl ProtocolState for PlaintextState {
         Option<Box<dyn ProtocolState>>,
     ) {
         // FIXME assumes that this only needs to handle encrypted (OTR Data messages).
-        return (Err(OTRError::UnreadableMessage), None);
+        (Err(OTRError::UnreadableMessage), None)
     }
 
     fn secure(&self) -> Box<EncryptedState> {
         todo!()
     }
 
-    fn finish(&self) -> Box<PlaintextState> {
+    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
         // FIXME is it desireable/harmful to have to construct a new instance?
-        return Box::new(PlaintextState {});
+        (None, Box::new(PlaintextState {}))
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        return Ok(Vec::from(content));
+        Ok(Vec::from(content))
     }
 }
 
@@ -62,7 +62,7 @@ impl Drop for EncryptedState {
 
 impl ProtocolState for EncryptedState {
     fn status(&self) -> ProtocolStatus {
-        return ProtocolStatus::Encrypted;
+        ProtocolStatus::Encrypted
     }
 
     fn handle(
@@ -80,9 +80,21 @@ impl ProtocolState for EncryptedState {
         todo!()
     }
 
-    fn finish(&self) -> Box<PlaintextState> {
+    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
         // FIXME send/inject session end message to other party (with ignore unreadable).
-        return Box::new(PlaintextState {});
+        // let msg = DataMessage{
+        //     flags: MessageFlag::FLAG_IGNORE_UNREADABLE,
+        //     sender_keyid:,
+        //     receiver_keyid:,
+        //     dh_y:,
+        //     ctr:,
+        //     encrypted:,
+        //     authenticator: [0u8;MAC_LEN],
+        //     // TODO need to check for to-be-revealed MACs
+        //     revealed: Vec::new(),
+        // }
+        // FIXME send DataMessage with empty content and TLV1 (abort) and FLAG_IGNORE_UNREADABLE set.
+        (None, Box::new(PlaintextState {}))
     }
 
     fn send(&mut self, _content: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -94,7 +106,7 @@ pub struct FinishedState {}
 
 impl ProtocolState for FinishedState {
     fn status(&self) -> ProtocolStatus {
-        return ProtocolStatus::Finished;
+        ProtocolStatus::Finished
     }
 
     fn handle(
@@ -104,19 +116,19 @@ impl ProtocolState for FinishedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        return (Err(OTRError::UnreadableMessage), None);
+        (Err(OTRError::UnreadableMessage), None)
     }
 
     fn secure(&self) -> Box<EncryptedState> {
         todo!()
     }
 
-    fn finish(&self) -> Box<PlaintextState> {
-        return Box::new(PlaintextState {});
+    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
+        (None, Box::new(PlaintextState {}))
     }
 
     fn send(&mut self, _: &[u8]) -> Result<Vec<u8>, OTRError> {
-        return Err(OTRError::ProtocolInFinishedState);
+        Err(OTRError::ProtocolInFinishedState)
     }
 }
 
