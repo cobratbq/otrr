@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use bitflags::bitflags;
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
@@ -8,6 +9,14 @@ use crate::{
     crypto::AES128, crypto::DSA, InstanceTag, OTRError, Signature, Version, CTR, CTR_LEN, MAC,
     MAC_LEN, SIGNATURE_LEN, TLV,
 };
+
+bitflags! {
+    /// MessageFlag bit-flags can set for OTR-encoded messages.
+    struct MessageFlag: u8 {
+        /// FLAG_IGNORE_UNREADABLE indicates that the message can be ignored if it cannot be read. This is typically used for control messages that have no value to the user, to indicate that there is no point in alerting the user of an inaccessible message.
+        const FLAG_IGNORE_UNREADABLE = 0b00000001;
+    }
+}
 
 const OTR_ERROR_PREFIX: &[u8] = b"?OTR Error:";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
@@ -22,8 +31,6 @@ const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
 const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
 const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
 const OTR_DATA_TYPE_CODE: u8 = 0x03;
-
-const FLAG_IGNORE_UNREADABLE: u8 = 0b00000001;
 
 // TODO does this pattern support the OTRv1 query-pattern, as it deviates from the others, in order to correctly identify the protocol being present.
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());

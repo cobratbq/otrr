@@ -108,6 +108,7 @@ pub struct TLV(pub u16, pub Vec<u8>);
 
 // TODO implement use of policy flags!
 bitflags! {
+    /// Policy bit-flags can be set to indicate how OTR should respond to certain events related to messaging and the OTR protocol.
     struct Policy: u32 {
     // ALLOW_V1
     //     Allow version 1 of the OTR protocol to be used (in general this document will not address OTR protocol version 1; see previous protocol documents for these details).
