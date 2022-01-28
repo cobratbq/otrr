@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     crypto::{CryptoError, AES128, DH, SHA256},
     encoding::{
-        DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessage, RevealSignatureMessage,
+        DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessageType, RevealSignatureMessage,
         SignatureMessage,
     },
     host::Host,
@@ -34,7 +34,7 @@ impl AKEContext {
         }
     }
 
-    pub fn initiate(&mut self) -> Result<OTRMessage, AKEError> {
+    pub fn initiate(&mut self) -> Result<OTRMessageType, AKEError> {
         let keypair = DH::Keypair::generate();
         let r = AES128::Key::generate();
         let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
@@ -47,13 +47,13 @@ impl AKEContext {
             our_dh_keypair: Rc::new(keypair),
             r,
         });
-        return Ok(OTRMessage::DHCommit(DHCommitMessage {
+        return Ok(OTRMessageType::DHCommit(DHCommitMessage {
             gx_encrypted,
             gx_hashed,
         }));
     }
 
-    pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessage, AKEError> {
+    pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => self._handle_dhcommit_from_initial(msg),
             AKEState::AwaitingDHKey(dhkey) => {
@@ -69,7 +69,7 @@ impl AKEContext {
                 if our_hash > their_hash {
                     // Ignore the incoming D-H Commit message, but resend your D-H Commit message.
                     let our_gx_encrypted = dhkey.r.encrypt(&[0u8; 16], &gxmpi);
-                    let dhcommit = OTRMessage::DHCommit(DHCommitMessage {
+                    let dhcommit = OTRMessageType::DHCommit(DHCommitMessage {
                         gx_encrypted: our_gx_encrypted,
                         gx_hashed: Vec::from(our_gxmpi_hashed),
                     });
@@ -92,7 +92,7 @@ impl AKEContext {
                 //   in response to each of those messages will prevent compounded confusion, since each of his clients
                 //   will see each of the D-H Key Messages you send. [And the problem gets even worse if you are each
                 //   logged in multiple times.]
-                let dhkey = OTRMessage::DHKey(DHKeyMessage {
+                let dhkey = OTRMessageType::DHKey(DHKeyMessage {
                     gy: revealsig.our_dh_keypair.public.clone(),
                 });
                 (
@@ -107,7 +107,7 @@ impl AKEContext {
             AKEState::AwaitingSignature(_) => {
                 // Reply with a new D-H Key message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
                 let our_dh_keypair = DH::Keypair::generate();
-                let dhkey = OTRMessage::DHKey(DHKeyMessage {
+                let dhkey = OTRMessageType::DHKey(DHKeyMessage {
                     gy: our_dh_keypair.public.clone(),
                 });
                 let gx_encrypted = msg.gx_encrypted;
@@ -131,10 +131,10 @@ impl AKEContext {
     fn _handle_dhcommit_from_initial(
         &self,
         msg: DHCommitMessage,
-    ) -> (Result<OTRMessage, AKEError>, Option<AKEState>) {
+    ) -> (Result<OTRMessageType, AKEError>, Option<AKEState>) {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
         let keypair = DH::Keypair::generate();
-        let dhkey = OTRMessage::DHKey(DHKeyMessage {
+        let dhkey = OTRMessageType::DHKey(DHKeyMessage {
             gy: keypair.public.clone(),
         });
         let gx_encrypted = msg.gx_encrypted;
@@ -149,7 +149,7 @@ impl AKEContext {
         )
     }
 
-    pub fn handle_dhkey(&mut self, msg: DHKeyMessage) -> Result<OTRMessage, AKEError> {
+    pub fn handle_dhkey(&mut self, msg: DHKeyMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
@@ -187,7 +187,7 @@ impl AKEContext {
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
                 (
-                    Ok(OTRMessage::RevealSignature(RevealSignatureMessage {
+                    Ok(OTRMessageType::RevealSignature(RevealSignatureMessage {
                         key: dhkey.r.clone(),
                         signature_encrypted: enc_b,
                         signature_mac: mac_enc_b,
@@ -239,7 +239,7 @@ impl AKEContext {
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&sig.secrets.m2, &enc_b);
                 (
-                    Ok(OTRMessage::RevealSignature(RevealSignatureMessage {
+                    Ok(OTRMessageType::RevealSignature(RevealSignatureMessage {
                         key: sig.key.clone(),
                         signature_encrypted: enc_b,
                         signature_mac: mac_enc_b,
@@ -257,7 +257,7 @@ impl AKEContext {
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
-    ) -> Result<OTRMessage, AKEError> {
+    ) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
@@ -333,7 +333,7 @@ impl AKEContext {
         return result;
     }
 
-    pub fn handle_signature(&mut self, msg: SignatureMessage) -> Result<OTRMessage, AKEError> {
+    pub fn handle_signature(&mut self, msg: SignatureMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.

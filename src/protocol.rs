@@ -1,4 +1,4 @@
-use crate::{encoding::{DataMessage}, OTRError, UserMessage, Version};
+use crate::{encoding::{DataMessage, OTRMessageType}, OTRError, UserMessage, Version};
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -10,7 +10,7 @@ pub trait ProtocolState {
         Option<Box<dyn ProtocolState>>,
     );
     fn secure(&self) -> Box<EncryptedState>;
-    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>);
+    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>);
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
 }
 
@@ -40,7 +40,7 @@ impl ProtocolState for PlaintextState {
         todo!()
     }
 
-    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
+    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         // FIXME is it desireable/harmful to have to construct a new instance?
         (None, Box::new(PlaintextState {}))
     }
@@ -80,7 +80,7 @@ impl ProtocolState for EncryptedState {
         todo!()
     }
 
-    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
+    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         // FIXME send/inject session end message to other party (with ignore unreadable).
         // let msg = DataMessage{
         //     flags: MessageFlag::FLAG_IGNORE_UNREADABLE,
@@ -123,7 +123,7 @@ impl ProtocolState for FinishedState {
         todo!()
     }
 
-    fn finish(&self) -> (Option<DataMessage>, Box<PlaintextState>) {
+    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         (None, Box::new(PlaintextState {}))
     }
 

@@ -83,17 +83,17 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
 fn parse_encoded_content(
     message_type: u8,
     mut decoder: OTRDecoder,
-) -> Result<OTRMessage, OTRError> {
+) -> Result<OTRMessageType, OTRError> {
     return match message_type {
-        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessage::DHCommit(DHCommitMessage::decode(&mut decoder)?)),
-        OTR_DH_KEY_TYPE_CODE => Ok(OTRMessage::DHKey(DHKeyMessage::decode(&mut decoder)?)),
-        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(OTRMessage::RevealSignature(
+        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessageType::DHCommit(DHCommitMessage::decode(&mut decoder)?)),
+        OTR_DH_KEY_TYPE_CODE => Ok(OTRMessageType::DHKey(DHKeyMessage::decode(&mut decoder)?)),
+        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(OTRMessageType::RevealSignature(
             RevealSignatureMessage::decode(&mut decoder)?,
         )),
-        OTR_SIGNATURE_TYPE_CODE => Ok(OTRMessage::Signature(SignatureMessage::decode(
+        OTR_SIGNATURE_TYPE_CODE => Ok(OTRMessageType::Signature(SignatureMessage::decode(
             &mut decoder,
         )?)),
-        OTR_DATA_TYPE_CODE => Ok(OTRMessage::Data(DataMessage::decode(&mut decoder)?)),
+        OTR_DATA_TYPE_CODE => Ok(OTRMessageType::Data(DataMessage::decode(&mut decoder)?)),
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type.",
         )),
@@ -161,20 +161,6 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     return result;
 }
 
-pub fn new_encoded_message(
-    version: Version,
-    sender: InstanceTag,
-    receiver: InstanceTag,
-    message: OTRMessage,
-) -> MessageType {
-    MessageType::EncodedMessage(EncodedMessage {
-        version,
-        sender,
-        receiver,
-        message,
-    })
-}
-
 pub enum MessageType {
     ErrorMessage(Vec<u8>),
     PlaintextMessage(Vec<u8>),
@@ -187,7 +173,7 @@ pub struct EncodedMessage {
     pub version: Version,
     pub sender: InstanceTag,
     pub receiver: InstanceTag,
-    pub message: OTRMessage,
+    pub message: OTRMessageType,
 }
 
 impl OTREncodable for EncodedMessage {
@@ -196,26 +182,26 @@ impl OTREncodable for EncodedMessage {
         encoder
             .write_short(3u16)
             .write_byte(match self.message {
-                OTRMessage::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
-                OTRMessage::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
-                OTRMessage::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
-                OTRMessage::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
-                OTRMessage::Data(_) => OTR_DATA_TYPE_CODE,
+                OTRMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
+                OTRMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
+                OTRMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
+                OTRMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
+                OTRMessageType::Data(_) => OTR_DATA_TYPE_CODE,
             })
             .write_int(self.sender)
             .write_int(self.receiver)
             .write_encodable(match &self.message {
-                OTRMessage::DHCommit(msg) => msg,
-                OTRMessage::DHKey(msg) => msg,
-                OTRMessage::RevealSignature(msg) => msg,
-                OTRMessage::Signature(msg) => msg,
-                OTRMessage::Data(msg) => msg,
+                OTRMessageType::DHCommit(msg) => msg,
+                OTRMessageType::DHKey(msg) => msg,
+                OTRMessageType::RevealSignature(msg) => msg,
+                OTRMessageType::Signature(msg) => msg,
+                OTRMessageType::Data(msg) => msg,
             });
     }
 }
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
-pub enum OTRMessage {
+pub enum OTRMessageType {
     /// DH-Commit-message in the AKE-process.
     DHCommit(DHCommitMessage),
     /// DH-Key-message in the AKE-process.
@@ -356,6 +342,21 @@ impl OTREncodable for DataMessage {
             .write_mac(&self.authenticator)
             .write_data(&self.revealed);
     }
+}
+
+
+pub fn encode_otr_message(
+    version: Version,
+    sender: InstanceTag,
+    receiver: InstanceTag,
+    message: OTRMessageType,
+) -> Vec<u8> {
+    encode(&MessageType::EncodedMessage(EncodedMessage {
+        version,
+        sender,
+        receiver,
+        message,
+    }))
 }
 
 pub fn encode(msg: &MessageType) -> Vec<u8> {

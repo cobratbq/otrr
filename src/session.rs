@@ -5,7 +5,7 @@ use fragment::Assembler;
 
 use crate::{
     authentication,
-    encoding::{encode, new_encoded_message, parse, EncodedMessage, MessageType, OTRMessage},
+    encoding::{encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType},
     fragment::{self, FragmentError},
     host::Host,
     instancetag::{InstanceTag, INSTANCE_ZERO},
@@ -165,12 +165,12 @@ impl Instance {
             .ake
             .initiate()
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-        self.host.inject(&encode(&new_encoded_message(
+        self.host.inject(&encode_otr_message(
             Version::V3,
             self.tag,
             INSTANCE_ZERO,
             msg,
-        )));
+        ));
         Ok(UserMessage::None)
     }
 
@@ -182,33 +182,33 @@ impl Instance {
     ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match encoded_message.message {
-            OTRMessage::DHCommit(msg) => {
+            OTRMessageType::DHCommit(msg) => {
                 let response = self
                     .ake
                     .handle_dhcommit(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                self.host.inject(&encode(&new_encoded_message(
+                self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.tag,
                     encoded_message.sender,
                     response,
-                )));
+                ));
                 Ok(UserMessage::None)
             }
-            OTRMessage::DHKey(msg) => {
+            OTRMessageType::DHKey(msg) => {
                 let response = self
                     .ake
                     .handle_dhkey(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                self.host.inject(&encode(&new_encoded_message(
+                self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.tag,
                     encoded_message.sender,
                     response,
-                )));
+                ));
                 Ok(UserMessage::None)
             }
-            OTRMessage::RevealSignature(msg) => {
+            OTRMessageType::RevealSignature(msg) => {
                 let response = self
                     .ake
                     .handle_reveal_signature(msg)
@@ -216,15 +216,15 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
-                self.host.inject(&encode(&new_encoded_message(
+                self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.tag,
                     encoded_message.sender,
                     response,
-                )));
+                ));
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
-            OTRMessage::Signature(msg) => {
+            OTRMessageType::Signature(msg) => {
                 let response = self
                     .ake
                     .handle_signature(msg)
@@ -232,15 +232,15 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 self.state = self.state.secure();
-                self.host.inject(&encode(&new_encoded_message(
+                self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.tag,
                     encoded_message.sender,
                     response,
-                )));
+                ));
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
-            OTRMessage::Data(msg) => {
+            OTRMessageType::Data(msg) => {
                 // FIXME verify and validate message before passing on to state.
                 let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
@@ -254,18 +254,22 @@ impl Instance {
 
     fn finish(&mut self) -> Result<UserMessage, OTRError> {
         let previous = self.state.status();
-        // TODO what happens with verification status when we force-reset? (prefer always reset for safety)
-        let (datamsg, newstate) = self.state.finish();
+        // TODO what happens with verification status when we force-reset? Should be preserved? (prefer always reset for safety)
+        let (abortmsg, newstate) = self.state.finish();
         self.state = newstate;
-        // let msg = MessageType{
-        //     version:
-        // }
-        // self.host.inject(encode_otr_message)
         if previous == self.state.status() {
-            Ok(UserMessage::None)
-        } else {
-            Ok(UserMessage::Reset)
+            return Ok(UserMessage::None)
         }
+        if let Some(msg) = abortmsg {
+            self.host.inject(&encode_otr_message(
+                Version::V3,
+                self.tag,
+                // FIXME replace with receiver tag of other party once accessible/available.
+                INSTANCE_ZERO,
+                msg,
+            ));
+        }
+        Ok(UserMessage::Reset)
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
