@@ -59,8 +59,6 @@ impl Account {
                     Err(OTRError::ProtocolViolation("Fragment with invalid data."))
                 }
                 Err(FragmentError::UnexpectedFragment) => {
-                    // TODO debug info, keep?
-                    println!("Unexpected fragment received. Assembler reset.");
                     Ok(UserMessage::None)
                 }
             };
@@ -95,7 +93,7 @@ impl Account {
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
-                    .handle(self.host.as_ref(), msg)
+                    .handle(msg)
             }
         };
     }
@@ -125,7 +123,7 @@ impl Account {
         self.instances
             .entry(receiver)
             .or_insert_with(|| Instance::new(receiver, Rc::clone(&self.host)))
-            .initiate()
+            .initiate(version)
     }
 
     pub fn query(&mut self, possible_versions: Vec<Version>) {
@@ -160,24 +158,24 @@ impl Instance {
         return self.state.status();
     }
 
-    fn initiate(&mut self) -> Result<UserMessage, OTRError> {
+    fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
         let msg = self
             .ake
             .initiate()
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
         self.host.inject(&encode_otr_message(
-            Version::V3,
+            version,
             self.tag,
             INSTANCE_ZERO,
             msg,
         ));
+        // FIXME do we need to store the chosen protocol version here? probably yes
         Ok(UserMessage::None)
     }
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(
         &mut self,
-        host: &dyn Host,
         encoded_message: EncodedMessage,
     ) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?

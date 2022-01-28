@@ -122,11 +122,12 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
                     .map(|v| {
                         match v {
                             // '1' is not actually allowed according to OTR-spec. (illegal)
+                            // (The pattern ignores the original format for v1.)
                             b'1' => Version::Unsupported(1u16),
                             b'2' => Version::Unsupported(2u16),
                             b'3' => Version::V3,
                             // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
-                            _ => Version::Unsupported(std::u16::MAX),
+                            _ => Version::Unsupported(*v as u16),
                         }
                     })
                     .filter(|v| match v {

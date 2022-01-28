@@ -17,6 +17,7 @@ static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     .unwrap()
 });
 
+// TODO match matches OTRv2 prefix but parsing does not handling OTRv2 fragments, so somewhere we need to handle.
 pub fn match_fragment(content: &[u8]) -> bool {
     return (content.starts_with(OTR_FRAGMENT_V2_PREFIX)
         || content.starts_with(OTR_FRAGMENT_V3_PREFIX))
