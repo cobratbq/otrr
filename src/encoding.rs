@@ -85,7 +85,9 @@ fn parse_encoded_content(
     mut decoder: OTRDecoder,
 ) -> Result<OTRMessageType, OTRError> {
     return match message_type {
-        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessageType::DHCommit(DHCommitMessage::decode(&mut decoder)?)),
+        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessageType::DHCommit(DHCommitMessage::decode(
+            &mut decoder,
+        )?)),
         OTR_DH_KEY_TYPE_CODE => Ok(OTRMessageType::DHKey(DHKeyMessage::decode(&mut decoder)?)),
         OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(OTRMessageType::RevealSignature(
             RevealSignatureMessage::decode(&mut decoder)?,
@@ -107,9 +109,8 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
             &data[OTR_ERROR_PREFIX.len()..],
         )));
     }
-    let query_caps = QUERY_PATTERN.captures(data);
-    if query_caps.is_some() {
-        return match query_caps.unwrap().get(1) {
+    if let Some(caps) = QUERY_PATTERN.captures(data) {
+        return match caps.get(1) {
             None => Ok(MessageType::QueryMessage(Vec::new())),
             Some(versions) => Ok(MessageType::QueryMessage(
                 versions
@@ -134,10 +135,9 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         };
     }
     // TODO search for multiple occurrences?
-    let whitespace_caps = WHITESPACE_PATTERN.captures(data);
-    if whitespace_caps.is_some() {
+    if let Some(caps) = WHITESPACE_PATTERN.captures(data) {
         let cleaned = WHITESPACE_PATTERN.replace_all(data, b"".as_ref()).to_vec();
-        return match whitespace_caps.unwrap().get(1) {
+        return match caps.get(1) {
             None => Ok(MessageType::TaggedMessage(Vec::new(), cleaned)),
             Some(cap) => Ok(MessageType::TaggedMessage(
                 parse_whitespace_tags(cap.as_bytes()),
@@ -178,9 +178,11 @@ pub struct EncodedMessage {
 
 impl OTREncodable for EncodedMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME: correctly derive short-value from Version-type. (now hard-coded)
         encoder
-            .write_short(3u16)
+            .write_short(match self.version {
+                Version::V3 => 3,
+                Version::Unsupported(_) => panic!("BUG: unsupported version"),
+            })
             .write_byte(match self.message {
                 OTRMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
                 OTRMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
@@ -343,7 +345,6 @@ impl OTREncodable for DataMessage {
             .write_data(&self.revealed);
     }
 }
-
 
 pub fn encode_otr_message(
     version: Version,
