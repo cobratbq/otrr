@@ -33,10 +33,13 @@ const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 
-// TODO does this pattern support the OTRv1 query-pattern, as it deviates from the others, in order to correctly identify the protocol being present.
-static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\?OTR\??(:?v(\d*))?\?").unwrap());
-static WHITESPACE_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*").unwrap());
+static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
+});
+static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*")
+        .expect("BUG: failed to compile hard-coded regex-pattern.")
+});
 
 const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
 const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
@@ -427,10 +430,13 @@ pub struct OTRDecoder<'a>(&'a [u8]);
 
 // FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
 /// OTRDecoder contains the logic for reading entries from byte-buffer.
+///
+/// The OTRDecoder is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
+///  input cannot be trusted, so we try to handle everything as an Err-result.
 #[allow(dead_code)]
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
-        return Self(content);
+        Self(content)
     }
 
     /// read_byte reads a single byte from buffer.
@@ -440,7 +446,7 @@ impl<'a> OTRDecoder<'a> {
         }
         let value = self.0[0];
         self.0 = &self.0[1..];
-        return Ok(value);
+        Ok(value)
     }
 
     /// read_short reads a short value (2 bytes, big-endian) from buffer.
@@ -450,7 +456,7 @@ impl<'a> OTRDecoder<'a> {
         }
         let value = (self.0[0] as u16) << 8 + self.0[1] as u16;
         self.0 = &self.0[2..];
-        return Ok(value);
+        Ok(value)
     }
 
     /// read_int reads an integer value (4 bytes, big-endian) from buffer.
@@ -463,7 +469,7 @@ impl<'a> OTRDecoder<'a> {
             + ((self.0[2] as u32) << 8)
             + (self.0[3] as u32);
         self.0 = &self.0[4..];
-        return Ok(value);
+        Ok(value)
     }
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
@@ -479,7 +485,7 @@ impl<'a> OTRDecoder<'a> {
         }
         let data = Vec::from(&self.0[..len]);
         self.0 = &self.0[len..];
-        return Ok(data);
+        Ok(data)
     }
 
     /// read_mpi reads MPI from buffer.
@@ -490,7 +496,7 @@ impl<'a> OTRDecoder<'a> {
         }
         let mpi = BigUint::from_bytes_be(&self.0[..len]);
         self.0 = &self.0[len..];
-        return Ok(mpi);
+        Ok(mpi)
     }
 
     /// Read sequence of MPI values as defined by SMP.
@@ -511,7 +517,7 @@ impl<'a> OTRDecoder<'a> {
         let mut ctr: CTR = [0; CTR_LEN];
         ctr.copy_from_slice(&self.0[..CTR_LEN]);
         self.0 = &self.0[CTR_LEN..];
-        return Ok(ctr);
+        Ok(ctr)
     }
 
     /// read_mac reads a MAC value from buffer.
@@ -522,7 +528,7 @@ impl<'a> OTRDecoder<'a> {
         let mut mac: MAC = [0; MAC_LEN];
         mac.copy_from_slice(&self.0[..MAC_LEN]);
         self.0 = &self.0[MAC_LEN..];
-        return Ok(mac);
+        Ok(mac)
     }
 
     /// read_public_key reads a DSA public key from the buffer.
@@ -533,7 +539,6 @@ impl<'a> OTRDecoder<'a> {
                 "Unsupported/invalid public key type.",
             ));
         }
-        // TODO not sure if I like the fact that read_mpi is mutable, so fields must remain in this order or we're reading wrong data into wrong field.
         Ok(DSA::PublicKey {
             p: self.read_mpi()?,
             q: self.read_mpi()?,
@@ -550,7 +555,7 @@ impl<'a> OTRDecoder<'a> {
         let mut sig: Signature = [0; SIGNATURE_LEN];
         sig.copy_from_slice(&self.0[..SIGNATURE_LEN]);
         self.0 = &self.0[SIGNATURE_LEN..];
-        return Ok(sig);
+        Ok(sig)
     }
 
     /// read_tlv reads a type-length-value record from the content.
@@ -585,8 +590,17 @@ impl<'a> OTRDecoder<'a> {
         Ok(ssid)
     }
 
+    /// read_bytes_null_terminated reads bytes until a NULL-byte is found. The
+    /// NULL-byte is consumed, but will not be returned in the result.
     pub fn read_bytes_null_terminated(&mut self) -> Result<Vec<u8>, OTRError> {
-        todo!()
+        let mut bytes = Vec::new();
+        loop {
+            let b = self.read_byte()?;
+            if b == b'\0' {
+                return Ok(bytes);
+            }
+            bytes.push(b);
+        }
     }
 }
 
@@ -598,7 +612,6 @@ pub struct OTREncoder {
     buffer: Vec<u8>,
 }
 
-// TODO can we use 'mut self' so that we move the original instance around mutably?
 #[allow(dead_code)]
 impl OTREncoder {
     pub fn new() -> Self {
@@ -661,7 +674,7 @@ impl OTREncoder {
         self
     }
 
-    // TODO solve using OTREncodable trait and implementation inside encodable types
+    // TODO solve using OTREncodable trait and implementation inside encodable types (??? maybe not because crypto types considered primitive types?)
     pub fn write_public_key(&mut self, key: &DSA::PublicKey) -> &mut Self {
         self.write_short(0u16)
             .write_mpi(&key.p)
