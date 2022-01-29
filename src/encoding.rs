@@ -36,10 +36,12 @@ const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
 });
+const QUERY_GROUP_VERSIONS: usize = 1;
 static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*")
         .expect("BUG: failed to compile hard-coded regex-pattern.")
 });
+const WHITESPACE_GROUP_TAGS: usize = 1;
 
 const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
 const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
@@ -113,43 +115,43 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         )));
     }
     if let Some(caps) = QUERY_PATTERN.captures(data) {
-        return match caps.get(1) {
-            None => Ok(MessageType::QueryMessage(Vec::new())),
-            Some(versions) => Ok(MessageType::QueryMessage(
-                versions
-                    .as_bytes()
-                    .iter()
-                    .map(|v| {
-                        match v {
-                            // '1' is not actually allowed according to OTR-spec. (illegal)
-                            // (The pattern ignores the original format for v1.)
-                            b'1' => Version::Unsupported(1u16),
-                            b'2' => Version::Unsupported(2u16),
-                            b'3' => Version::V3,
-                            // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
-                            _ => Version::Unsupported(*v as u16),
-                        }
-                    })
-                    .filter(|v| match v {
-                        Version::V3 => true,
-                        Version::Unsupported(_) => false,
-                    })
-                    .collect(),
-            )),
-        };
+        let versions = caps
+            .get(QUERY_GROUP_VERSIONS)
+            .expect("BUG: hard-coded regex should contain capture group for versions");
+        return Ok(MessageType::QueryMessage(
+            versions
+                .as_bytes()
+                .iter()
+                .map(|v| {
+                    match v {
+                        // '1' is not actually allowed according to OTR-spec. (illegal)
+                        // (The pattern ignores the original format for v1.)
+                        b'1' => Version::Unsupported(1u16),
+                        b'2' => Version::Unsupported(2u16),
+                        b'3' => Version::V3,
+                        // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
+                        _ => Version::Unsupported(*v as u16),
+                    }
+                })
+                .filter(|v| match v {
+                    Version::V3 => true,
+                    Version::Unsupported(_) => false,
+                })
+                .collect(),
+        ));
     }
     // TODO search for multiple occurrences?
     if let Some(caps) = WHITESPACE_PATTERN.captures(data) {
         let cleaned = WHITESPACE_PATTERN.replace_all(data, b"".as_ref()).to_vec();
-        return match caps.get(1) {
-            None => Ok(MessageType::TaggedMessage(Vec::new(), cleaned)),
-            Some(cap) => Ok(MessageType::TaggedMessage(
-                parse_whitespace_tags(cap.as_bytes()),
-                cleaned,
-            )),
-        };
+        let cap = caps
+            .get(WHITESPACE_GROUP_TAGS)
+            .expect("BUG: hard-coded regex should include capture group");
+        return Ok(MessageType::TaggedMessage(
+            parse_whitespace_tags(cap.as_bytes()),
+            cleaned,
+        ));
     }
-    return Ok(MessageType::PlaintextMessage(data.to_vec()));
+    Ok(MessageType::PlaintextMessage(data.to_vec()))
 }
 
 fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
