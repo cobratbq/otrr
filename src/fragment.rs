@@ -73,6 +73,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
     };
 }
 
+// TODO implement OTREncodable for fragmentation
 pub struct Fragment {
     pub sender: InstanceTag,
     pub receiver: InstanceTag,

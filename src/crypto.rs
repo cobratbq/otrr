@@ -239,6 +239,7 @@ pub mod DSA {
     }
 }
 
+// TODO Fingerprint = SHA1(byte-level representation of Public Key without 0x0000 which is the short-type pubkey type identifier)
 #[allow(non_snake_case)]
 pub mod SHA1 {
 

@@ -650,14 +650,18 @@ impl OTREncoder {
     }
 
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
+        // - 4-byte unsigned len, big-endian
+        // - <len> byte unsigned value, big-endian
+        // (MPIs must use the minimum-length encoding; i.e. no leading 0x00 bytes. This is important when calculating public key fingerprints.)
+        // FIXME this is not guaranteed minimum-length encoding, as it is reversed little-endian(???)
         self.write_data(&v.to_bytes_be())
     }
 
     /// Write sequence of MPI values in format defined in SMP: num_mpis, mpi1, mpi2, ...
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
         self.write_int(mpis.len() as u32);
-        for mpi in mpis {
-            self.write_mpi(*mpi);
+        for i in 0..mpis.len() {
+            self.write_mpi(mpis[i]);
         }
         self
     }
@@ -682,6 +686,7 @@ impl OTREncoder {
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
+        // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_Q_LEN
         self.buffer.extend_from_slice(sig);
         self
     }

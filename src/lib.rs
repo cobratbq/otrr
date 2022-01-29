@@ -99,7 +99,8 @@ const MAC_LEN: usize = 20;
 type MAC = [u8; MAC_LEN];
 
 /// Signature type represents a DSA signature in IEEE-P1363 representation.
-const SIGNATURE_LEN: usize = 40;
+const SIGNATURE_PARAM_Q_LEN: usize = 20;
+const SIGNATURE_LEN: usize = 2 * SIGNATURE_PARAM_Q_LEN;
 type Signature = [u8; SIGNATURE_LEN];
 
 #[derive(Debug)]
