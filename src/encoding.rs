@@ -9,7 +9,7 @@ use crate::{
     crypto::AES128,
     crypto::DSA,
     instancetag::{verify_instance_tag, InstanceTag},
-    OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN, SIGNATURE_LEN, TLV,
+    utils, OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN, SIGNATURE_LEN, TLV,
 };
 
 bitflags! {
@@ -377,17 +377,16 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             buffer
         }
         MessageType::TaggedMessage(versions, message) => {
-            if !versions.is_empty() {
-                // TODO test for valid versions before adding whitespace-prefix.
-                // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
-                buffer.extend_from_slice(WHITESPACE_PREFIX);
-                for v in versions {
-                    // FIXME strictly speaking there must be at least one tag or we violate spec.
-                    match v {
-                        Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
-                        Version::Unsupported(_) => {
-                            panic!("BUG: unsupported versions should be avoided.")
-                        }
+            assert!(!versions.is_empty());
+            // TODO test for valid versions before adding whitespace-prefix.
+            // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
+            buffer.extend_from_slice(WHITESPACE_PREFIX);
+            for v in utils::alloc::vec_unique(versions.to_owned()) {
+                // FIXME strictly speaking there must be at least one tag or we violate spec.
+                match v {
+                    Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
+                    Version::Unsupported(_) => {
+                        panic!("BUG: unsupported versions should be avoided.")
                     }
                 }
             }
@@ -395,19 +394,15 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             buffer
         }
         MessageType::QueryMessage(versions) => {
+            assert!(!versions.is_empty());
+            // NOTE: each version listed at most once, in arbitrary order.
+            // (Version 1 has deviating syntax but is no longer supported.)
             buffer.extend_from_slice(OTR_QUERY_PREFIX);
-            for v in versions {
-                // TODO versions not guaranteed unique.
-                // TODO versions not necessarily ordered.
+            for v in utils::alloc::vec_unique(versions.to_owned()) {
                 match v {
-                    Version::V3 => {
-                        buffer.push(b'3');
-                    }
-                    Version::Unsupported(unsupported) => {
-                        panic!(
-                            "BUG: unsupported version {} leaked into encoding logic.",
-                            unsupported
-                        )
+                    Version::V3 => buffer.push(b'3'),
+                    Version::Unsupported(_) => {
+                        panic!("BUG: unsupported version should be avoided.")
                     }
                 }
             }

@@ -52,14 +52,14 @@ impl Account {
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
                 Err(FragmentError::IncompleteResult) => Ok(UserMessage::None),
+                Err(FragmentError::UnexpectedFragment) => {
+                    Ok(UserMessage::None)
+                }
                 Err(FragmentError::InvalidFormat) => {
                     Err(OTRError::ProtocolViolation("Fragment with invalid format."))
                 }
                 Err(FragmentError::InvalidData) => {
                     Err(OTRError::ProtocolViolation("Fragment with invalid data."))
-                }
-                Err(FragmentError::UnexpectedFragment) => {
-                    Ok(UserMessage::None)
                 }
             };
         }

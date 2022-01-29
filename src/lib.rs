@@ -19,6 +19,7 @@ mod encoding;
 mod fragment;
 mod instancetag;
 mod protocol;
+mod utils;
 
 pub mod host;
 pub mod session;
@@ -80,7 +81,7 @@ pub enum OTRError {
 }
 
 /// Version contains the various supported OTR protocol versions.
-#[derive(PartialEq)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
     Unsupported(u16),
     // V1, // will not be supported.
