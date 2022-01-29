@@ -1,15 +1,12 @@
-use std::ops::{Sub};
+use std::ops::Sub;
 
-use num::{
-    integer::{Integer},
-    FromPrimitive,
-};
+use num::{integer::Integer, FromPrimitive};
 use num_bigint::BigUint;
 use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
     crypto::{CryptoError, DH, SHA256},
-    encoding::{encodeBigUint, Fingerprint, OTRDecoder, OTREncoder, SSID},
+    encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     OTRError, TLV,
 };
 use DH::{MODULUS, MODULUS_MINUS_TWO};
@@ -28,7 +25,8 @@ static RAND: SystemRandom = SystemRandom::new();
 // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
 // "D values are calculated modulo `q = (p - 1) / 2`"
 // FIXME why should we clone this value??????
-static Q: BigUint = MODULUS.clone().sub(BigUint::from_u8(1).unwrap()) / BigUint::from_u8(2).unwrap();
+static Q: BigUint =
+    MODULUS.clone().sub(BigUint::from_u8(1).unwrap()) / BigUint::from_u8(2).unwrap();
 
 pub struct SMPContext {
     /// fingerprint of the other party
@@ -121,7 +119,12 @@ impl SMPContext {
         }
         // FIXME what is the exact format, where is the question embedded?
         let g1 = *DH::GENERATOR;
-        let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
+        let question: Vec<u8>;
+        let mut decoder = OTRDecoder::new(&tlv.1);
+        if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
+            question = decoder.read_bytes_null_terminated()?;
+        }
+        let mut mpis = decoder.read_mpi_sequence()?;
         if mpis.len() != 6 {
             return Err(OTRError::ProtocolViolation(
                 "Unexpected number of MPI values",
@@ -207,10 +210,14 @@ impl SMPContext {
         // `D6 = r6 - y cP mod q`."
         let cp = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
             5,
-            &encodeBigUint(&g3.modpow(&r5, &MODULUS)),
-            &encodeBigUint(
-                &(g1.modpow(&r5, &MODULUS) * g2.modpow(&r6, &MODULUS)).mod_floor(&MODULUS),
-            ),
+            &OTREncoder::new()
+                .write_mpi(&g3.modpow(&r5, &MODULUS))
+                .to_vec(),
+            &OTREncoder::new()
+                .write_mpi(
+                    &(g1.modpow(&r5, &MODULUS) * g2.modpow(&r6, &MODULUS)).mod_floor(&MODULUS),
+                )
+                .to_vec(),
         ));
         let D5 = (&r5 - &r4 * &cp).mod_floor(&Q);
         let D6 = (&r6 - &y * &cp).mod_floor(&Q);
@@ -466,12 +473,16 @@ impl SMPContext {
         let cp_part2 =
             (g1.modpow(&D5, &MODULUS) * g2.modpow(&D6, &MODULUS) * qa.modpow(&cp, &MODULUS))
                 .mod_floor(&MODULUS);
-        if cp != BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-            6u8,
-            &OTREncoder::new().write_mpi(&cp_part1).to_vec(),
-            &OTREncoder::new().write_mpi(&cp_part2).to_vec(),
-        )) {
-            return Err(OTRError::CryptographicViolation(CryptoError::VerificationFailure("failed to verify cR")))
+        if cp
+            != BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+                6u8,
+                &OTREncoder::new().write_mpi(&cp_part1).to_vec(),
+                &OTREncoder::new().write_mpi(&cp_part2).to_vec(),
+            ))
+        {
+            return Err(OTRError::CryptographicViolation(
+                CryptoError::VerificationFailure("failed to verify cR"),
+            ));
         }
 
         // Check that cR = SHA256(7, g1D7 g3acR, (Qa / Qb)D7 RacR).
