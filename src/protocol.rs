@@ -1,4 +1,13 @@
-use crate::{encoding::{DataMessage, OTRMessageType}, OTRError, UserMessage, Version};
+use num::BigUint;
+
+use crate::{
+    authentication::CryptographicMaterial,
+    encoding::{DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType},
+    OTRError, UserMessage, Version, CTR, MAC_LEN, TLV,
+};
+
+const TLV_TYPE_0_PADDING: u16 = 0;
+const TLV_TYPE_1_DISCONNECT: u16 = 1;
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -9,9 +18,9 @@ pub trait ProtocolState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     );
-    fn secure(&self) -> Box<EncryptedState>;
-    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>);
-    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError>;
+    fn secure(&self, material: CryptographicMaterial) -> Box<EncryptedState>;
+    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
+    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError>;
 }
 
 pub fn new_state() -> Box<dyn ProtocolState> {
@@ -36,26 +45,41 @@ impl ProtocolState for PlaintextState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self) -> Box<EncryptedState> {
-        todo!()
+    fn secure(&self, material: CryptographicMaterial) -> Box<EncryptedState> {
+        // FIXME receive appropriate cryptographic material when transitioning into secure state.
+        return Box::new(EncryptedState {
+            version: material.version,
+            sender_keyid: material.sender_keyid,
+            receiver_keyid: material.receiver_keyid,
+            dh_y: material.dh_y,
+            ctr: material.ctr,
+        });
     }
 
-    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         // FIXME is it desireable/harmful to have to construct a new instance?
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        Ok(Vec::from(content))
+    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+        // Returned as 'Undefined' message as we are not in an encrypted state,
+        // therefore we return the content as-is to the caller.
+        // FIXME not sure if this is the best solution
+        Ok(OTRMessageType::Undefined(Vec::from(content)))
     }
 }
 
 pub struct EncryptedState {
     version: Version,
+    sender_keyid: KeyID,
+    receiver_keyid: KeyID,
+    dh_y: BigUint,
+    ctr: CTR,
 }
 
 impl Drop for EncryptedState {
     fn drop(&mut self) {
+        // FIXME ensure thorough clean-up of sensitive material
         todo!()
     }
 }
@@ -76,29 +100,57 @@ impl ProtocolState for EncryptedState {
         todo!("To be implemented")
     }
 
-    fn secure(&self) -> Box<EncryptedState> {
-        todo!()
+    fn secure(&self, material: CryptographicMaterial) -> Box<EncryptedState> {
+        // FIXME receive appropriate cryptographic material when transitioning into secure state.
+        return Box::new(EncryptedState {
+            version: material.version,
+            sender_keyid: material.sender_keyid,
+            receiver_keyid: material.receiver_keyid,
+            dh_y: material.dh_y,
+            ctr: material.ctr,
+        });
     }
 
-    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
-        // FIXME send/inject session end message to other party (with ignore unreadable).
-        // let msg = DataMessage{
-        //     flags: MessageFlag::FLAG_IGNORE_UNREADABLE,
-        //     sender_keyid:,
-        //     receiver_keyid:,
-        //     dh_y:,
-        //     ctr:,
-        //     encrypted:,
-        //     authenticator: [0u8;MAC_LEN],
-        //     // TODO need to check for to-be-revealed MACs
-        //     revealed: Vec::new(),
-        // }
+    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         // FIXME send DataMessage with empty content and TLV1 (abort) and FLAG_IGNORE_UNREADABLE set.
-        (None, Box::new(PlaintextState {}))
+        let optabort: Option<OTRMessageType>;
+        if let Ok(encrypted) = self.encrypt(
+            OTREncoder::new()
+                .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
+                .to_vec(),
+        ) {
+            optabort = Some(OTRMessageType::Data(
+                self.create_data_message(MessageFlags::IgnoreUnreadable, encrypted),
+            ));
+        } else {
+            optabort = None;
+        }
+        (optabort, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, _content: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn send(&mut self, _content: &[u8]) -> Result<OTRMessageType, OTRError> {
         todo!()
+    }
+}
+
+impl EncryptedState {
+    // FIXME note that this message needs to be already encrypted. This is error-prone!
+    fn create_data_message(&self, flags: MessageFlags, message: Vec<u8>) -> DataMessage {
+        DataMessage {
+            flags,
+            sender_keyid: self.sender_keyid,
+            receiver_keyid: self.receiver_keyid,
+            dh_y: self.dh_y.clone(),
+            ctr: self.ctr,
+            encrypted: message,
+            authenticator: [0u8; MAC_LEN],
+            revealed: Vec::new(),
+        }
+    }
+
+    fn encrypt(&mut self, _message: Vec<u8>) -> Result<Vec<u8>, OTRError> {
+        // FIXME implement encryption
+        todo!("To be implemented: encryption")
     }
 }
 
@@ -119,15 +171,22 @@ impl ProtocolState for FinishedState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self) -> Box<EncryptedState> {
-        todo!()
+    fn secure(&self, material: CryptographicMaterial) -> Box<EncryptedState> {
+        // FIXME receive appropriate cryptographic material when transitioning into secure state.
+        return Box::new(EncryptedState {
+            version: material.version,
+            sender_keyid: material.sender_keyid,
+            receiver_keyid: material.receiver_keyid,
+            dh_y: material.dh_y,
+            ctr: material.ctr,
+        });
     }
 
-    fn finish(&self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, _: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn send(&mut self, _: &[u8]) -> Result<OTRMessageType, OTRError> {
         Err(OTRError::ProtocolInFinishedState)
     }
 }

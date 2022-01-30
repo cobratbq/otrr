@@ -52,9 +52,7 @@ impl Account {
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
                 Err(FragmentError::IncompleteResult) => Ok(UserMessage::None),
-                Err(FragmentError::UnexpectedFragment) => {
-                    Ok(UserMessage::None)
-                }
+                Err(FragmentError::UnexpectedFragment) => Ok(UserMessage::None),
                 Err(FragmentError::InvalidFormat) => {
                     Err(OTRError::ProtocolViolation("Fragment with invalid format."))
                 }
@@ -109,7 +107,6 @@ impl Account {
     }
 
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        // return self.instances.get_mut(&instance).unwrap().send(content);
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
         self.instances
@@ -163,21 +160,14 @@ impl Instance {
             .ake
             .initiate()
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-        self.host.inject(&encode_otr_message(
-            version,
-            self.tag,
-            INSTANCE_ZERO,
-            msg,
-        ));
+        self.host
+            .inject(&encode_otr_message(version, self.tag, INSTANCE_ZERO, msg));
         // FIXME do we need to store the chosen protocol version here? probably yes
         Ok(UserMessage::None)
     }
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
-    fn handle(
-        &mut self,
-        encoded_message: EncodedMessage,
-    ) -> Result<UserMessage, OTRError> {
+    fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         // FIXME how to handle AKE errors in each case?
         return match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
@@ -207,13 +197,13 @@ impl Instance {
                 Ok(UserMessage::None)
             }
             OTRMessageType::RevealSignature(msg) => {
-                let response = self
+                let (material, response) = self
                     .ake
                     .handle_reveal_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure();
+                self.state = self.state.secure(material);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.tag,
@@ -223,19 +213,12 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessageType::Signature(msg) => {
-                let response = self
+                let material = self
                     .ake
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure();
-                self.host.inject(&encode_otr_message(
-                    Version::V3,
-                    self.tag,
-                    encoded_message.sender,
-                    response,
-                ));
+                self.state = self.state.secure(material);
                 Ok(UserMessage::ConfidentialSessionStarted)
             }
             OTRMessageType::Data(msg) => {
@@ -247,16 +230,17 @@ impl Instance {
                 // FIXME in case of error, check for ignore-unreadable flag.
                 return message;
             }
+            OTRMessageType::Undefined(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
         };
     }
 
-    fn finish(&mut self) -> Result<UserMessage, OTRError> {
+    fn reset(&mut self) -> Result<UserMessage, OTRError> {
         let previous = self.state.status();
         // TODO what happens with verification status when we force-reset? Should be preserved? (prefer always reset for safety)
         let (abortmsg, newstate) = self.state.finish();
         self.state = newstate;
         if previous == self.state.status() {
-            return Ok(UserMessage::None)
+            return Ok(UserMessage::None);
         }
         if let Some(msg) = abortmsg {
             self.host.inject(&encode_otr_message(
@@ -271,6 +255,19 @@ impl Instance {
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        return self.state.send(content);
+        // FIXME hard-coded version
+        let version: Version = Version::V3;
+        // FIXME hard-coded instance tag INSTANCE_ZERO
+        let receiver: InstanceTag = INSTANCE_ZERO;
+        Ok(match self.state.send(content)? {
+            OTRMessageType::Undefined(msg) => encode(&MessageType::PlaintextMessage(msg)),
+            msg @ OTRMessageType::DHCommit(_)
+            | msg @ OTRMessageType::DHKey(_)
+            | msg @ OTRMessageType::RevealSignature(_)
+            | msg @ OTRMessageType::Signature(_)
+            | msg @ OTRMessageType::Data(_) => {
+                encode_otr_message(version, self.tag, receiver, msg)
+            }
+        })
     }
 }

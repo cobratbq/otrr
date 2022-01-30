@@ -14,9 +14,9 @@ use crate::{
 
 bitflags! {
     /// MessageFlag bit-flags can set for OTR-encoded messages.
-    struct MessageFlag: u8 {
+    pub struct MessageFlags: u8 {
         /// FLAG_IGNORE_UNREADABLE indicates that the message can be ignored if it cannot be read. This is typically used for control messages that have no value to the user, to indicate that there is no point in alerting the user of an inaccessible message.
-        const FLAG_IGNORE_UNREADABLE = 0b00000001;
+        const IgnoreUnreadable = 0b00000001;
     }
 }
 
@@ -167,6 +167,7 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     return result;
 }
 
+// TODO it would probably make more sense for some of the types to accept '&[u8]'-style content
 pub enum MessageType {
     ErrorMessage(Vec<u8>),
     PlaintextMessage(Vec<u8>),
@@ -190,6 +191,7 @@ impl OTREncodable for EncodedMessage {
                 Version::Unsupported(_) => panic!("BUG: unsupported version"),
             })
             .write_byte(match self.message {
+                OTRMessageType::Undefined(_) => panic!("BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."),
                 OTRMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
                 OTRMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
                 OTRMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
@@ -199,6 +201,7 @@ impl OTREncodable for EncodedMessage {
             .write_int(self.sender)
             .write_int(self.receiver)
             .write_encodable(match &self.message {
+                OTRMessageType::Undefined(_) => panic!("BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."),
                 OTRMessageType::DHCommit(msg) => msg,
                 OTRMessageType::DHKey(msg) => msg,
                 OTRMessageType::RevealSignature(msg) => msg,
@@ -210,6 +213,9 @@ impl OTREncodable for EncodedMessage {
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
 pub enum OTRMessageType {
+    // FIXME this seems like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
+    /// Undefined message type. This is used as an indicator that the content is not any one of the standard OTR-encoded message-types. Possibly a Plaintext message or a (partial) body in a Query message.
+    Undefined(Vec<u8>),
     /// DH-Commit-message in the AKE-process.
     DHCommit(DHCommitMessage),
     /// DH-Key-message in the AKE-process.
@@ -312,9 +318,9 @@ impl OTREncodable for SignatureMessage {
 }
 
 pub struct DataMessage {
-    pub flags: u8,
-    pub sender_keyid: u32,
-    pub receiver_keyid: u32,
+    pub flags: MessageFlags,
+    pub sender_keyid: KeyID,
+    pub receiver_keyid: KeyID,
     pub dh_y: BigUint,
     pub ctr: CTR,
     pub encrypted: Vec<u8>,
@@ -323,10 +329,14 @@ pub struct DataMessage {
     pub revealed: Vec<u8>,
 }
 
+pub type KeyID = u32;
+
 impl DataMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<DataMessage, OTRError> {
+        // TODO should we handle unknown message flags differently? (ignore what we don't know?)
         Ok(DataMessage {
-            flags: decoder.read_byte()?,
+            flags: MessageFlags::from_bits(decoder.read_byte()?)
+                .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
             sender_keyid: decoder.read_int()?,
             receiver_keyid: decoder.read_int()?,
             dh_y: decoder.read_mpi()?,
@@ -341,7 +351,7 @@ impl DataMessage {
 impl OTREncodable for DataMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
-            .write_byte(self.flags)
+            .write_byte(self.flags.bits())
             .write_int(self.sender_keyid)
             .write_int(self.receiver_keyid)
             .write_mpi(&self.dh_y)

@@ -33,6 +33,8 @@ pub mod session;
 // TODO initialization-time checking:
 //   1. CPU capabilities: usize 32-bit or 64-bit, given checking for appropriate boundaries throughout code. (e.g. encoding.rs serialization)
 
+// TODO add periodic heartbeat message
+
 /// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
 pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.

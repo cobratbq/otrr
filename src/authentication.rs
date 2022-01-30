@@ -4,9 +4,9 @@ use crate::{
     crypto::{CryptoError, AES128, DH, SHA256},
     encoding::{
         DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessageType, RevealSignatureMessage,
-        SignatureMessage,
+        SignatureMessage, KeyID,
     },
-    host::Host,
+    host::Host, Version, CTR,
 };
 use num_bigint::BigUint;
 
@@ -257,7 +257,7 @@ impl AKEContext {
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
-    ) -> Result<OTRMessageType, AKEError> {
+    ) -> Result<(CryptographicMaterial, OTRMessageType), AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
@@ -333,7 +333,7 @@ impl AKEContext {
         return result;
     }
 
-    pub fn handle_signature(&mut self, msg: SignatureMessage) -> Result<OTRMessageType, AKEError> {
+    pub fn handle_signature(&mut self, msg: SignatureMessage) -> Result<CryptographicMaterial, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
@@ -392,6 +392,14 @@ impl AKEContext {
         }
         return result;
     }
+}
+
+pub struct CryptographicMaterial{
+    pub version: Version,
+    pub sender_keyid: KeyID,
+    pub receiver_keyid: KeyID,
+    pub dh_y: BigUint,
+    pub ctr: CTR,
 }
 
 /// AKEState represents available/recognized AKE states.
