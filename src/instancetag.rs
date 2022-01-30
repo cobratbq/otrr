@@ -13,5 +13,6 @@ pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
 }
 
 pub enum InstanceTagError {
+    /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is excluded as it is used for backwards-compatibility.
     IllegalValue,
 }

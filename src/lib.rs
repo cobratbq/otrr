@@ -34,6 +34,7 @@ pub mod session;
 //   1. CPU capabilities: usize 32-bit or 64-bit, given checking for appropriate boundaries throughout code. (e.g. encoding.rs serialization)
 
 // TODO add periodic heartbeat message
+// TODO support messages in backlog for sending when confidential session established?
 
 /// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
 pub enum UserMessage {

@@ -160,15 +160,18 @@ impl Instance {
             .ake
             .initiate()
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+        let our_tag: InstanceTag;
         self.host
-            .inject(&encode_otr_message(version, self.tag, INSTANCE_ZERO, msg));
+            .inject(&encode_otr_message(version, our_tag, self.tag, msg));
         // FIXME do we need to store the chosen protocol version here? probably yes
         Ok(UserMessage::None)
     }
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
+        assert_eq!(self.tag, encoded_message.sender);
         // FIXME how to handle AKE errors in each case?
+        let our_tag: InstanceTag;
         return match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
                 let response = self
@@ -177,7 +180,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.tag,
+                    our_tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -190,7 +193,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.tag,
+                    our_tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -206,7 +209,7 @@ impl Instance {
                 self.state = self.state.secure(material);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.tag,
+                    our_tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -242,12 +245,13 @@ impl Instance {
         if previous == self.state.status() {
             return Ok(UserMessage::None);
         }
+        let our_tag: InstanceTag;
         if let Some(msg) = abortmsg {
             self.host.inject(&encode_otr_message(
                 Version::V3,
-                self.tag,
+                our_tag,
                 // FIXME replace with receiver tag of other party once accessible/available.
-                INSTANCE_ZERO,
+                self.tag,
                 msg,
             ));
         }
@@ -256,9 +260,9 @@ impl Instance {
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME hard-coded version
-        let version: Version = Version::V3;
+        let version: Version;
         // FIXME hard-coded instance tag INSTANCE_ZERO
-        let receiver: InstanceTag = INSTANCE_ZERO;
+        let sender: InstanceTag;
         Ok(match self.state.send(content)? {
             OTRMessageType::Undefined(msg) => encode(&MessageType::PlaintextMessage(msg)),
             msg @ OTRMessageType::DHCommit(_)
@@ -266,7 +270,7 @@ impl Instance {
             | msg @ OTRMessageType::RevealSignature(_)
             | msg @ OTRMessageType::Signature(_)
             | msg @ OTRMessageType::Data(_) => {
-                encode_otr_message(version, self.tag, receiver, msg)
+                encode_otr_message(version, sender, self.tag, msg)
             }
         })
     }
