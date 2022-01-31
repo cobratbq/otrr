@@ -206,7 +206,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure(material);
+                self.state = self.state.secure(material.version, material.ssid, Rc::clone(&material.our_dh), material.their_dh);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     our_tag,
@@ -214,6 +214,7 @@ impl Instance {
                     response,
                 ));
                 Ok(UserMessage::ConfidentialSessionStarted)
+                // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Signature(msg) => {
                 let material = self
@@ -221,8 +222,9 @@ impl Instance {
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure(material);
+                self.state = self.state.secure(material.version, material.ssid, Rc::clone(&material.our_dh), material.their_dh);
                 Ok(UserMessage::ConfidentialSessionStarted)
+                // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Data(msg) => {
                 // FIXME verify and validate message before passing on to state.

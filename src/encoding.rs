@@ -191,7 +191,9 @@ impl OTREncodable for EncodedMessage {
                 Version::Unsupported(_) => panic!("BUG: unsupported version"),
             })
             .write_byte(match self.message {
-                OTRMessageType::Undefined(_) => panic!("BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."),
+                OTRMessageType::Undefined(_) => panic!(
+                    "BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."
+                ),
                 OTRMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
                 OTRMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
                 OTRMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
@@ -201,7 +203,9 @@ impl OTREncodable for EncodedMessage {
             .write_int(self.sender)
             .write_int(self.receiver)
             .write_encodable(match &self.message {
-                OTRMessageType::Undefined(_) => panic!("BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."),
+                OTRMessageType::Undefined(_) => panic!(
+                    "BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."
+                ),
                 OTRMessageType::DHCommit(msg) => msg,
                 OTRMessageType::DHKey(msg) => msg,
                 OTRMessageType::RevealSignature(msg) => msg,

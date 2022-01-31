@@ -4,16 +4,13 @@
 
 #[allow(non_snake_case)]
 pub mod DH {
-    use std::convert::TryInto;
 
     use once_cell::sync::Lazy;
 
     use num_bigint::BigUint;
     use ring::rand::{SecureRandom, SystemRandom};
 
-    use crate::encoding::OTREncoder;
-
-    use super::{CryptoError, AES128, SHA256};
+    use super::CryptoError;
 
     // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
@@ -81,14 +78,51 @@ pub mod DH {
             }
         }
 
-        pub fn generate_shared_secret(&self, public_key: &BigUint) -> BigUint {
+        pub fn generate_shared_secret(&self, public_key: &BigUint) -> SharedSecret {
             public_key.modpow(&self.private, &MODULUS)
         }
+    }
 
+    pub type SharedSecret = BigUint;
+
+    // TODO needs constant-time?
+    pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(CryptoError::VerificationFailure(
+                "Provided values are not equal.",
+            ))
+        }
+    }
+}
+
+pub mod OTR {
+    use super::{AES128, SHA256};
+
+    pub struct DerivedSecrets {
+        pub ssid: [u8; 8],
+        pub c: AES128::Key,
+        pub cp: AES128::Key,
+        pub m1: [u8; 32],
+        pub m1p: [u8; 32],
+        pub m2: [u8; 32],
+        pub m2p: [u8; 32],
+    }
+    
+    impl Drop for DerivedSecrets {
+        fn drop(&mut self) {
+            self.ssid = [0u8; 8];
+            self.m1 = [0u8; 32];
+            self.m1p = [0u8; 32];
+            self.m2 = [0u8; 32];
+            self.m2p = [0u8; 32];
+        }
+    }
+    
+    impl DerivedSecrets {
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
-        pub fn derive_secrets(&self, public_key: &BigUint) -> DerivedSecrets {
-            let s = self.generate_shared_secret(public_key);
-            let secbytes = OTREncoder::new().write_mpi(&s).to_vec();
+        pub fn derive_secrets(secbytes: &[u8]) -> DerivedSecrets {
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
             DerivedSecrets {
@@ -103,41 +137,10 @@ pub mod DH {
         }
     }
 
-    pub struct DerivedSecrets {
-        pub ssid: [u8; 8],
-        pub c: AES128::Key,
-        pub cp: AES128::Key,
-        pub m1: [u8; 32],
-        pub m1p: [u8; 32],
-        pub m2: [u8; 32],
-        pub m2p: [u8; 32],
-    }
-
-    impl Drop for DerivedSecrets {
-        fn drop(&mut self) {
-            self.ssid = [0u8; 8];
-            self.m1 = [0u8; 32];
-            self.m1p = [0u8; 32];
-            self.m2 = [0u8; 32];
-            self.m2p = [0u8; 32];
-        }
-    }
-
     fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);
-    }
-
-    // TODO needs constant-time?
-    pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
-        if expected == actual {
-            Ok(())
-        } else {
-            Err(CryptoError::VerificationFailure(
-                "Provided values are not equal.",
-            ))
-        }
     }
 }
 
