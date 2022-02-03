@@ -3,8 +3,11 @@ use std::rc::Rc;
 use num::BigUint;
 
 use crate::{
-    encoding::{DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, SSID, MAC_LEN, CTR, CTR_LEN},
-    OTRError, UserMessage, Version, TLV, crypto::DH, ProtocolStatus,
+    crypto::DH,
+    encoding::{
+        DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, CTR, CTR_LEN, MAC_LEN, SSID,
+    },
+    OTRError, ProtocolStatus, UserMessage, Version, TLV,
 };
 
 const TLV_TYPE_0_PADDING: u16 = 0;
@@ -20,7 +23,14 @@ pub trait ProtocolState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     );
-    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState>;
+    fn secure(
+        &self,
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: Rc<DH::Keypair>,
+        their_dh: BigUint,
+    ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
     fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError>;
 }
@@ -43,7 +53,7 @@ impl ProtocolState for PlaintextState {
 
     fn handle(
         &mut self,
-        _msg: &DataMessage,
+        msg: &DataMessage,
     ) -> (
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
@@ -52,7 +62,14 @@ impl ProtocolState for PlaintextState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+    fn secure(
+        &self,
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: Rc<DH::Keypair>,
+        their_dh: BigUint,
+    ) -> Box<EncryptedState> {
         return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }
 
@@ -94,7 +111,7 @@ impl ProtocolState for EncryptedState {
 
     fn handle(
         &mut self,
-        _msg: &DataMessage,
+        msg: &DataMessage,
     ) -> (
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
@@ -103,7 +120,14 @@ impl ProtocolState for EncryptedState {
         todo!("To be implemented")
     }
 
-    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+    fn secure(
+        &self,
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: Rc<DH::Keypair>,
+        their_dh: BigUint,
+    ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
         return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }
@@ -125,14 +149,20 @@ impl ProtocolState for EncryptedState {
         (optabort, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, _content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+        // FIXME implement encryption and send
         todo!()
     }
 }
 
 impl EncryptedState {
-
-    fn new(version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> EncryptedState {
+    fn new(
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: Rc<DH::Keypair>,
+        their_dh: BigUint,
+    ) -> EncryptedState {
         // FIXME implement private creation of encrypted state and key management.
         todo!("To be implemented")
     }
@@ -152,7 +182,7 @@ impl EncryptedState {
         }
     }
 
-    fn encrypt(&mut self, _message: Vec<u8>) -> Result<Vec<u8>, OTRError> {
+    fn encrypt(&mut self, message: Vec<u8>) -> Result<Vec<u8>, OTRError> {
         // FIXME implement encryption
         todo!("To be implemented: encryption")
     }
@@ -172,7 +202,7 @@ impl ProtocolState for FinishedState {
 
     fn handle(
         &mut self,
-        _: &DataMessage,
+        msg: &DataMessage,
     ) -> (
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
@@ -180,7 +210,14 @@ impl ProtocolState for FinishedState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+    fn secure(
+        &self,
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: Rc<DH::Keypair>,
+        their_dh: BigUint,
+    ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
         return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }

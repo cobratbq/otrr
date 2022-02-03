@@ -223,7 +223,7 @@ pub mod DSA {
             todo!()
         }
 
-        pub fn sign(&self, _content: &Hash) -> Result<Signature, CryptoError> {
+        pub fn sign(&self, content: &Hash) -> Result<Signature, CryptoError> {
             // FIXME implement signing
             todo!()
         }
@@ -238,7 +238,7 @@ pub mod DSA {
     }
 
     impl PublicKey {
-        pub fn verify(&self, _signature: &Signature, _content: &Hash) -> Result<(), CryptoError> {
+        pub fn verify(&self, signature: &Signature, content: &Hash) -> Result<(), CryptoError> {
             // FIXME implement verification
             todo!()
         }
@@ -265,14 +265,16 @@ pub mod SHA256 {
 
     type Digest = [u8; 32];
 
-    pub fn digest_with_prefix(_b: u8, data: &[u8]) -> Digest {
+    pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
         let mut payload: Vec<u8> = Vec::with_capacity(data.len() + 1);
+        payload.push(b);
         payload.extend_from_slice(data);
         digest(&payload)
     }
 
-    pub fn digest_2_with_prefix(_b: u8, data: &[u8], data2: &[u8]) -> Digest {
+    pub fn digest_2_with_prefix(b: u8, data: &[u8], data2: &[u8]) -> Digest {
         let mut payload: Vec<u8> = Vec::with_capacity(1 + data.len() + data2.len());
+        payload.push(b);
         payload.extend_from_slice(data);
         payload.extend_from_slice(data2);
         digest(&payload)

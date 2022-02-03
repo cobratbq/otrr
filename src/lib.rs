@@ -36,7 +36,9 @@ pub mod session;
 // TODO add periodic heartbeat message
 // TODO support messages in backlog for sending when confidential session established?
 
+
 /// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
+#[derive(Debug)]
 pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.
     None,
@@ -91,7 +93,7 @@ pub enum ProtocolStatus {
 }
 
 /// Version contains the various supported OTR protocol versions.
-#[derive(PartialOrd, Ord, PartialEq, Eq, Clone, Debug)]
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
     Unsupported(u16),
     // V1, // will not be supported.
