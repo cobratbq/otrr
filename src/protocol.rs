@@ -4,7 +4,7 @@ use num::BigUint;
 
 use crate::{
     encoding::{DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, SSID},
-    OTRError, UserMessage, Version, CTR, MAC_LEN, TLV, crypto::DH::{SharedSecret, self}, authentication::CryptographicMaterial,
+    OTRError, UserMessage, Version, CTR, MAC_LEN, TLV, crypto::DH, ProtocolStatus,
 };
 
 const TLV_TYPE_0_PADDING: u16 = 0;
@@ -12,6 +12,7 @@ const TLV_TYPE_1_DISCONNECT: u16 = 1;
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
+    fn version(&self) -> Version;
     fn handle(
         &mut self,
         msg: &DataMessage,
@@ -33,6 +34,11 @@ pub struct PlaintextState {}
 impl ProtocolState for PlaintextState {
     fn status(&self) -> ProtocolStatus {
         ProtocolStatus::Plaintext
+    }
+
+    fn version(&self) -> Version {
+        // FIXME define variant to indicate version is irrelevant due to not in encrypted state.
+        Version::Unsupported(0)
     }
 
     fn handle(
@@ -81,6 +87,10 @@ impl Drop for EncryptedState {
 impl ProtocolState for EncryptedState {
     fn status(&self) -> ProtocolStatus {
         ProtocolStatus::Encrypted
+    }
+
+    fn version(&self) -> Version {
+        self.version.clone()
     }
 
     fn handle(
@@ -155,6 +165,11 @@ impl ProtocolState for FinishedState {
         ProtocolStatus::Finished
     }
 
+    fn version(&self) -> Version {
+        // FIXME define variant to indicate version is irrelevant due to not in encrypted state.
+        Version::Unsupported(0)
+    }
+
     fn handle(
         &mut self,
         _: &DataMessage,
@@ -177,11 +192,4 @@ impl ProtocolState for FinishedState {
     fn send(&mut self, _: &[u8]) -> Result<OTRMessageType, OTRError> {
         Err(OTRError::ProtocolInFinishedState)
     }
-}
-
-#[derive(PartialEq)]
-pub enum ProtocolStatus {
-    Plaintext,
-    Encrypted,
-    Finished,
 }

@@ -55,7 +55,7 @@ pub enum UserMessage {
 }
 
 /// OTRError is the enum containing the various errors that can occur.
-#[derive(std::fmt::Debug)]
+#[derive(Debug)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),
@@ -83,8 +83,15 @@ pub enum OTRError {
     SMPProtocolViolation,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum ProtocolStatus {
+    Plaintext,
+    Encrypted,
+    Finished,
+}
+
 /// Version contains the various supported OTR protocol versions.
-#[derive(PartialOrd, Ord, PartialEq, Eq, Clone)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Clone, Debug)]
 pub enum Version {
     Unsupported(u16),
     // V1, // will not be supported.

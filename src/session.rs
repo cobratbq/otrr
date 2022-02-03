@@ -9,12 +9,12 @@ use crate::{
     fragment::{self, FragmentError},
     host::Host,
     instancetag::{InstanceTag, INSTANCE_ZERO},
-    protocol, OTRError, UserMessage, Version,
+    protocol, OTRError, UserMessage, Version, ProtocolStatus,
 };
 
 pub struct Account {
     host: Rc<dyn Host>,
-    tag: InstanceTag,
+    details: Rc<AccountDetails>,
     /// instances contains all individual instances (clients) that have been
     /// encountered. Instance 0 is used for clients that have not yet announced
     /// their instance tag. Typically, before or during initial stages of OTR.
@@ -25,7 +25,7 @@ pub struct Account {
 #[allow(dead_code)]
 impl Account {
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
-    pub fn status(&self, instance: InstanceTag) -> Option<protocol::ProtocolStatus> {
+    pub fn status(&self, instance: InstanceTag) -> Option<ProtocolStatus> {
         self.instances
             .get(&instance)
             .map(|instance| instance.status())
@@ -39,13 +39,14 @@ impl Account {
                 "Illegal or unsupported fragment.",
             )))?;
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
-            if fragment.receiver != self.tag && fragment.receiver != INSTANCE_ZERO {
+            if fragment.receiver != self.details.tag && fragment.receiver != INSTANCE_ZERO {
                 return Err(OTRError::MessageForOtherInstance);
             }
+            let details = Rc::clone(&self.details);
             let instance = self
                 .instances
                 .entry(fragment.sender)
-                .or_insert_with(|| Instance::new(fragment.sender, Rc::clone(&self.host)));
+                .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
             return match instance.assembler.assemble(fragment) {
                 // FIXME check whether fragment sender tag corresponds to message sender tag?
                 // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
@@ -84,7 +85,7 @@ impl Account {
                 Ok(UserMessage::None)
             }
             MessageType::EncodedMessage(msg) => {
-                if msg.receiver != INSTANCE_ZERO && msg.receiver != self.tag {
+                if msg.receiver != INSTANCE_ZERO && msg.receiver != self.details.tag {
                     return Err(OTRError::MessageForOtherInstance);
                 }
                 // FIXME at some point, need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
@@ -119,7 +120,9 @@ impl Account {
         let receiver = INSTANCE_ZERO;
         self.instances
             .entry(receiver)
-            .or_insert_with(|| Instance::new(receiver, Rc::clone(&self.host)))
+            .or_insert_with(|| {
+                Instance::new(Rc::clone(&self.details), receiver, Rc::clone(&self.host))
+            })
             .initiate(version)
     }
 
@@ -128,10 +131,19 @@ impl Account {
         let msg = MessageType::QueryMessage(possible_versions);
         self.host.inject(&encode(&msg));
     }
+
+    pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
+        self.instances
+            .get_mut(&instance)
+            .ok_or(OTRError::UnknownInstance)?
+            .reset()
+    }
 }
 
 /// Instance serves a single communication session, ensuring that messages always go to the same single client.
 struct Instance {
+    // TODO can we share the details in an immutable way?
+    account: Rc<AccountDetails>,
     tag: InstanceTag,
     host: Rc<dyn Host>,
     assembler: Assembler,
@@ -140,18 +152,19 @@ struct Instance {
 }
 
 impl Instance {
-    fn new(tag: InstanceTag, host: Rc<dyn Host>) -> Instance {
+    fn new(account: Rc<AccountDetails>, tag: InstanceTag, host: Rc<dyn Host>) -> Instance {
         // FIXME include both our and their tags for repeated use?
         Instance {
-            tag: tag,
+            account,
+            tag,
             assembler: Assembler::new(),
             state: protocol::new_state(),
             ake: AKEContext::new(Rc::clone(&host)),
-            host: host,
+            host,
         }
     }
 
-    fn status(&self) -> protocol::ProtocolStatus {
+    fn status(&self) -> ProtocolStatus {
         return self.state.status();
     }
 
@@ -160,9 +173,12 @@ impl Instance {
             .ake
             .initiate()
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-        let our_tag: InstanceTag;
-        self.host
-            .inject(&encode_otr_message(version, our_tag, self.tag, msg));
+        self.host.inject(&encode_otr_message(
+            version,
+            self.account.tag,
+            self.tag,
+            msg,
+        ));
         // FIXME do we need to store the chosen protocol version here? probably yes
         Ok(UserMessage::None)
     }
@@ -171,7 +187,6 @@ impl Instance {
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         assert_eq!(self.tag, encoded_message.sender);
         // FIXME how to handle AKE errors in each case?
-        let our_tag: InstanceTag;
         return match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
                 let response = self
@@ -180,7 +195,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    our_tag,
+                    self.account.tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -193,7 +208,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    our_tag,
+                    self.account.tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -209,7 +224,7 @@ impl Instance {
                 self.state = self.state.secure(material.version, material.ssid, Rc::clone(&material.our_dh), material.their_dh);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    our_tag,
+                    self.account.tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -247,11 +262,10 @@ impl Instance {
         if previous == self.state.status() {
             return Ok(UserMessage::None);
         }
-        let our_tag: InstanceTag;
         if let Some(msg) = abortmsg {
             self.host.inject(&encode_otr_message(
                 Version::V3,
-                our_tag,
+                self.account.tag,
                 // FIXME replace with receiver tag of other party once accessible/available.
                 self.tag,
                 msg,
@@ -261,19 +275,26 @@ impl Instance {
     }
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        // FIXME hard-coded version
-        let version: Version;
         // FIXME hard-coded instance tag INSTANCE_ZERO
-        let sender: InstanceTag;
         Ok(match self.state.send(content)? {
-            OTRMessageType::Undefined(msg) => encode(&MessageType::PlaintextMessage(msg)),
+            OTRMessageType::Undefined(msg) => {
+                if self.state.status() == ProtocolStatus::Plaintext {
+                    panic!("BUG: received undefined message type in state {:?}", self.state.status())
+                }
+                encode(&MessageType::PlaintextMessage(msg))
+            },
             msg @ OTRMessageType::DHCommit(_)
             | msg @ OTRMessageType::DHKey(_)
             | msg @ OTRMessageType::RevealSignature(_)
             | msg @ OTRMessageType::Signature(_)
             | msg @ OTRMessageType::Data(_) => {
-                encode_otr_message(version, sender, self.tag, msg)
+                encode_otr_message(self.state.version(), self.account.tag, self.tag, msg)
             }
         })
     }
+}
+
+// TODO either extend AccountDetails as needed, or remove unnecessary wrapper for only single value?
+struct AccountDetails {
+    tag: InstanceTag,
 }
