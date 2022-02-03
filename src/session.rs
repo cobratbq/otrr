@@ -140,11 +140,11 @@ impl Account {
     }
 }
 
-/// Instance serves a single communication session, ensuring that messages always go to the same single client.
+/// Instance serves a single communication session, ensuring that messages always travel between the same two clients.
 struct Instance {
     // TODO can we share the details in an immutable way?
     account: Rc<AccountDetails>,
-    tag: InstanceTag,
+    receiver: InstanceTag,
     host: Rc<dyn Host>,
     assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
@@ -152,11 +152,11 @@ struct Instance {
 }
 
 impl Instance {
-    fn new(account: Rc<AccountDetails>, tag: InstanceTag, host: Rc<dyn Host>) -> Instance {
+    fn new(account: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Instance {
         // FIXME include both our and their tags for repeated use?
         Instance {
             account,
-            tag,
+            receiver,
             assembler: Assembler::new(),
             state: protocol::new_state(),
             ake: AKEContext::new(Rc::clone(&host)),
@@ -176,7 +176,7 @@ impl Instance {
         self.host.inject(&encode_otr_message(
             version,
             self.account.tag,
-            self.tag,
+            self.receiver,
             msg,
         ));
         // FIXME do we need to store the chosen protocol version here? probably yes
@@ -185,7 +185,7 @@ impl Instance {
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
-        assert_eq!(self.tag, encoded_message.sender);
+        assert_eq!(self.receiver, encoded_message.sender);
         // FIXME how to handle AKE errors in each case?
         return match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
@@ -269,7 +269,7 @@ impl Instance {
                 Version::V3,
                 self.account.tag,
                 // FIXME replace with receiver tag of other party once accessible/available.
-                self.tag,
+                self.receiver,
                 msg,
             ));
         }
@@ -279,18 +279,18 @@ impl Instance {
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME hard-coded instance tag INSTANCE_ZERO
         Ok(match self.state.send(content)? {
-            OTRMessageType::Undefined(msg) => {
+            OTRMessageType::Undefined(message) => {
                 if self.state.status() == ProtocolStatus::Plaintext {
                     panic!("BUG: received undefined message type in state {:?}", self.state.status())
                 }
-                encode(&MessageType::PlaintextMessage(msg))
+                encode(&MessageType::PlaintextMessage(message))
             },
-            msg @ OTRMessageType::DHCommit(_)
-            | msg @ OTRMessageType::DHKey(_)
-            | msg @ OTRMessageType::RevealSignature(_)
-            | msg @ OTRMessageType::Signature(_)
-            | msg @ OTRMessageType::Data(_) => {
-                encode_otr_message(self.state.version(), self.account.tag, self.tag, msg)
+            message @ OTRMessageType::DHCommit(_)
+            | message @ OTRMessageType::DHKey(_)
+            | message @ OTRMessageType::RevealSignature(_)
+            | message @ OTRMessageType::Signature(_)
+            | message @ OTRMessageType::Data(_) => {
+                encode_otr_message(self.state.version(), self.account.tag, self.receiver, message)
             }
         })
     }

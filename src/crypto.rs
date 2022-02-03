@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
 // TODO verify implementation
 // TODO what constant-time implementations needed?
@@ -318,7 +320,7 @@ pub mod SHA256 {
     }
 }
 
-#[derive(std::fmt::Debug)]
+#[derive(Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
 }
