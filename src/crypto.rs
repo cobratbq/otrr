@@ -169,16 +169,16 @@ pub mod AES128 {
         pub fn generate() -> Self {
             let mut key = [0u8; 16];
             RAND.fill(&mut key)
-                .expect("Failed to acquire random bytes.");
-            return Key(key);
+                .expect("BUG: Failed to acquire random bytes. (This was not anticipated to fail.)");
+            Key(key)
         }
 
         pub fn encrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
-            return self.crypt(nonce, data);
+            self.crypt(nonce, data)
         }
 
         pub fn decrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
-            return self.crypt(nonce, data);
+            self.crypt(nonce, data)
         }
 
         /// crypt provides both encrypting and decrypting logic.
@@ -188,7 +188,7 @@ pub mod AES128 {
             let nonce = GenericArray::from_slice(nonce);
             let mut cipher = Aes128Ctr::new(&key, &nonce);
             cipher.apply_keystream(result.as_mut_slice());
-            return result;
+            result
         }
     }
 
@@ -257,7 +257,7 @@ pub mod SHA1 {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
         let mut result: Digest = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
-        return result;
+        result
     }
 }
 
@@ -296,7 +296,7 @@ pub mod SHA256 {
         let digest = ring::hmac::sign(&key, data);
         let mut result = [0u8; 32];
         result.clone_from_slice(digest.as_ref());
-        return result;
+        result
     }
 
     /// hmac160 calculates the first 160 bits of the SHA256-HMAC value, using key 'm2' as documented in OTRv3 spec.
@@ -305,18 +305,18 @@ pub mod SHA256 {
         let digest = ring::hmac::sign(&key, data);
         let mut result = [0u8; 20];
         result.clone_from_slice(&digest.as_ref()[..20]);
-        return result;
+        result
     }
 
     pub fn verify(expected: &[u8], actual: &[u8]) -> Result<(), CryptoError> {
         // TODO implement comparison in constant-time(?)
-        return if expected == actual {
+        if expected == actual {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
                 "Hash does not match the expected hash value.",
             ))
-        };
+        }
     }
 }
 

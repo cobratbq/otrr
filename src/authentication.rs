@@ -53,10 +53,10 @@ impl AKEContext {
             our_dh_keypair: Rc::new(keypair),
             r,
         });
-        return Ok(OTRMessageType::DHCommit(DHCommitMessage {
+        Ok(OTRMessageType::DHCommit(DHCommitMessage {
             gx_encrypted,
             gx_hashed,
-        }));
+        }))
     }
 
     pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessageType, AKEError> {
@@ -133,7 +133,7 @@ impl AKEContext {
         if transition.is_some() {
             self.state = transition.unwrap();
         }
-        return result;
+        result
     }
 
     fn handle_dhcommit_from_initial(
@@ -161,7 +161,7 @@ impl AKEContext {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingDHKey(state) => {
                 DH::verify_public_key(&msg.gy)
@@ -212,7 +212,7 @@ impl AKEContext {
             }
             AKEState::AwaitingRevealSignature(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(state) => {
                 if state.gy != msg.gy {
@@ -263,7 +263,7 @@ impl AKEContext {
         if transition.is_some() {
             self.state = transition.unwrap();
         }
-        return result;
+        result
     }
 
     pub fn handle_reveal_signature(
@@ -273,15 +273,15 @@ impl AKEContext {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingDHKey(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingRevealSignature(state) => {
                 // (OTRv3) Use the received value of r to decrypt the value of gx received in the D-H Commit Message,
@@ -324,6 +324,7 @@ impl AKEContext {
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
                 let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                // FIXME sig_b is not used, there should be a verification step for this!
                 let sig_b = decoder
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
@@ -335,7 +336,8 @@ impl AKEContext {
                     .write_int(keyid_b)
                     .to_vec();
                 let m_b = SHA256::hmac(&secrets.m1, &m_b_bytes);
-                SHA256::verify(&m_b, &msg.signature_mac)
+                pub_b
+                    .verify(&sig_b, &m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
 
                 let keyid_a = 1u32;
@@ -375,13 +377,11 @@ impl AKEContext {
                             signature_mac: encrypted_mac,
                         }),
                     )),
-                    Some(AKEState::None(VerificationState::VERIFIED)),
+                    AKEState::None(VerificationState::VERIFIED),
                 )
             }
         };
-        if transition.is_some() {
-            self.state = transition.unwrap();
-        }
+        self.state = transition;
         result
     }
 
@@ -392,15 +392,15 @@ impl AKEContext {
         let (result, transition) = match &self.state {
             AKEState::None(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingDHKey(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingRevealSignature(_) => {
                 // Ignore the message.
-                (Err(AKEError::MessageIgnored), None)
+                return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(state) => {
                 // Decrypt the encrypted signature, and verify the signature and the MACs. If everything checks out:
@@ -450,13 +450,11 @@ impl AKEContext {
                         our_dh: Rc::clone(&state.our_dh_keypair),
                         their_dh: state.gy.clone(),
                     }),
-                    Some(AKEState::None(VerificationState::VERIFIED)),
+                    AKEState::None(VerificationState::VERIFIED),
                 )
             }
         };
-        if transition.is_some() {
-            self.state = transition.unwrap();
-        }
+        self.state = transition;
         result
     }
 }

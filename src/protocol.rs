@@ -230,3 +230,68 @@ impl ProtocolState for FinishedState {
         Err(OTRError::ProtocolInFinishedState)
     }
 }
+
+const NUM_KEYS: usize = 2;
+
+struct KeyManager {
+    ours: KeyRotation,
+    theirs: [BigUint; NUM_KEYS],
+    // FIXME confirm correct type and sizes
+    ctr: [u8; 16],
+}
+
+struct KeyRotation {
+    keys: [DH::Keypair; NUM_KEYS],
+    key_id: KeyID,
+    acknowledged: bool,
+}
+
+impl KeyRotation {
+    fn new(initial_key: DH::Keypair, initial_keyid: KeyID) -> KeyRotation {
+        let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
+        let idx = (initial_keyid as usize) % NUM_KEYS;
+        keys[idx] = initial_key;
+        KeyRotation {
+            key_id: initial_keyid,
+            keys,
+            acknowledged: true,
+        }
+    }
+
+    fn current(&self) -> (KeyID, &DH::Keypair) {
+        let current_id = if self.acknowledged {
+            self.key_id
+        } else {
+            self.key_id - 1
+        };
+        let idx = (current_id as usize) % NUM_KEYS;
+        (current_id, &self.keys[idx])
+    }
+
+    fn next(&mut self) -> (KeyID, &DH::Keypair) {
+        if self.acknowledged {
+            self.acknowledged = false;
+            self.key_id += 1;
+            let idx = (self.key_id as usize) % NUM_KEYS;
+            self.keys[idx] = DH::Keypair::generate();
+            (self.key_id, &self.keys[idx])
+        } else {
+            (self.key_id, &self.keys[(self.key_id as usize) % NUM_KEYS])
+        }
+    }
+
+    fn acknowledge(&mut self, key_id: KeyID) -> Result<(), OTRError> {
+        if key_id == self.key_id - 1 {
+            // this keyID was already acknowledged otherwise we couldn't have rotated away
+            Ok(())
+        } else if key_id == self.key_id {
+            // this keyID is for next key, now acknowledged. (May be acknowledged multiple times.)
+            self.acknowledged = true;
+            Ok(())
+        } else {
+            Err(OTRError::ProtocolViolation(
+                "unexpected keyID confirming ephemeral keyID",
+            ))
+        }
+    }
+}
