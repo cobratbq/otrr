@@ -109,7 +109,7 @@ pub mod OTR {
         pub m2: [u8; 32],
         pub m2p: [u8; 32],
     }
-    
+
     impl Drop for DerivedSecrets {
         fn drop(&mut self) {
             self.ssid = [0u8; 8];
@@ -119,7 +119,7 @@ pub mod OTR {
             self.m2p = [0u8; 32];
         }
     }
-    
+
     impl DerivedSecrets {
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
         pub fn derive_secrets(secbytes: &[u8]) -> DerivedSecrets {
@@ -203,9 +203,12 @@ pub mod AES128 {
 pub mod DSA {
     use num_bigint::BigUint;
 
-    use crate::Signature;
-
     use super::CryptoError;
+
+    /// Signature type represents a DSA signature in IEEE-P1363 representation.
+    pub const SIGNATURE_PARAM_Q_LEN: usize = 20;
+    pub const SIGNATURE_LEN: usize = 2 * SIGNATURE_PARAM_Q_LEN;
+    pub type Signature = [u8; SIGNATURE_LEN];
 
     type Hash = [u8; 32];
 

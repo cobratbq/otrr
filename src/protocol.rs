@@ -3,8 +3,8 @@ use std::rc::Rc;
 use num::BigUint;
 
 use crate::{
-    encoding::{DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, SSID},
-    OTRError, UserMessage, Version, CTR, MAC_LEN, TLV, crypto::DH, ProtocolStatus,
+    encoding::{DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, SSID, MAC_LEN, CTR, CTR_LEN},
+    OTRError, UserMessage, Version, TLV, crypto::DH, ProtocolStatus,
 };
 
 const TLV_TYPE_0_PADDING: u16 = 0;
@@ -20,7 +20,7 @@ pub trait ProtocolState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     );
-    fn secure(&self, version: Version, ssid: SSID, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState>;
+    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
     fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError>;
 }
@@ -52,8 +52,8 @@ impl ProtocolState for PlaintextState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self, version: Version, ssid: SSID, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
-        return Box::new(EncryptedState::new(version, ssid, our_dh, their_dh));
+    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -74,7 +74,6 @@ pub struct EncryptedState {
     sender_keyid: KeyID,
     receiver_keyid: KeyID,
     dh_y: BigUint,
-    ctr: CTR,
 }
 
 impl Drop for EncryptedState {
@@ -104,9 +103,9 @@ impl ProtocolState for EncryptedState {
         todo!("To be implemented")
     }
 
-    fn secure(&self, version: Version, ssid: SSID, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
-        return Box::new(EncryptedState::new(version, ssid, our_dh, their_dh));
+        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -133,19 +132,20 @@ impl ProtocolState for EncryptedState {
 
 impl EncryptedState {
 
-    fn new(version: Version, ssid: SSID, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> EncryptedState {
+    fn new(version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> EncryptedState {
         // FIXME implement private creation of encrypted state and key management.
         todo!("To be implemented")
     }
 
     // FIXME note that this message needs to be already encrypted. This is error-prone!
     fn create_data_message(&self, flags: MessageFlags, message: Vec<u8>) -> DataMessage {
+        // FIXME temporary values
         DataMessage {
             flags,
             sender_keyid: self.sender_keyid,
             receiver_keyid: self.receiver_keyid,
             dh_y: self.dh_y.clone(),
-            ctr: self.ctr,
+            ctr: [0u8; CTR_LEN],
             encrypted: message,
             authenticator: [0u8; MAC_LEN],
             revealed: Vec::new(),
@@ -180,9 +180,9 @@ impl ProtocolState for FinishedState {
         (Err(OTRError::UnreadableMessage), None)
     }
 
-    fn secure(&self, version: Version, ssid: SSID, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
+    fn secure(&self, version: Version, ssid: SSID, ctr: CTR, our_dh: Rc<DH::Keypair>, their_dh: BigUint) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
-        return Box::new(EncryptedState::new(version, ssid, our_dh, their_dh));
+        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {

@@ -99,20 +99,6 @@ pub enum Version {
     V3,
 }
 
-// TODO how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
-/// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
-const CTR_LEN: usize = 8;
-type CTR = [u8; CTR_LEN];
-
-/// MAC type represents the 20-byte MAC value.
-const MAC_LEN: usize = 20;
-type MAC = [u8; MAC_LEN];
-
-/// Signature type represents a DSA signature in IEEE-P1363 representation.
-const SIGNATURE_PARAM_Q_LEN: usize = 20;
-const SIGNATURE_LEN: usize = 2 * SIGNATURE_PARAM_Q_LEN;
-type Signature = [u8; SIGNATURE_LEN];
-
 #[derive(Debug)]
 pub struct TLV(pub u16, pub Vec<u8>);
 

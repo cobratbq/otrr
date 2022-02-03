@@ -5,7 +5,7 @@ use fragment::Assembler;
 
 use crate::{
     authentication,
-    encoding::{encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType},
+    encoding::{encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType, CTR_LEN},
     fragment::{self, FragmentError},
     host::Host,
     instancetag::{InstanceTag, INSTANCE_ZERO},
@@ -221,7 +221,8 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure(material.version, material.ssid, Rc::clone(&material.our_dh), material.their_dh);
+                let ctr = [0u8; CTR_LEN];
+                self.state = self.state.secure(material.version, material.ssid, ctr, Rc::clone(&material.our_dh), material.their_dh);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.account.tag,
@@ -237,7 +238,8 @@ impl Instance {
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME ensure proper, verified transition to confidential session.
-                self.state = self.state.secure(material.version, material.ssid, Rc::clone(&material.our_dh), material.their_dh);
+                let ctr = [0u8; CTR_LEN];
+                self.state = self.state.secure(material.version, material.ssid, ctr, Rc::clone(&material.our_dh), material.their_dh);
                 Ok(UserMessage::ConfidentialSessionStarted)
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }

@@ -6,10 +6,10 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::AES128,
+    crypto::{AES128, DSA::{Signature, SIGNATURE_LEN}},
     crypto::DSA,
     instancetag::{verify_instance_tag, InstanceTag},
-    utils, OTRError, Signature, Version, CTR, CTR_LEN, MAC, MAC_LEN, SIGNATURE_LEN, TLV,
+    utils, OTRError, Version, TLV,
 };
 
 bitflags! {
@@ -743,7 +743,16 @@ fn decode_base64(content: &[u8]) -> Result<Vec<u8>, OTRError> {
     )))
 }
 
-const FINGERPRINT_LEN: usize = 20;
+// TODO how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
+/// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
+pub const CTR_LEN: usize = 8;
+pub type CTR = [u8; CTR_LEN];
+
+/// MAC type represents the 20-byte MAC value.
+pub const MAC_LEN: usize = 20;
+pub type MAC = [u8; MAC_LEN];
+
+pub const FINGERPRINT_LEN: usize = 20;
 pub type Fingerprint = [u8; FINGERPRINT_LEN];
 
 const SSID_LEN: usize = 8;
