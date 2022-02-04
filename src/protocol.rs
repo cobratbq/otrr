@@ -231,8 +231,7 @@ impl ProtocolState for FinishedState {
     }
 }
 
-const NUM_KEYS: usize = 2;
-
+/// KeyManager maintains both our keypairs and received public keys from the other party.
 struct KeyManager {
     ours: KeyRotation,
     theirs: [BigUint; NUM_KEYS],
@@ -240,58 +239,53 @@ struct KeyManager {
     ctr: [u8; 16],
 }
 
+/// KeyRotation manages the rotation of DH-keypairs used by our own client during OTR sessions.
 struct KeyRotation {
     keys: [DH::Keypair; NUM_KEYS],
-    key_id: KeyID,
-    acknowledged: bool,
+    acknowledged: KeyID,
 }
 
 impl KeyRotation {
+    /// New instance of KeyRotation struct.
+    // TODO neither generated keypair is actually used. Create a dummy "zero"-type or ignore as insignificant?
     fn new(initial_key: DH::Keypair, initial_keyid: KeyID) -> KeyRotation {
         let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
-        let idx = (initial_keyid as usize) % NUM_KEYS;
-        keys[idx] = initial_key;
+        keys[initial_keyid as usize % NUM_KEYS] = initial_key;
         KeyRotation {
-            key_id: initial_keyid,
             keys,
-            acknowledged: true,
+            acknowledged: initial_keyid,
         }
     }
 
+    /// Get current DH-key, i.e. the key that is acknowledged by the other party.
     fn current(&self) -> (KeyID, &DH::Keypair) {
-        let current_id = if self.acknowledged {
-            self.key_id
-        } else {
-            self.key_id - 1
-        };
-        let idx = (current_id as usize) % NUM_KEYS;
-        (current_id, &self.keys[idx])
+        let idx = (self.acknowledged as usize) % NUM_KEYS;
+        (self.acknowledged, &self.keys[idx])
     }
 
+    /// Get next DH-key (`next_dh`), rotating keys as needed.
     fn next(&mut self) -> (KeyID, &DH::Keypair) {
-        if self.acknowledged {
-            self.acknowledged = false;
-            self.key_id += 1;
-            let idx = (self.key_id as usize) % NUM_KEYS;
-            self.keys[idx] = DH::Keypair::generate();
-            (self.key_id, &self.keys[idx])
-        } else {
-            (self.key_id, &self.keys[(self.key_id as usize) % NUM_KEYS])
-        }
+        let idx = (self.acknowledged as usize + 1) % NUM_KEYS;
+        (self.acknowledged + 1, &self.keys[idx])
     }
 
+    /// Acknowledge that a keyID was encountered in a return message from other
+    /// party. This allows rotating to the next DH-key. KeyIDs may be
+    /// acknowledged multiple times, as long as the protocol is followed and
+    /// only the current or next key is acknowledged.
     fn acknowledge(&mut self, key_id: KeyID) -> Result<(), OTRError> {
-        if key_id == self.key_id - 1 {
-            // this keyID was already acknowledged otherwise we couldn't have rotated away
+        if key_id == self.acknowledged {
+            // this keyID was already acknowledged otherwise we would not rotate away
             Ok(())
-        } else if key_id == self.key_id {
-            // this keyID is for next key, now acknowledged. (May be acknowledged multiple times.)
-            self.acknowledged = true;
+        } else if key_id == self.acknowledged + 1 {
+            self.acknowledged = key_id;
+            self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = DH::Keypair::generate();
             Ok(())
         } else {
-            Err(OTRError::ProtocolViolation(
-                "unexpected keyID confirming ephemeral keyID",
-            ))
+            Err(OTRError::ProtocolViolation("unexpected keyID to confirm"))
         }
     }
 }
+
+/// NUM_KEYS is the number of keys that are maintained beforing rotating away and forgetting them forever.
+const NUM_KEYS: usize = 2;
