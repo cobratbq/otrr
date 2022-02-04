@@ -24,6 +24,11 @@ pub struct Account {
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 #[allow(dead_code)]
 impl Account {
+    pub fn new() -> Self {
+        // FIXME implement new account creation
+        todo!("to be implemented")
+    }
+
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
     pub fn status(&self, instance: InstanceTag) -> Option<ProtocolStatus> {
         self.instances
@@ -152,9 +157,9 @@ struct Instance {
 }
 
 impl Instance {
-    fn new(account: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Instance {
+    fn new(account: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
         // FIXME include both our and their tags for repeated use?
-        Instance {
+        Self {
             account,
             receiver,
             assembler: Assembler::new(),

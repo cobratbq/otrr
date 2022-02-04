@@ -7,7 +7,7 @@ use crate::{
     encoding::{
         DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, CTR, CTR_LEN, MAC_LEN, SSID,
     },
-    OTRError, ProtocolStatus, UserMessage, Version, TLV,
+    OTRError, ProtocolStatus, UserMessage, Version, TLV, keymanager::KeyManager,
 };
 
 const TLV_TYPE_0_PADDING: u16 = 0;
@@ -88,6 +88,7 @@ impl ProtocolState for PlaintextState {
 
 pub struct EncryptedState {
     version: Version,
+    keys: KeyManager,
     sender_keyid: KeyID,
     receiver_keyid: KeyID,
     dh_y: BigUint,
@@ -162,7 +163,14 @@ impl EncryptedState {
         ctr: CTR,
         our_dh: Rc<DH::Keypair>,
         their_dh: BigUint,
-    ) -> EncryptedState {
+    ) -> Self {
+        Self{
+            version,
+            keys: KeyManager::new(),
+            sender_keyid: todo!(),
+            receiver_keyid: todo!(),
+            dh_y: todo!(),
+        };
         // FIXME implement private creation of encrypted state and key management.
         todo!("To be implemented")
     }
@@ -230,62 +238,3 @@ impl ProtocolState for FinishedState {
         Err(OTRError::ProtocolInFinishedState)
     }
 }
-
-/// KeyManager maintains both our keypairs and received public keys from the other party.
-struct KeyManager {
-    ours: KeyRotation,
-    theirs: [BigUint; NUM_KEYS],
-    // FIXME confirm correct type and sizes
-    ctr: [u8; 16],
-}
-
-/// KeyRotation manages the rotation of DH-keypairs used by our own client during OTR sessions.
-struct KeyRotation {
-    keys: [DH::Keypair; NUM_KEYS],
-    acknowledged: KeyID,
-}
-
-impl KeyRotation {
-    /// New instance of KeyRotation struct.
-    // TODO neither generated keypair is actually used. Create a dummy "zero"-type or ignore as insignificant?
-    fn new(initial_key: DH::Keypair, initial_keyid: KeyID) -> KeyRotation {
-        let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
-        keys[initial_keyid as usize % NUM_KEYS] = initial_key;
-        KeyRotation {
-            keys,
-            acknowledged: initial_keyid,
-        }
-    }
-
-    /// Get current DH-key, i.e. the key that is acknowledged by the other party.
-    fn current(&self) -> (KeyID, &DH::Keypair) {
-        let idx = (self.acknowledged as usize) % NUM_KEYS;
-        (self.acknowledged, &self.keys[idx])
-    }
-
-    /// Get next DH-key (`next_dh`), rotating keys as needed.
-    fn next(&mut self) -> (KeyID, &DH::Keypair) {
-        let idx = (self.acknowledged as usize + 1) % NUM_KEYS;
-        (self.acknowledged + 1, &self.keys[idx])
-    }
-
-    /// Acknowledge that a keyID was encountered in a return message from other
-    /// party. This allows rotating to the next DH-key. KeyIDs may be
-    /// acknowledged multiple times, as long as the protocol is followed and
-    /// only the current or next key is acknowledged.
-    fn acknowledge(&mut self, key_id: KeyID) -> Result<(), OTRError> {
-        if key_id == self.acknowledged {
-            // this keyID was already acknowledged otherwise we would not rotate away
-            Ok(())
-        } else if key_id == self.acknowledged + 1 {
-            self.acknowledged = key_id;
-            self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = DH::Keypair::generate();
-            Ok(())
-        } else {
-            Err(OTRError::ProtocolViolation("unexpected keyID to confirm"))
-        }
-    }
-}
-
-/// NUM_KEYS is the number of keys that are maintained beforing rotating away and forgetting them forever.
-const NUM_KEYS: usize = 2;

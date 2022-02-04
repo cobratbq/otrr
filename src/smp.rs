@@ -37,8 +37,8 @@ pub struct SMPContext {
 
 // FIXME handle for each message SMP state machine being in wrong state having to discard message and reset.
 impl SMPContext {
-    pub fn new(fingerprint: Fingerprint) -> SMPContext {
-        SMPContext {
+    pub fn new(fingerprint: Fingerprint) -> Self {
+        Self {
             fingerprint,
             smp: SMPState::Expect1,
             rand: SystemRandom::new(),

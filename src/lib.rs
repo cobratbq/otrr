@@ -18,6 +18,7 @@ mod crypto;
 mod encoding;
 mod fragment;
 mod instancetag;
+mod keymanager;
 mod protocol;
 mod utils;
 
