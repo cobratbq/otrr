@@ -21,7 +21,7 @@ impl KeyManager {
     }
 
     pub fn set_theirs(&mut self, key_id: KeyID, key: BigUint) {
-        // FIXME the "Key Management" section in the spec describes it quite complicated, but it _seems_ like you never actually use their_y[their_keyid-1].
+        // FIXME 'their_keyid-1' can be needed if consecutive message arrives before we have a chance to acknowledge their next_dh public key, but we had updated our keymanager already.
         self.theirs = (key_id, key);
     }
 }
