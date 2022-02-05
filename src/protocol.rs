@@ -1,11 +1,11 @@
-use std::rc::Rc;
+use std::{rc::Rc};
 
 use num::BigUint;
 
 use crate::{
     crypto::DH,
     encoding::{
-        DataMessage, KeyID, MessageFlags, OTREncoder, OTRMessageType, CTR, CTR_LEN, MAC_LEN, SSID,
+        DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, CTR_LEN, MAC_LEN, SSID,
     },
     OTRError, ProtocolStatus, UserMessage, Version, TLV, keymanager::KeyManager,
 };
@@ -89,9 +89,6 @@ impl ProtocolState for PlaintextState {
 pub struct EncryptedState {
     version: Version,
     keys: KeyManager,
-    sender_keyid: KeyID,
-    receiver_keyid: KeyID,
-    dh_y: BigUint,
 }
 
 impl Drop for EncryptedState {
@@ -164,12 +161,12 @@ impl EncryptedState {
         our_dh: Rc<DH::Keypair>,
         their_dh: BigUint,
     ) -> Self {
+        // FIXME complete initialization
         Self{
             version,
-            keys: KeyManager::new(),
-            sender_keyid: todo!(),
-            receiver_keyid: todo!(),
-            dh_y: todo!(),
+            // FIXME spec describes some possible deviations for key-ids/public keys(???)
+            // FIXME verify key-ids
+            keys: KeyManager::new((1, our_dh), (1, their_dh)),
         };
         // FIXME implement private creation of encrypted state and key management.
         todo!("To be implemented")
