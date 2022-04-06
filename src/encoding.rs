@@ -326,6 +326,14 @@ pub struct DataMessage {
     pub sender_keyid: KeyID,
     pub receiver_keyid: KeyID,
     pub dh_y: BigUint,
+    // FIXME make sure right counter value used in all cases.
+    // OTR-spec:
+    //   "The initial counter is a 16-byte value whose first 8 bytes
+    //    are the above "top half of counter init" value, and whose last 8
+    //    bytes are all 0x00. Note that counter mode does not change the length
+    //    of the message, so no message padding needs to be done. If you *want*
+    //    to do message padding (to disguise the length of your message), use
+    //    the above TLV of type 0."
     pub ctr: CTR,
     pub encrypted: Vec<u8>,
     pub authenticator: MAC,

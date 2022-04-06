@@ -1,5 +1,3 @@
-use std::{rc::Rc};
-
 use num::BigUint;
 
 use crate::{
@@ -28,7 +26,7 @@ pub trait ProtocolState {
         version: Version,
         ssid: SSID,
         ctr: CTR,
-        our_dh: Rc<DH::Keypair>,
+        our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
@@ -67,7 +65,7 @@ impl ProtocolState for PlaintextState {
         version: Version,
         ssid: SSID,
         ctr: CTR,
-        our_dh: Rc<DH::Keypair>,
+        our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
         return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
@@ -123,7 +121,7 @@ impl ProtocolState for EncryptedState {
         version: Version,
         ssid: SSID,
         ctr: CTR,
-        our_dh: Rc<DH::Keypair>,
+        our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
@@ -158,7 +156,7 @@ impl EncryptedState {
         version: Version,
         ssid: SSID,
         ctr: CTR,
-        our_dh: Rc<DH::Keypair>,
+        our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Self {
         // FIXME complete initialization
@@ -175,11 +173,13 @@ impl EncryptedState {
     // FIXME note that this message needs to be already encrypted. This is error-prone!
     fn create_data_message(&self, flags: MessageFlags, message: Vec<u8>) -> DataMessage {
         // FIXME temporary values
+        let our_dh = self.keys.current_keys();
+        let next_dh = self.keys.next_keys();
         DataMessage {
             flags,
-            sender_keyid: self.sender_keyid,
-            receiver_keyid: self.receiver_keyid,
-            dh_y: self.dh_y.clone(),
+            sender_keyid: our_dh.0,
+            receiver_keyid: self.keys.their_current_keyid(),
+            dh_y: next_dh.1.public.clone(),
             ctr: [0u8; CTR_LEN],
             encrypted: message,
             authenticator: [0u8; MAC_LEN],
@@ -220,7 +220,7 @@ impl ProtocolState for FinishedState {
         version: Version,
         ssid: SSID,
         ctr: CTR,
-        our_dh: Rc<DH::Keypair>,
+        our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.

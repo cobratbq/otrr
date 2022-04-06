@@ -8,5 +8,6 @@ pub trait Host {
 
     // TODO need to distinguish between public keys for various accounts? (avoids linking identity over different chat networks)
     /// Acquire the long-term DSA keypair from the host application.
+    // TODO should we borrow this by default?
     fn keypair(&self) -> DSA::Keypair;
 }

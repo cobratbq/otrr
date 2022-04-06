@@ -53,6 +53,7 @@ pub mod DH {
         };
     }
 
+    #[derive(Clone)]
     pub struct Keypair {
         generator: BigUint,
         private: BigUint,
@@ -61,6 +62,11 @@ pub mod DH {
 
     impl Keypair {
         pub fn generate() -> Self {
+            // FIXME check if generation is reliable, see requirement below.
+            // OTR-spec: "When starting a private conversation with a
+            //   correspondent, generate two DH key pairs for yourself, and set
+            //   our_keyid = 2. Note that all DH key pairs should have a
+            //   private part that is at least 320 bits long."
             let mut v = [0u8; 192];
             RAND.fill(&mut v)
                 .expect("Failed to produce random bytes for random big unsigned integer value.");

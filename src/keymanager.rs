@@ -28,9 +28,21 @@ impl KeyManager {
         }
     }
 
+    pub fn current_keys(&self) -> (KeyID, &DH::Keypair) {
+        self.ours.current()
+    }
+
+    pub fn next_keys(&self) -> (KeyID, &DH::Keypair) {
+        self.ours.next()
+    }
+
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         self.ours.acknowledge(key_id)
         // FIXME determine if we can reset the counter!
+    }
+
+    pub fn their_current_keyid(&self) -> KeyID {
+        self.theirs.id
     }
 
     pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) {
@@ -72,7 +84,7 @@ impl KeypairRotation {
     }
 
     /// Get next DH-key (`next_dh`), rotating keys as needed.
-    fn next(&mut self) -> (KeyID, &DH::Keypair) {
+    fn next(&self) -> (KeyID, &DH::Keypair) {
         let idx = (self.acknowledged as usize + 1) % NUM_KEYS;
         (self.acknowledged + 1, &self.keys[idx])
     }
@@ -151,8 +163,7 @@ impl Counter {
 
     fn take(&mut self) -> [u8; COUNTER_LEN] {
         let result = self.0;
-        for i in 0..COUNTER_LEN {
-            let idx = COUNTER_LEN - 1 - i;
+        for idx in (0..COUNTER_LEN).rev() {
             let (val, carry) = self.0[idx].overflowing_add(1);
             self.0[idx] = val;
             if carry {

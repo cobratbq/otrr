@@ -4,7 +4,7 @@ use authentication::AKEContext;
 use fragment::Assembler;
 
 use crate::{
-    authentication,
+    authentication::{self, CryptographicMaterial},
     encoding::{encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType, CTR_LEN},
     fragment::{self, FragmentError},
     host::Host,
@@ -220,14 +220,14 @@ impl Instance {
                 Ok(UserMessage::None)
             }
             OTRMessageType::RevealSignature(msg) => {
-                let (material, response) = self
+                let (CryptographicMaterial{version, ssid, our_dh, their_dh}, response) = self
                     .ake
                     .handle_reveal_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(material.version, material.ssid, ctr, Rc::clone(&material.our_dh), material.their_dh);
+                self.state = self.state.secure(version, ssid, ctr, our_dh, their_dh);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.account.tag,
@@ -238,13 +238,13 @@ impl Instance {
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Signature(msg) => {
-                let material = self
+                let CryptographicMaterial{version, ssid, our_dh, their_dh} = self
                     .ake
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(material.version, material.ssid, ctr, Rc::clone(&material.our_dh), material.their_dh);
+                self.state = self.state.secure(version, ssid, ctr, our_dh, their_dh);
                 Ok(UserMessage::ConfidentialSessionStarted)
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }

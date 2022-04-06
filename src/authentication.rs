@@ -369,7 +369,7 @@ impl AKEContext {
                         CryptographicMaterial {
                             version: Version::V3,
                             ssid: secrets.ssid,
-                            our_dh: Rc::clone(&state.our_dh_keypair),
+                            our_dh: (*state.our_dh_keypair).clone(),
                             their_dh: gx,
                         },
                         OTRMessageType::Signature(SignatureMessage {
@@ -447,7 +447,7 @@ impl AKEContext {
                     Ok(CryptographicMaterial {
                         version: Version::V3,
                         ssid: secrets.ssid,
-                        our_dh: Rc::clone(&state.our_dh_keypair),
+                        our_dh: (*state.our_dh_keypair).clone(),
                         their_dh: state.gy.clone(),
                     }),
                     AKEState::None(VerificationState::VERIFIED),
@@ -467,7 +467,7 @@ pub struct CryptographicMaterial {
     pub version: Version,
     pub ssid: SSID,
     // FIXME can we do without the reference-counting so that we know absolutely sure that this is the only instance?
-    pub our_dh: Rc<DH::Keypair>,
+    pub our_dh: DH::Keypair,
     pub their_dh: BigUint,
 }
 
