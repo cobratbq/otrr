@@ -9,14 +9,14 @@ use crate::{
     crypto::{AES128, DSA::{Signature, SIGNATURE_LEN}},
     crypto::DSA,
     instancetag::{verify_instance_tag, InstanceTag},
-    utils, OTRError, Version, TLV,
+    utils, OTRError, Version,
 };
 
 bitflags! {
     /// MessageFlag bit-flags can set for OTR-encoded messages.
     pub struct MessageFlags: u8 {
         /// FLAG_IGNORE_UNREADABLE indicates that the message can be ignored if it cannot be read. This is typically used for control messages that have no value to the user, to indicate that there is no point in alerting the user of an inaccessible message.
-        const IgnoreUnreadable = 0b00000001;
+        const IGNORE_UNREADABLE = 0b00000001;
     }
 }
 
@@ -405,7 +405,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             // TODO test for valid versions before adding whitespace-prefix.
             // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
             buffer.extend_from_slice(WHITESPACE_PREFIX);
-            for v in utils::alloc::vec_unique(versions.to_owned()) {
+            for v in utils::std::alloc::vec_unique(versions.to_owned()) {
                 // FIXME strictly speaking there must be at least one tag or we violate spec.
                 match v {
                     Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
@@ -422,7 +422,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             // NOTE: each version listed at most once, in arbitrary order.
             // (Version 1 has deviating syntax but is no longer supported.)
             buffer.extend_from_slice(OTR_QUERY_PREFIX);
-            for v in utils::alloc::vec_unique(versions.to_owned()) {
+            for v in utils::std::alloc::vec_unique(versions.to_owned()) {
                 match v {
                     Version::V3 => buffer.push(b'3'),
                     Version::Unsupported(_) => {
@@ -765,3 +765,10 @@ pub type Fingerprint = [u8; FINGERPRINT_LEN];
 
 const SSID_LEN: usize = 8;
 pub type SSID = [u8; SSID_LEN];
+
+#[derive(Debug)]
+pub struct TLV(pub TLV_TYPE, pub Vec<u8>);
+
+pub const TLV_TYPE_0_PADDING: TLV_TYPE = 0;
+pub const TLV_TYPE_1_DISCONNECT: TLV_TYPE = 1;
+pub type TLV_TYPE = u16;

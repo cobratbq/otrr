@@ -1,6 +1,7 @@
 use authentication::AKEError;
 use bitflags::bitflags;
 use crypto::CryptoError;
+use encoding::TLV;
 
 extern crate aes_ctr;
 extern crate base64;
@@ -103,9 +104,6 @@ pub enum Version {
     // V2, // will not be supported.
     V3,
 }
-
-#[derive(Debug)]
-pub struct TLV(pub u16, pub Vec<u8>);
 
 // TODO implement use of policy flags!
 bitflags! {

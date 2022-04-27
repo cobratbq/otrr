@@ -9,13 +9,12 @@ const NUM_KEYS: usize = 2;
 pub struct KeyManager {
     ours: KeypairRotation,
     theirs: PublicKeyRotation,
-    // FIXME confirm correct type and sizes
     ctr: Counter,
 }
 
+// TODO double-check counter reset logic.
 impl KeyManager {
     pub fn new(ours: (KeyID, DH::Keypair), theirs: (KeyID, BigUint)) -> Self {
-        // FIXME implement new KeyManager creation
         Self {
             ours: KeypairRotation::new(ours.0, ours.1),
             theirs: PublicKeyRotation::new(theirs.0, theirs.1),
@@ -37,17 +36,27 @@ impl KeyManager {
     }
 
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
-        self.ours.acknowledge(key_id)
-        // FIXME determine if we can reset the counter!
+        self.ours.acknowledge(key_id)?;
+        self.ctr.reset();
+        Ok(())
     }
 
     pub fn their_current_keyid(&self) -> KeyID {
         self.theirs.id
     }
 
-    pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) {
-        self.theirs.register(key)
-        // FIXME determine if we can reset the counter!
+    pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
+        self.theirs.register(key_id, key)?;
+        self.ctr.reset();
+        Ok(())
+    }
+
+    pub fn take_counter(&mut self) -> [u8; COUNTER_HALF_LEN] {
+        self.ctr.take()
+    }
+
+    pub fn get_used_macs(&mut self) -> Vec<u8> {
+        todo!("To be implemented")
     }
 }
 
@@ -123,7 +132,7 @@ impl PublicKeyRotation {
         Self { keys, id: key_id }
     }
 
-    fn verify(&mut self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
+    fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
         let idx = key_id as usize % NUM_KEYS;
         return if self.keys[idx] == public_key {
             Ok(())
@@ -135,23 +144,37 @@ impl PublicKeyRotation {
     }
 
     /// Register next DH public key.
-    fn register(&mut self, next_key: BigUint) {
+    fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<(), OTRError> {
         assert_ne!(next_key, BigUint::zero());
-        // FIXME take into account same next_dh value can be provided multiple times.
-        let idx = (self.id as usize + 1) % NUM_KEYS;
-        // FIXME is this overwriting sufficiently effective or should we clean/zero the memory first?
-        self.keys[idx] = next_key;
-        self.id += 1;
+        return if self.id == next_id {
+            // TODO probably needs constant-time comparison
+            if self.keys[(self.id as usize) % NUM_KEYS] == next_key {
+                Ok(())
+            } else {
+                Err(OTRError::ProtocolViolation(
+                    "different keys provided for same key ID",
+                ))
+            }
+        } else if self.id + 1 == next_id {
+            let idx = (self.id as usize + 1) % NUM_KEYS;
+            // FIXME is this overwriting sufficiently effective or should we clean/zero the memory first?
+            self.keys[idx] = next_key;
+            self.id = next_id;
+            Ok(())
+        } else {
+            Err(OTRError::ProtocolViolation(
+                "Unexpected next DH public key ID",
+            ))
+        };
     }
 }
 
-const COUNTER_LEN: usize = 16;
-const COUNTER_INITIAL_VALUE: [u8; COUNTER_LEN] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+const COUNTER_HALF_LEN: usize = 8;
+const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 1];
 
-struct Counter([u8; COUNTER_LEN]);
+struct Counter([u8; COUNTER_HALF_LEN]);
 
-// FIXME counter needs to adjust for top-8-bytes provided in data messages.
-// FIXME OTR-spec: "The initial counter is a 16-byte value whose first 8 bytes are the above "top half of counter init" value, and whose last 8 bytes are all 0x00."
+// TODO confirm correct type and sizes
 impl Counter {
     fn new() -> Counter {
         Counter(COUNTER_INITIAL_VALUE)
@@ -161,9 +184,9 @@ impl Counter {
         self.0 = COUNTER_INITIAL_VALUE;
     }
 
-    fn take(&mut self) -> [u8; COUNTER_LEN] {
+    fn take(&mut self) -> [u8; COUNTER_HALF_LEN] {
         let result = self.0;
-        for idx in (0..COUNTER_LEN).rev() {
+        for idx in (0..COUNTER_HALF_LEN).rev() {
             let (val, carry) = self.0[idx].overflowing_add(1);
             self.0[idx] = val;
             if carry {
@@ -173,4 +196,9 @@ impl Counter {
         }
         panic!("BUG: wrapped around complete counter value. This is very unlikely to ever happen.")
     }
+}
+
+#[cfg(test)]
+mod tests {
+
 }

@@ -12,14 +12,14 @@ use crate::{
 use DH::{MODULUS, MODULUS_MINUS_TWO};
 
 /// TLV for initiating SMP
-const TLV_TYPE_SMP_MESSAGE_1: u16 = 2u16;
-const TLV_TYPE_SMP_MESSAGE_2: u16 = 3u16;
-const TLV_TYPE_SMP_MESSAGE_3: u16 = 4u16;
-const TLV_TYPE_SMP_MESSAGE_4: u16 = 5u16;
-const TLV_TYPE_SMP_ABORT: u16 = 6u16;
+const TLV_TYPE_SMP_MESSAGE_1: TLV_TYPE = 2u16;
+const TLV_TYPE_SMP_MESSAGE_2: TLV_TYPE = 3u16;
+const TLV_TYPE_SMP_MESSAGE_3: TLV_TYPE = 4u16;
+const TLV_TYPE_SMP_MESSAGE_4: TLV_TYPE = 5u16;
+const TLV_TYPE_SMP_ABORT: TLV_TYPE = 6u16;
 
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
-const TLV_TYPE_SMP_MESSAGE_1Q: u16 = 7u16;
+const TLV_TYPE_SMP_MESSAGE_1Q: TLV_TYPE = 7u16;
 
 static RAND: SystemRandom = SystemRandom::new();
 // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)

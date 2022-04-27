@@ -2,14 +2,10 @@ use num::BigUint;
 
 use crate::{
     crypto::DH,
-    encoding::{
-        DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, CTR_LEN, MAC_LEN, SSID,
-    },
-    OTRError, ProtocolStatus, UserMessage, Version, TLV, keymanager::KeyManager,
+    encoding::{DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, MAC_LEN, SSID, TLV, TLV_TYPE_1_DISCONNECT},
+    keymanager::KeyManager,
+    OTRError, ProtocolStatus, UserMessage, Version,
 };
-
-const TLV_TYPE_0_PADDING: u16 = 0;
-const TLV_TYPE_1_DISCONNECT: u16 = 1;
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -129,38 +125,27 @@ impl ProtocolState for EncryptedState {
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
-        // FIXME send DataMessage with empty content and TLV1 (abort) and FLAG_IGNORE_UNREADABLE set.
-        let optabort: Option<OTRMessageType>;
-        if let Ok(encrypted) = self.encrypt(
-            OTREncoder::new()
-                .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
-                .to_vec(),
-        ) {
-            optabort = Some(OTRMessageType::Data(
-                self.create_data_message(MessageFlags::IgnoreUnreadable, encrypted),
-            ));
-        } else {
-            optabort = None;
-        }
+        let plaintext = OTREncoder::new()
+            .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
+            .to_vec();
+        let optabort = Some(OTRMessageType::Data(
+            self.create_encrypted_data_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
+        ));
         (optabort, Box::new(PlaintextState {}))
     }
 
     fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError> {
-        // FIXME implement encryption and send
-        todo!()
+        Ok(OTRMessageType::Data(self.create_encrypted_data_message(
+            MessageFlags::empty(),
+            content,
+        )))
     }
 }
 
 impl EncryptedState {
-    fn new(
-        version: Version,
-        ssid: SSID,
-        ctr: CTR,
-        our_dh: DH::Keypair,
-        their_dh: BigUint,
-    ) -> Self {
+    fn new(version: Version, ssid: SSID, ctr: CTR, our_dh: DH::Keypair, their_dh: BigUint) -> Self {
         // FIXME complete initialization
-        Self{
+        Self {
             version,
             // FIXME spec describes some possible deviations for key-ids/public keys(???)
             // FIXME verify key-ids
@@ -171,19 +156,27 @@ impl EncryptedState {
     }
 
     // FIXME note that this message needs to be already encrypted. This is error-prone!
-    fn create_data_message(&self, flags: MessageFlags, message: Vec<u8>) -> DataMessage {
-        // FIXME temporary values
+    fn create_encrypted_data_message(
+        &mut self,
+        flags: MessageFlags,
+        plaintext_message: &[u8],
+    ) -> DataMessage {
+        let ctr = self.keys.take_counter();
+        let receiver_keyid = self.keys.their_current_keyid();
+        let used_macs = self.keys.get_used_macs();
         let our_dh = self.keys.current_keys();
-        let next_dh = self.keys.next_keys();
+        let next_dh = self.keys.next_keys().1.public.clone();
+        // FIXME plaintext_message needs encrypting, right? Or was this done already? (important, but not immediately relevant due to early development)
+        let encrypted = Vec::new();
         DataMessage {
             flags,
             sender_keyid: our_dh.0,
-            receiver_keyid: self.keys.their_current_keyid(),
-            dh_y: next_dh.1.public.clone(),
-            ctr: [0u8; CTR_LEN],
-            encrypted: message,
+            receiver_keyid,
+            dh_y: next_dh,
+            ctr,
+            encrypted,
             authenticator: [0u8; MAC_LEN],
-            revealed: Vec::new(),
+            revealed: used_macs,
         }
     }
 

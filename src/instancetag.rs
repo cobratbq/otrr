@@ -1,8 +1,5 @@
-pub const INSTANCE_ZERO: u32 = 0;
-pub const INSTANCE_MIN_VALID: u32 = 0x00000100;
-
-/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
-pub type InstanceTag = u32;
+pub const INSTANCE_ZERO: InstanceTag = 0;
+pub const INSTANCE_MIN_VALID: InstanceTag = 0x00000100;
 
 pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
     if tag > INSTANCE_ZERO && tag < INSTANCE_MIN_VALID {
@@ -11,6 +8,9 @@ pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
         Ok(tag)
     }
 }
+
+/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
+pub type InstanceTag = u32;
 
 pub enum InstanceTagError {
     /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is excluded as it is used for backwards-compatibility.

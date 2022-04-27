@@ -232,7 +232,6 @@ impl AKEContext {
                     &OTREncoder::new()
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_mpi(&msg.gy)
-                        // FIXME acquire DSA public key from host, write to m_b.
                         .write_public_key(&pub_b)
                         .write_int(keyid_b)
                         .to_vec(),
@@ -324,7 +323,6 @@ impl AKEContext {
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
                 let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
-                // FIXME sig_b is not used, there should be a verification step for this!
                 let sig_b = decoder
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
