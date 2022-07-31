@@ -194,11 +194,10 @@ impl Counter {
             }
             return result;
         }
-        panic!("BUG: wrapped around complete counter value. This is very unlikely to ever happen.")
+        panic!("BUG: wrapped around counter value completely. This is very unlikely to ever happen.")
     }
 }
 
 #[cfg(test)]
 mod tests {
-
 }

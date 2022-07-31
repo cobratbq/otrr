@@ -168,6 +168,7 @@ impl EncryptedState {
         let next_dh = self.keys.next_keys().1.public.clone();
         // FIXME plaintext_message needs encrypting, right? Or was this done already? (important, but not immediately relevant due to early development)
         let encrypted = Vec::new();
+        panic!("must encrypt plaintext message");
         DataMessage {
             flags,
             sender_keyid: our_dh.0,

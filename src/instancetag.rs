@@ -3,7 +3,7 @@ pub const INSTANCE_MIN_VALID: InstanceTag = 0x00000100;
 
 pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
     if tag > INSTANCE_ZERO && tag < INSTANCE_MIN_VALID {
-        Err(InstanceTagError::IllegalValue)
+        Err(InstanceTagError::IllegalValue(tag))
     } else {
         Ok(tag)
     }
@@ -14,5 +14,5 @@ pub type InstanceTag = u32;
 
 pub enum InstanceTagError {
     /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is excluded as it is used for backwards-compatibility.
-    IllegalValue,
+    IllegalValue(u32),
 }
