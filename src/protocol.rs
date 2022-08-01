@@ -1,7 +1,7 @@
 use num::BigUint;
 
 use crate::{
-    crypto::DH,
+    crypto::{DH, self, OTR::DerivedSecrets},
     encoding::{DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, MAC_LEN, SSID, TLV, TLV_TYPE_1_DISCONNECT},
     keymanager::KeyManager,
     OTRError, ProtocolStatus, UserMessage, Version,
@@ -168,6 +168,10 @@ impl EncryptedState {
         let next_dh = self.keys.next_keys().1.public.clone();
         // FIXME plaintext_message needs encrypting, right? Or was this done already? (important, but not immediately relevant due to early development)
         let encrypted = Vec::new();
+        let shared_secret = self.keys.take_shared_secret();
+        let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
+        let secrets = DerivedSecrets::derive_secrets(&secbytes);
+
         panic!("must encrypt plaintext message");
         DataMessage {
             flags,

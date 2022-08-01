@@ -106,7 +106,9 @@ pub mod DH {
 }
 
 pub mod OTR {
-    use super::{AES128, SHA256};
+    use num::BigUint;
+
+    use super::{AES128, SHA1, SHA256};
 
     pub struct DerivedSecrets {
         pub ssid: [u8; 8],
@@ -145,7 +147,60 @@ pub mod OTR {
         }
     }
 
-    fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
+    pub struct DataSecrets {
+        send_key: AES128::Key,
+        recv_key: AES128::Key,
+    }
+
+    impl DataSecrets {
+        pub fn derive_secrets(
+            our_key: &BigUint,
+            their_key: &BigUint,
+            secbytes: &[u8],
+        ) -> DataSecrets {
+            // testing keys for equality as this should be virtually impossible
+            assert_eq!(our_key, their_key);
+            let (sendbyte, recvbyte) = if our_key > their_key {
+                (1u8, 2u8)
+            } else {
+                (2u8, 1u8)
+            };
+            // "For a given byte b, define h1(b) to be the 160-bit output of the SHA-1 hash of the
+            // (5+len) bytes consisting of the byte b, followed by secbytes."
+            let mut send_key = [0u8; 16];
+            send_key.copy_from_slice(&h1(sendbyte, secbytes)[..16]);
+            let mut recv_key = [0u8; 16];
+            recv_key.copy_from_slice(&h1(recvbyte, secbytes)[..16]);
+            DataSecrets {
+                send_key: AES128::Key(send_key),
+                recv_key: AES128::Key(recv_key),
+            }
+        }
+
+        pub fn send_crypt_key(&self) -> &AES128::Key {
+            &self.send_key
+        }
+
+        pub fn send_mac_key(&self) -> [u8; 20] {
+            SHA1::digest(&self.send_key.0)
+        }
+
+        pub fn recv_crypt_key(&self) -> &AES128::Key {
+            &self.recv_key
+        }
+
+        pub fn recv_mac_key(&self) -> [u8; 20] {
+            SHA1::digest(&self.recv_key.0)
+        }
+    }
+
+    fn h1(b: u8, secbytes: &[u8]) -> [u8; 20] {
+        let mut bytes = vec![b];
+        bytes.extend_from_slice(secbytes);
+        SHA1::digest(&bytes)
+    }
+
+    fn h2(b: u8, secbytes: &[u8]) -> [u8;32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);

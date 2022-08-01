@@ -42,6 +42,12 @@ impl KeyManager {
         self.theirs.id
     }
 
+    pub fn take_shared_secret(&self) -> BigUint {
+        let (_, keypair) = self.ours.current();
+        let (_, their_pk) = self.theirs.current();
+        keypair.generate_shared_secret(&their_pk)
+    }
+    
     pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
         self.theirs.register(key_id, key)?;
         self.ctr.reset();
@@ -132,6 +138,10 @@ impl PublicKeyRotation {
         Self { keys, id: key_id }
     }
 
+    pub fn current(&self) -> (KeyID, &BigUint) {
+        (self.id, &self.keys[self.id as usize % NUM_KEYS])
+    }
+
     fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
         let idx = key_id as usize % NUM_KEYS;
         return if self.keys[idx] == public_key {
@@ -194,10 +204,11 @@ impl Counter {
             }
             return result;
         }
-        panic!("BUG: wrapped around counter value completely. This is very unlikely to ever happen.")
+        panic!(
+            "BUG: wrapped around counter value completely. This is very unlikely to ever happen."
+        )
     }
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}
