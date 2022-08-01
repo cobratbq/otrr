@@ -1,7 +1,10 @@
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
-use crate::{instancetag::{verify_instance_tag, InstanceTag}};
+use crate::{
+    encoding::OTREncodable,
+    instancetag::{verify_instance_tag, InstanceTag},
+};
 
 const OTR_FRAGMENT_V2_PREFIX: &[u8] = b"?OTR,";
 const OTR_FRAGMENT_V3_PREFIX: &[u8] = b"?OTR|";
@@ -10,7 +13,7 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
 // TODO for now assuming that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
-static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+const FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
     )
@@ -40,13 +43,15 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
             sender_bytes[1],
             sender_bytes[2],
             sender_bytes[3],
-        ])).or(Err(FragmentError::InvalidData))?,
+        ]))
+        .or(Err(FragmentError::InvalidData))?,
         receiver: verify_instance_tag(u32::from_be_bytes([
             receiver_bytes[0],
             receiver_bytes[1],
             receiver_bytes[2],
             receiver_bytes[3],
-        ])).or(Err(FragmentError::InvalidData))?,
+        ]))
+        .or(Err(FragmentError::InvalidData))?,
         part: u16::from_str_radix(
             std::str::from_utf8(captures.get(3).unwrap().as_bytes()).unwrap(),
             10,
@@ -80,6 +85,22 @@ pub struct Fragment {
     part: u16,
     total: u16,
     payload: Vec<u8>,
+}
+
+impl OTREncodable for Fragment {
+    fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        encoder
+            .write(OTR_FRAGMENT_V3_PREFIX)
+            .write(
+                format!(
+                    "{:08x}|{:08x},{},{},",
+                    &self.sender, &self.receiver, &self.part, &self.total
+                )
+                .as_bytes(),
+            )
+            .write(&self.payload)
+            .write(OTR_FRAGMENT_SUFFIX);
+    }
 }
 
 pub struct Assembler {

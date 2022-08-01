@@ -2,9 +2,6 @@ use num::{BigUint, Zero};
 
 use crate::{crypto::DH, encoding::KeyID, OTRError};
 
-/// NUM_KEYS is the number of keys that are maintained beforing rotating away and forgetting them forever.
-const NUM_KEYS: usize = 2;
-
 /// KeyManager maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
     ours: KeypairRotation,
@@ -60,6 +57,9 @@ impl KeyManager {
     }
 }
 
+/// NUM_KEYS is the number of keys that are maintained beforing rotating away and forgetting them forever.
+const NUM_KEYS: usize = 2;
+
 /// KeyRotation manages the rotation of DH-keypairs used by our own client during OTR (single instance) sessions.
 struct KeypairRotation {
     keys: [DH::Keypair; NUM_KEYS],
@@ -104,7 +104,7 @@ impl KeypairRotation {
     /// only the current or next key is acknowledged.
     fn acknowledge(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         if key_id == self.acknowledged {
-            // this keyID was already acknowledged otherwise we would not rotate away
+            // this keyID was already acknowledged
             Ok(())
         } else if key_id == self.acknowledged + 1 {
             self.acknowledged = key_id;

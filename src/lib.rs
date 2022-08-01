@@ -39,6 +39,7 @@ pub mod session;
 
 // TODO add periodic heartbeat message
 // TODO support messages in backlog for sending when confidential session established?
+// TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 
 
 /// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
@@ -85,7 +86,9 @@ pub enum OTRError {
     /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,
+    // SMP process aborted, most likely by user request. Provided TLV can be sent to other party to signal SMP abort.
     SMPAborted(TLV),
+    // SMP process received invalid input for given state of the SMP.
     SMPProtocolViolation,
 }
 

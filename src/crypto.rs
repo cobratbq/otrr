@@ -16,10 +16,10 @@ pub mod DH {
 
     // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
-    pub static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    pub const GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
     /// Modulus
-    pub static MODULUS: Lazy<BigUint> = Lazy::new(|| {
+    pub const MODULUS: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_bytes_be(&[
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68,
             0xC2, 0x34, 0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08,
@@ -39,9 +39,9 @@ pub mod DH {
     });
 
     /// Modulus - 2
-    pub static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
+    pub const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
 
-    static RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+    const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
         return if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
@@ -166,7 +166,7 @@ pub mod AES128 {
 
     type Nonce = [u8; 16];
 
-    static RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+    const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
     #[derive(Clone)]
     pub struct Key(pub [u8; KEY_LENGTH]);

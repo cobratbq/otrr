@@ -33,11 +33,11 @@ const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 
-static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+const QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
 });
 const QUERY_GROUP_VERSIONS: usize = 1;
-static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+const WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*")
         .expect("BUG: failed to compile hard-coded regex-pattern.")
 });
@@ -636,6 +636,11 @@ pub struct OTREncoder {
 impl OTREncoder {
     pub fn new() -> Self {
         return Self { buffer: Vec::new() };
+    }
+
+    pub fn write(&mut self, raw_bytes: &[u8]) -> &mut Self {
+        self.buffer.extend_from_slice(raw_bytes);
+        self
     }
 
     pub fn write_encodable(&mut self, encodable: &dyn OTREncodable) -> &mut Self {
