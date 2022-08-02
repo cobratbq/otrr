@@ -34,12 +34,13 @@ impl KeyManager {
 
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         self.ours.acknowledge(key_id)?;
+        // FIXME was acknowledge successful/impactful?
         self.ctr.reset();
         Ok(())
     }
 
-    pub fn their_current_keyid(&self) -> KeyID {
-        self.theirs.id
+    pub fn their_current(&self) -> (KeyID, &BigUint) {
+        self.theirs.current()
     }
 
     pub fn take_shared_secret(&self) -> BigUint {
@@ -47,9 +48,10 @@ impl KeyManager {
         let (_, their_pk) = self.theirs.current();
         keypair.generate_shared_secret(&their_pk)
     }
-    
+
     pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
         self.theirs.register(key_id, key)?;
+        // FIXME was register successful/impactful?
         self.ctr.reset();
         Ok(())
     }
@@ -204,9 +206,8 @@ impl Counter {
             }
             return result;
         }
-        panic!(
-            "BUG: wrapped around counter value completely. This is very unlikely to ever happen."
-        )
+        // TODO This is very unlikely to happen, so just panic and make this a problem for the future.
+        panic!("BUG: wrapped around counter value completely.")
     }
 }
 

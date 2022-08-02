@@ -1,9 +1,13 @@
 use num::BigUint;
 
 use crate::{
-    crypto::{DH, self, OTR::DerivedSecrets},
-    encoding::{DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, MAC_LEN, SSID, TLV, TLV_TYPE_1_DISCONNECT},
+    crypto::{DH, OTR::DataSecrets, self},
+    encoding::{
+        DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, SSID, TLV,
+        TLV_TYPE_1_DISCONNECT,
+    },
     keymanager::KeyManager,
+    utils::std::{bytes, slice},
     OTRError, ProtocolStatus, UserMessage, Version,
 };
 
@@ -162,32 +166,42 @@ impl EncryptedState {
         plaintext_message: &[u8],
     ) -> DataMessage {
         let ctr = self.keys.take_counter();
-        let receiver_keyid = self.keys.their_current_keyid();
-        let used_macs = self.keys.get_used_macs();
-        let our_dh = self.keys.current_keys();
+        assert!(bytes::any_nonzero(&ctr));
+        let (receiver_keyid, receiver_key) = self.keys.their_current();
+        let (our_keyid, our_dh) = self.keys.current_keys();
         let next_dh = self.keys.next_keys().1.public.clone();
-        // FIXME plaintext_message needs encrypting, right? Or was this done already? (important, but not immediately relevant due to early development)
-        let encrypted = Vec::new();
         let shared_secret = self.keys.take_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        let secrets = DerivedSecrets::derive_secrets(&secbytes);
+        let secrets = DataSecrets::derive(&our_dh.public, &receiver_key, &secbytes);
+        let mut nonce = [0u8; 16];
+        slice::copy_offset(&mut nonce[..], 0, &ctr);
+        let ciphertext = secrets.send_crypt_key().encrypt(&nonce, plaintext_message);
+        let oldmackeys = self.keys.get_used_macs();
 
-        panic!("must encrypt plaintext message");
+        // compute authenticator
+        let ta = OTREncoder::new()
+            .write_int(our_keyid)
+            .write_int(receiver_keyid)
+            .write_mpi(&next_dh)
+            .write_ctr(&ctr)
+            .write_data(&ciphertext)
+            .to_vec();
+        let mac_ta = crypto::SHA1::hmac(&secrets.send_mac_key(), &ta);
+
+        // some sanity-checking ...
+        assert!(bytes::any_nonzero(&nonce[..]));
+        assert_eq!(oldmackeys.len() % 20, 0);
+
         DataMessage {
             flags,
-            sender_keyid: our_dh.0,
+            sender_keyid: our_keyid,
             receiver_keyid,
             dh_y: next_dh,
             ctr,
-            encrypted,
-            authenticator: [0u8; MAC_LEN],
-            revealed: used_macs,
+            encrypted: ciphertext,
+            authenticator: mac_ta,
+            revealed: oldmackeys,
         }
-    }
-
-    fn encrypt(&mut self, message: Vec<u8>) -> Result<Vec<u8>, OTRError> {
-        // FIXME implement encryption
-        todo!("To be implemented: encryption")
     }
 }
 

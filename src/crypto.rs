@@ -63,10 +63,9 @@ pub mod DH {
     impl Keypair {
         pub fn generate() -> Self {
             // FIXME check if generation is reliable, see requirement below.
-            // OTR-spec: "When starting a private conversation with a
-            //   correspondent, generate two DH key pairs for yourself, and set
-            //   our_keyid = 2. Note that all DH key pairs should have a
-            //   private part that is at least 320 bits long."
+            // OTR-spec: "When starting a private conversation with a correspondent, generate two DH
+            //   key pairs for yourself, and set our_keyid = 2. Note that all DH key pairs should
+            //   have a private part that is at least 320 bits long."
             let mut v = [0u8; 192];
             RAND.fill(&mut v)
                 .expect("Failed to produce random bytes for random big unsigned integer value.");
@@ -110,7 +109,7 @@ pub mod OTR {
 
     use super::{AES128, SHA1, SHA256};
 
-    pub struct DerivedSecrets {
+    pub struct AKESecrets {
         pub ssid: [u8; 8],
         pub c: AES128::Key,
         pub cp: AES128::Key,
@@ -120,7 +119,7 @@ pub mod OTR {
         pub m2p: [u8; 32],
     }
 
-    impl Drop for DerivedSecrets {
+    impl Drop for AKESecrets {
         fn drop(&mut self) {
             self.ssid = [0u8; 8];
             self.m1 = [0u8; 32];
@@ -130,12 +129,12 @@ pub mod OTR {
         }
     }
 
-    impl DerivedSecrets {
+    impl AKESecrets {
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
-        pub fn derive_secrets(secbytes: &[u8]) -> DerivedSecrets {
+        pub fn derive(secbytes: &[u8]) -> AKESecrets {
             let h2secret0 = h2(0x00, &secbytes);
             let h2secret1 = h2(0x01, &secbytes);
-            DerivedSecrets {
+            AKESecrets {
                 ssid: h2secret0[..8].try_into().unwrap(),
                 c: AES128::Key(h2secret1[..16].try_into().unwrap()),
                 cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
@@ -147,17 +146,14 @@ pub mod OTR {
         }
     }
 
+    // TODO from what I understand, given AES128::Key implements Drop, there is nothing further to clean up.
     pub struct DataSecrets {
-        send_key: AES128::Key,
-        recv_key: AES128::Key,
+        sendkey: AES128::Key,
+        recvkey: AES128::Key,
     }
 
     impl DataSecrets {
-        pub fn derive_secrets(
-            our_key: &BigUint,
-            their_key: &BigUint,
-            secbytes: &[u8],
-        ) -> DataSecrets {
+        pub fn derive(our_key: &BigUint, their_key: &BigUint, secbytes: &[u8]) -> DataSecrets {
             // testing keys for equality as this should be virtually impossible
             assert_eq!(our_key, their_key);
             let (sendbyte, recvbyte) = if our_key > their_key {
@@ -167,30 +163,30 @@ pub mod OTR {
             };
             // "For a given byte b, define h1(b) to be the 160-bit output of the SHA-1 hash of the
             // (5+len) bytes consisting of the byte b, followed by secbytes."
-            let mut send_key = [0u8; 16];
-            send_key.copy_from_slice(&h1(sendbyte, secbytes)[..16]);
-            let mut recv_key = [0u8; 16];
-            recv_key.copy_from_slice(&h1(recvbyte, secbytes)[..16]);
+            let mut sendkey = [0u8; 16];
+            sendkey.copy_from_slice(&h1(sendbyte, secbytes)[..16]);
+            let mut recvkey = [0u8; 16];
+            recvkey.copy_from_slice(&h1(recvbyte, secbytes)[..16]);
             DataSecrets {
-                send_key: AES128::Key(send_key),
-                recv_key: AES128::Key(recv_key),
+                sendkey: AES128::Key(sendkey),
+                recvkey: AES128::Key(recvkey),
             }
         }
 
         pub fn send_crypt_key(&self) -> &AES128::Key {
-            &self.send_key
+            &self.sendkey
         }
 
         pub fn send_mac_key(&self) -> [u8; 20] {
-            SHA1::digest(&self.send_key.0)
+            SHA1::digest(&self.sendkey.0)
         }
 
         pub fn recv_crypt_key(&self) -> &AES128::Key {
-            &self.recv_key
+            &self.recvkey
         }
 
         pub fn recv_mac_key(&self) -> [u8; 20] {
-            SHA1::digest(&self.recv_key.0)
+            SHA1::digest(&self.recvkey.0)
         }
     }
 
@@ -200,7 +196,7 @@ pub mod OTR {
         SHA1::digest(&bytes)
     }
 
-    fn h2(b: u8, secbytes: &[u8]) -> [u8;32] {
+    fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);
@@ -317,6 +313,14 @@ pub mod SHA1 {
     pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
         let mut result: Digest = [0u8; 20];
+        result.clone_from_slice(digest.as_ref());
+        result
+    }
+
+    pub fn hmac(mk: &[u8], data: &[u8]) -> Digest {
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, mk);
+        let digest = ring::hmac::sign(&key, data);
+        let mut result = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
         result
     }

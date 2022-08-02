@@ -4,7 +4,7 @@ use crate::{
     crypto::{
         CryptoError, AES128,
         DH::{self},
-        OTR::DerivedSecrets,
+        OTR::AKESecrets,
         SHA256,
     },
     encoding::{
@@ -168,8 +168,7 @@ impl AKEContext {
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 // Reply with a Reveal Signature Message and transition authstate to AUTHSTATE_AWAITING_SIG.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
-                let secrets =
-                    DerivedSecrets::derive_secrets(&OTREncoder::new().write_mpi(&s).to_vec());
+                let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 // TODO consider random starting key-id for initial key-id. (Spec: keyid > 0)
                 // FIXME ensure keypair is only acquired once per AKE conversation (sequence).
                 let dsa_keypair = self.host.keypair();
@@ -219,8 +218,7 @@ impl AKEContext {
                     // Ignore the message.
                     return Err(AKEError::MessageIgnored);
                 }
-                let secrets =
-                    DerivedSecrets::derive_secrets(&OTREncoder::new().write_mpi(&state.s).to_vec());
+                let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&state.s).to_vec());
                 // TODO the computations below could be cached during first handling of DH Key message.
                 // If this D-H Key message is the same the one you received earlier (when you entered AUTHSTATE_AWAITING_SIG):
                 //    Retransmit your Reveal Signature Message.
@@ -305,8 +303,7 @@ impl AKEContext {
 
                 // Validate encrypted signature using MAC based on m2, ensuring signature content is unchanged.
                 let s = state.our_dh_keypair.generate_shared_secret(&gx);
-                let secrets =
-                    DerivedSecrets::derive_secrets(&OTREncoder::new().write_mpi(&s).to_vec());
+                let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 let expected_signature_mac = SHA256::hmac160(
                     &secrets.m2,
                     &OTREncoder::new()
@@ -405,8 +402,7 @@ impl AKEContext {
                 // - Transition authstate to AUTHSTATE_NONE.
                 // - Transition msgstate to MSGSTATE_ENCRYPTED.
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
-                let secrets =
-                    DerivedSecrets::derive_secrets(&OTREncoder::new().write_mpi(&state.s).to_vec());
+                let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&state.s).to_vec());
                 let mac = SHA256::hmac160(
                     &secrets.m2p,
                     &OTREncoder::new()
