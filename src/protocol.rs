@@ -112,6 +112,7 @@ impl ProtocolState for EncryptedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
+        // TODO check but I believe we should also handle plaintext message for state correction purposes.
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         todo!("To be implemented")
     }
@@ -125,7 +126,7 @@ impl ProtocolState for EncryptedState {
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
-        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
+        Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh))
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -236,7 +237,7 @@ impl ProtocolState for FinishedState {
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
         // FIXME check if allowed to transition to Encrypted from here.
-        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
+        Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh))
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {

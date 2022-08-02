@@ -61,6 +61,7 @@ impl KeyManager {
     }
 
     pub fn get_used_macs(&mut self) -> Vec<u8> {
+        // TODO implement get_used_macs
         todo!("To be implemented")
     }
 }
