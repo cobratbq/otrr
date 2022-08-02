@@ -166,7 +166,6 @@ impl EncryptedState {
         plaintext_message: &[u8],
     ) -> DataMessage {
         let ctr = self.keys.take_counter();
-        assert!(bytes::any_nonzero(&ctr));
         let (receiver_keyid, receiver_key) = self.keys.their_current();
         let (our_keyid, our_dh) = self.keys.current_keys();
         let next_dh = self.keys.next_keys().1.public.clone();
@@ -174,7 +173,7 @@ impl EncryptedState {
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
         let secrets = DataSecrets::derive(&our_dh.public, &receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
-        slice::copy_offset(&mut nonce[..], 0, &ctr);
+        slice::copy(&mut nonce[..], &ctr);
         let ciphertext = secrets.send_crypt_key().encrypt(&nonce, plaintext_message);
         let oldmackeys = self.keys.get_used_macs();
 
@@ -189,6 +188,7 @@ impl EncryptedState {
         let mac_ta = crypto::SHA1::hmac(&secrets.send_mac_key(), &ta);
 
         // some sanity-checking ...
+        assert!(bytes::any_nonzero(&ctr));
         assert!(bytes::any_nonzero(&nonce[..]));
         assert_eq!(oldmackeys.len() % 20, 0);
 
