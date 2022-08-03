@@ -307,6 +307,10 @@ pub mod DSA {
 // TODO Fingerprint = SHA1(byte-level representation of Public Key without 0x0000 which is the short-type pubkey type identifier)
 #[allow(non_snake_case)]
 pub mod SHA1 {
+    use crate::utils::std::bytes;
+
+    use super::CryptoError;
+
 
     type Digest = [u8; 20];
 
@@ -323,6 +327,14 @@ pub mod SHA1 {
         let mut result = [0u8; 20];
         result.clone_from_slice(digest.as_ref());
         result
+    }
+
+    pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
+        assert!(bytes::any_nonzero(mac1));
+        assert!(bytes::any_nonzero(mac2));
+        // TODO needs constant-time verification?
+        // FIXME to be implemented
+        todo!("To be implemented")
     }
 }
 
