@@ -41,7 +41,6 @@ pub mod session;
 // TODO support messages in backlog for sending when confidential session established?
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 
-
 /// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
 #[derive(Debug)]
 pub enum UserMessage {
@@ -56,7 +55,7 @@ pub enum UserMessage {
     /// Confidential session started, transitioned to "encrypted" state.
     ConfidentialSessionStarted,
     /// Message for user received over confidential OTR transport.
-    Confidential(Vec<u8>),
+    Confidential(Vec<u8>, Vec<TLV>),
     /// Confidential session ended, transitioned to "finished" state. (Session ended by other party.)
     ConfidentialSessionFinished,
 }
@@ -135,3 +134,13 @@ bitflags! {
     const ERROR_START_AKE = 0b01000000;
     }
 }
+
+/// TLV_TYPE_0_PADDING is the TLV that can be used to introduce arbitrary-length padding to an
+/// encrypted message.
+pub const TLV_TYPE_0_PADDING: TLVType = 0;
+
+/// TLV_TYPE_1_DISCONNECt is the TLV that signals a disconnect.
+pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
+
+/// TLV_TYPE is an alias for an u16 value. The values are not restricted. Therefore define the type.
+pub type TLVType = u16;

@@ -44,13 +44,13 @@ pub mod DH {
     const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
-        return if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
+        if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
                 "DH public key fails verification.",
             ))
-        };
+        }
     }
 
     #[derive(Clone)]

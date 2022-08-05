@@ -2,18 +2,16 @@ use num::BigUint;
 
 use crate::{
     crypto::{DH, OTR, SHA1},
-    encoding::{
-        DataMessage, MessageFlags, OTREncoder, OTRMessageType, CTR, SSID, TLV,
-        TLV_TYPE_1_DISCONNECT,
-    },
+    encoding::{DataMessage, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID, TLV},
     keymanager::KeyManager,
     utils::std::{bytes, slice},
-    OTRError, ProtocolStatus, UserMessage, Version,
+    OTRError, ProtocolStatus, UserMessage, Version, TLV_TYPE_1_DISCONNECT,
 };
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn version(&self) -> Version;
+    // TODO check but I believe we should also handle plaintext message for state correction purposes.
     fn handle(
         &mut self,
         msg: &DataMessage,
@@ -51,12 +49,11 @@ impl ProtocolState for PlaintextState {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
+        _: &DataMessage,
     ) -> (
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        // FIXME assumes that this only needs to handle encrypted (OTR Data messages).
         (Err(OTRError::UnreadableMessage), None)
     }
 
@@ -112,12 +109,36 @@ impl ProtocolState for EncryptedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        let plaintext = self.decrypt_message(msg)?;
-        // TODO parse, extract TLVs, check if just plaintext or contains OTR protocol directions, ...
-        // TODO what to do with revealed (old) mac keys here?
-        // TODO check but I believe we should also handle plaintext message for state correction purposes.
+        // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
+        assert_eq!(msg.revealed.len() % 20, 0);
+        assert!(msg.revealed.len() == 0 || bytes::any_nonzero(&msg.revealed));
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
-        todo!("To be implemented")
+        match self.decrypt_message(msg) {
+            Ok(raw) => {
+                let mut decoder = OTRDecoder::new(&raw);
+                let content = match decoder.read_bytes_null_terminated() {
+                    Ok(text) => text,
+                    Err(error) => return (Err(error), None),
+                };
+                let tlvs = match decoder.read_tlvs() {
+                    Ok(tlvs) => tlvs,
+                    Err(error) => return (Err(error), None),
+                };
+                // TODO drop TLV-0-PADDING as it is only padding?
+                if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+                    return (
+                        Ok(UserMessage::ConfidentialSessionFinished),
+                        Some(Box::new(FinishedState {})),
+                    );
+                }
+                // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
+                // TODO check if just plaintext or contains OTR protocol directions, ...
+                // TODO carefully inspect possible state transitions, now assumes None.
+                (Ok(UserMessage::Confidential(content, tlvs)), None)
+            }
+            // TODO carefully inspect possible state transitions, now assumes None.
+            Err(error) => (Err(error), None),
+        }
     }
 
     fn secure(
@@ -235,9 +256,9 @@ impl EncryptedState {
         SHA1::verify(&message.authenticator, &mac_ta)
             .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
-        let mut nonce = [0u8;16];
+        let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &message.ctr);
-        Ok(secrets.recv_crypt_key().decrypt(&nonce, &message.encrypted))        
+        Ok(secrets.recv_crypt_key().decrypt(&nonce, &message.encrypted))
     }
 }
 
@@ -255,7 +276,7 @@ impl ProtocolState for FinishedState {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
+        _: &DataMessage,
     ) -> (
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,

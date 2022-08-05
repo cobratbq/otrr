@@ -6,10 +6,13 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::{AES128, DSA::{Signature, SIGNATURE_LEN}},
     crypto::DSA,
+    crypto::{
+        AES128,
+        DSA::{Signature, SIGNATURE_LEN},
+    },
     instancetag::{verify_instance_tag, InstanceTag},
-    utils, OTRError, Version,
+    utils, OTRError, TLVType, Version,
 };
 
 bitflags! {
@@ -578,6 +581,14 @@ impl<'a> OTRDecoder<'a> {
         Ok(sig)
     }
 
+    pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
+        let mut tlvs = Vec::new();
+        while self.0.len() > 0 {
+            tlvs.push(self.read_tlv()?);
+        }
+        Ok(tlvs)
+    }
+
     /// read_tlv reads a type-length-value record from the content.
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
         let typ = self.read_short()?;
@@ -772,8 +783,4 @@ const SSID_LEN: usize = 8;
 pub type SSID = [u8; SSID_LEN];
 
 #[derive(Debug)]
-pub struct TLV(pub TLV_TYPE, pub Vec<u8>);
-
-pub const TLV_TYPE_0_PADDING: TLV_TYPE = 0;
-pub const TLV_TYPE_1_DISCONNECT: TLV_TYPE = 1;
-pub type TLV_TYPE = u16;
+pub struct TLV(pub TLVType, pub Vec<u8>);

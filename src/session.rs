@@ -5,11 +5,13 @@ use fragment::Assembler;
 
 use crate::{
     authentication::{self, CryptographicMaterial},
-    encoding::{encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType, CTR_LEN},
+    encoding::{
+        encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType, CTR_LEN,
+    },
     fragment::{self, FragmentError},
     host::Host,
     instancetag::{InstanceTag, INSTANCE_ZERO},
-    protocol, OTRError, UserMessage, Version, ProtocolStatus,
+    protocol, OTRError, ProtocolStatus, UserMessage, Version,
 };
 
 pub struct Account {
@@ -286,17 +288,23 @@ impl Instance {
         Ok(match self.state.send(content)? {
             OTRMessageType::Undefined(message) => {
                 if self.state.status() == ProtocolStatus::Plaintext {
-                    panic!("BUG: received undefined message type in state {:?}", self.state.status())
+                    panic!(
+                        "BUG: received undefined message type in state {:?}",
+                        self.state.status()
+                    )
                 }
                 encode(&MessageType::PlaintextMessage(message))
-            },
+            }
             message @ OTRMessageType::DHCommit(_)
             | message @ OTRMessageType::DHKey(_)
             | message @ OTRMessageType::RevealSignature(_)
             | message @ OTRMessageType::Signature(_)
-            | message @ OTRMessageType::Data(_) => {
-                encode_otr_message(self.state.version(), self.account.tag, self.receiver, message)
-            }
+            | message @ OTRMessageType::Data(_) => encode_otr_message(
+                self.state.version(),
+                self.account.tag,
+                self.receiver,
+                message,
+            ),
         })
     }
 }
