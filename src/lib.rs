@@ -140,7 +140,7 @@ bitflags! {
 /// encrypted message.
 pub const TLV_TYPE_0_PADDING: TLVType = 0;
 
-/// TLV_TYPE_1_DISCONNECt is the TLV that signals a disconnect.
+/// TLV_TYPE_1_DISCONNECT is the TLV that signals a disconnect.
 pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
 /// TLV_TYPE is an alias for an u16 value. The values are not restricted. Therefore define the type.

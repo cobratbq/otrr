@@ -69,6 +69,7 @@ impl KeyManager {
         let mut oldmacs = Vec::new();
         // TODO swap seems like it does exactly what we need, but do I misunderstand this because it is too low-level?
         std::mem::swap(&mut self.oldmacs, &mut oldmacs);
+        assert_eq!(self.oldmacs.len(), 0);
         oldmacs
     }
 }
