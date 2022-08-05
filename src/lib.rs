@@ -101,10 +101,11 @@ pub enum ProtocolStatus {
 /// Version contains the various supported OTR protocol versions.
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
-    Unsupported(u16),
+    None,
     // V1, // will not be supported.
     // V2, // will not be supported.
     V3,
+    Unsupported(u16),
 }
 
 // TODO implement use of policy flags!

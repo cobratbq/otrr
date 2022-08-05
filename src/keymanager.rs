@@ -7,6 +7,7 @@ pub struct KeyManager {
     ours: KeypairRotation,
     theirs: PublicKeyRotation,
     ctr: Counter,
+    oldmacs: Vec<u8>,
 }
 
 // TODO double-check counter reset logic.
@@ -15,12 +16,12 @@ impl KeyManager {
         Self {
             ours: KeypairRotation::new(ours.0, ours.1),
             theirs: PublicKeyRotation::new(theirs.0, theirs.1),
-            // FIXME correctly initialize counter for first use after AKE (cannot be 0)
             // OTRv3 spec, specifically about top-8-bytes CTR value in Data Message:
             // "This should monotonically increase (as a big-endian value) for
             // each message sent with the same (sender keyid, recipient keyid)
             // pair, and must not be all 0x00."
             ctr: Counter::new(),
+            oldmacs: Vec::new(),
         }
     }
 
@@ -33,9 +34,9 @@ impl KeyManager {
     }
 
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
-        self.ours.acknowledge(key_id)?;
-        // FIXME was acknowledge successful/impactful?
-        self.ctr.reset();
+        if self.ours.acknowledge(key_id)? {
+            self.ctr.reset();
+        }
         Ok(())
     }
 
@@ -50,9 +51,9 @@ impl KeyManager {
     }
 
     pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
-        self.theirs.register(key_id, key)?;
-        // FIXME was register successful/impactful?
-        self.ctr.reset();
+        if self.theirs.register(key_id, key)? {
+            self.ctr.reset();
+        }
         Ok(())
     }
 
@@ -60,9 +61,15 @@ impl KeyManager {
         self.ctr.take()
     }
 
+    pub fn reveal_mac(&mut self, mac: &[u8]) {
+        self.oldmacs.extend_from_slice(mac);
+    }
+
     pub fn get_used_macs(&mut self) -> Vec<u8> {
-        // TODO implement get_used_macs
-        todo!("To be implemented")
+        let mut oldmacs = Vec::new();
+        // TODO swap seems like it does exactly what we need, but do I misunderstand this because it is too low-level?
+        std::mem::swap(&mut self.oldmacs, &mut oldmacs);
+        oldmacs
     }
 }
 
@@ -111,15 +118,15 @@ impl KeypairRotation {
     /// party. This allows rotating to the next DH-key. KeyIDs may be
     /// acknowledged multiple times, as long as the protocol is followed and
     /// only the current or next key is acknowledged.
-    fn acknowledge(&mut self, key_id: KeyID) -> Result<(), OTRError> {
+    fn acknowledge(&mut self, key_id: KeyID) -> Result<bool, OTRError> {
         if key_id == self.acknowledged {
             // this keyID was already acknowledged
-            Ok(())
+            Ok(false)
         } else if key_id == self.acknowledged + 1 {
             self.acknowledged = key_id;
             // TODO currently no explicit zeroing/cleaning
             self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = DH::Keypair::generate();
-            Ok(())
+            Ok(true)
         } else {
             Err(OTRError::ProtocolViolation("unexpected keyID to confirm"))
         }
@@ -157,12 +164,13 @@ impl PublicKeyRotation {
     }
 
     /// Register next DH public key.
-    fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<(), OTRError> {
+    fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
         assert_ne!(next_key, BigUint::zero());
         return if self.id == next_id {
             // TODO probably needs constant-time comparison
+            // TODO sanity-check if key is same as we already know?
             if self.keys[(self.id as usize) % NUM_KEYS] == next_key {
-                Ok(())
+                Ok(false)
             } else {
                 Err(OTRError::ProtocolViolation(
                     "different keys provided for same key ID",
@@ -173,7 +181,7 @@ impl PublicKeyRotation {
             // FIXME is this overwriting sufficiently effective or should we clean/zero the memory first?
             self.keys[idx] = next_key;
             self.id = next_id;
-            Ok(())
+            Ok(true)
         } else {
             Err(OTRError::ProtocolViolation(
                 "Unexpected next DH public key ID",

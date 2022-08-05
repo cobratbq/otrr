@@ -43,8 +43,7 @@ impl ProtocolState for PlaintextState {
     }
 
     fn version(&self) -> Version {
-        // FIXME define variant to indicate version is irrelevant due to not in encrypted state.
-        Version::Unsupported(0)
+        Version::None
     }
 
     fn handle(
@@ -149,7 +148,7 @@ impl ProtocolState for EncryptedState {
         our_dh: DH::Keypair,
         their_dh: BigUint,
     ) -> Box<EncryptedState> {
-        // FIXME check if allowed to transition to Encrypted from here.
+        // FIXME check if allowed to transition from Encrypted to Encrypted.
         Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh))
     }
 
@@ -226,7 +225,7 @@ impl EncryptedState {
         }
     }
 
-    fn decrypt_message(&self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
+    fn decrypt_message(&mut self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
         // "Uses Diffie-Hellman to compute a shared secret from the two keys labelled by keyidA and
         // keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
         // detailed below. (These will be the same as the keys Alice generated, above.)"
@@ -252,12 +251,19 @@ impl EncryptedState {
             .write_data(&message.encrypted)
             .to_vec();
         let mac_ta = SHA1::hmac(&secrets.recv_mac_key(), &ta);
+        // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."
         SHA1::verify(&message.authenticator, &mac_ta)
             .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &message.ctr);
+        // TODO cryptographic maintenance such as registering new dh-key, etc.
+        self.keys.reveal_mac(&message.authenticator);
+        self.keys.register_their_next(message.sender_keyid+1, message.dh_y.clone())?;
+        // TODO check with spec if these should happen at same time? This is written from memory/logical reasoning, so needs some reviewing.
+        self.keys.acknowledge_ours(message.receiver_keyid)?;
+        // finally, return the message
         Ok(secrets.recv_crypt_key().decrypt(&nonce, &message.encrypted))
     }
 }
@@ -270,8 +276,7 @@ impl ProtocolState for FinishedState {
     }
 
     fn version(&self) -> Version {
-        // FIXME define variant to indicate version is irrelevant due to not in encrypted state.
-        Version::Unsupported(0)
+        Version::None
     }
 
     fn handle(

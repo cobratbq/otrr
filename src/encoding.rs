@@ -137,6 +137,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
                     }
                 })
                 .filter(|v| match v {
+                    Version::None => false,
                     Version::V3 => true,
                     Version::Unsupported(_) => false,
                 })
@@ -190,6 +191,7 @@ impl OTREncodable for EncodedMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
             .write_short(match self.version {
+                Version::None => 0,
                 Version::V3 => 3,
                 Version::Unsupported(_) => panic!("BUG: unsupported version"),
             })
@@ -411,6 +413,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             for v in utils::std::alloc::vec_unique(versions.to_owned()) {
                 // FIXME strictly speaking there must be at least one tag or we violate spec.
                 match v {
+                    Version::None => panic!("BUG: version 0 cannot be used for tagging"),
                     Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
                     Version::Unsupported(_) => {
                         panic!("BUG: unsupported versions should be avoided.")
@@ -427,6 +430,7 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             buffer.extend_from_slice(OTR_QUERY_PREFIX);
             for v in utils::std::alloc::vec_unique(versions.to_owned()) {
                 match v {
+                    Version::None => panic!("BUG: version 0 cannot be used for query messages"),
                     Version::V3 => buffer.push(b'3'),
                     Version::Unsupported(_) => {
                         panic!("BUG: unsupported version should be avoided.")

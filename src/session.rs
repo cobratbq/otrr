@@ -6,7 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode, encode_otr_message, parse, EncodedMessage, MessageType, OTRMessageType, CTR_LEN,
+        encode, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
+        OTRMessageType, CTR_LEN,
     },
     fragment::{self, FragmentError},
     host::Host,
@@ -251,13 +252,20 @@ impl Instance {
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Data(msg) => {
-                // FIXME verify and validate message before passing on to state.
+                // TODO verify and validate message before passing on to state.
                 let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
-                // FIXME in case of error, check for ignore-unreadable flag.
-                return message;
+                match message {
+                    msg @ Ok(_) => msg,
+                    err @ Err(OTRError::UnreadableMessage) => if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
+                        Ok(UserMessage::None)
+                    } else {
+                        err
+                    },
+                    err @ Err(_) => err,
+                }
             }
             OTRMessageType::Undefined(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
         };
