@@ -57,7 +57,7 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
 }
 
 pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
-    return if fragment.total == 0
+    if fragment.total == 0
         || fragment.part == 0
         || fragment.part > fragment.total
         || fragment.payload.is_empty()
@@ -65,7 +65,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
         Err(FragmentError::InvalidData)
     } else {
         Ok(())
-    };
+    }
 }
 
 // TODO implement OTREncodable for fragmentation

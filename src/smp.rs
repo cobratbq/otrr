@@ -587,13 +587,13 @@ impl SMPContext {
     }
 }
 
-// FIXME is there a nicer (more fluent) way to make the second mpi optional?
 fn hash(version: u8, mpi1: BigUint, mpi2: Option<BigUint>) -> [u8; 32] {
     let mut data = vec![version];
     let mut encoder = OTREncoder::new();
     encoder.write_mpi(&mpi1);
-    // TODO not very elegant to abuse pure-functional construct for side-effectful code.
-    mpi2.map(|v| encoder.write_mpi(&v));
+    if let Some(v) = mpi2 {
+        encoder.write_mpi(&v)
+    }
     data.extend(encoder.to_vec());
     SHA256::digest(&data)
 }

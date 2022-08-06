@@ -3,6 +3,7 @@ use num::{BigUint, Zero};
 use crate::{crypto::DH, encoding::KeyID, OTRError};
 
 /// KeyManager maintains both our keypairs and received public keys from the other party.
+// TODO need to implement Drop for secure clean-up?
 pub struct KeyManager {
     ours: KeypairRotation,
     theirs: PublicKeyRotation,
@@ -164,7 +165,8 @@ impl PublicKeyRotation {
         };
     }
 
-    /// Register next DH public key.
+    /// Register next DH public key. Result `true` indicates a new key was registered, `false`
+    /// indicates the key was already known.
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
         assert_ne!(next_key, BigUint::zero());
         return if self.id == next_id {
