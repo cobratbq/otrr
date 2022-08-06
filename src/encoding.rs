@@ -460,7 +460,6 @@ pub struct OTRDecoder<'a>(&'a [u8]);
 ///
 /// The OTRDecoder is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
 ///  input cannot be trusted, so we try to handle everything as an Err-result.
-#[allow(dead_code)]
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
         Self(content)
@@ -647,7 +646,6 @@ pub struct OTREncoder {
     buffer: Vec<u8>,
 }
 
-#[allow(dead_code)]
 impl OTREncoder {
     pub fn new() -> Self {
         return Self { buffer: Vec::new() };

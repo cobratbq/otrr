@@ -25,7 +25,6 @@ pub struct Account {
 }
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
-#[allow(dead_code)]
 impl Account {
     pub fn new() -> Self {
         // FIXME implement new account creation
