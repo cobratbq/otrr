@@ -108,34 +108,22 @@ impl ProtocolState for EncryptedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
+        // sanity-checking incoming message content
         // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
         assert_eq!(msg.revealed.len() % 20, 0);
         assert!(msg.revealed.len() == 0 || bytes::any_nonzero(&msg.revealed));
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         match self.decrypt_message(msg) {
-            Ok(raw) => {
-                let mut decoder = OTRDecoder::new(&raw);
-                let content = match decoder.read_bytes_null_terminated() {
-                    Ok(text) => text,
-                    Err(error) => return (Err(error), None),
-                };
-                let tlvs = match decoder.read_tlvs() {
-                    Ok(tlvs) => tlvs,
-                    Err(error) => return (Err(error), None),
-                };
-                // TODO drop TLV-0-PADDING as it is only padding?
-                if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
-                    return (
-                        Ok(UserMessage::ConfidentialSessionFinished),
-                        Some(Box::new(FinishedState {})),
-                    );
-                }
-                // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
-                // TODO check if just plaintext or contains OTR protocol directions, ...
-                // TODO carefully inspect possible state transitions, now assumes None.
-                (Ok(UserMessage::Confidential(content, tlvs)), None)
-            }
             // TODO carefully inspect possible state transitions, now assumes None.
+            // TODO check if just plaintext or contains OTR protocol directions, ...
+            // TODO carefully inspect possible state transitions, now assumes None.
+            Ok(plaintext) => match self.parse_message(&plaintext) {
+                msg @ Ok(UserMessage::ConfidentialSessionFinished) => {
+                    (msg, Some(Box::new(FinishedState {})))
+                }
+                msg @ Ok(_) => (msg, None),
+                err @ Err(_) => (err, None),
+            },
             Err(error) => (Err(error), None),
         }
     }
@@ -154,6 +142,7 @@ impl ProtocolState for EncryptedState {
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         let plaintext = OTREncoder::new()
+            .write_bytes_null_terminated(&[])
             .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
         let optabort = Some(OTRMessageType::Data(
@@ -171,15 +160,13 @@ impl ProtocolState for EncryptedState {
 
 impl EncryptedState {
     fn new(version: Version, ssid: SSID, ctr: CTR, our_dh: DH::Keypair, their_dh: BigUint) -> Self {
-        // FIXME complete initialization
         Self {
             version,
             // FIXME spec describes some possible deviations for key-ids/public keys(???)
             // FIXME verify key-ids
+            // FIXME need to pass on ctr to keymanager or is next counter predetermined by protocol?
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
-        };
-        // FIXME implement private creation of encrypted state and key management.
-        todo!("To be implemented")
+        }
     }
 
     fn encrypt_message(&mut self, flags: MessageFlags, plaintext_message: &[u8]) -> DataMessage {
@@ -260,11 +247,25 @@ impl EncryptedState {
         slice::copy(&mut nonce, &message.ctr);
         // TODO cryptographic maintenance such as registering new dh-key, etc.
         self.keys.reveal_mac(&message.authenticator);
-        self.keys.register_their_next(message.sender_keyid+1, message.dh_y.clone())?;
+        self.keys
+            .register_their_next(message.sender_keyid + 1, message.dh_y.clone())?;
         // TODO check with spec if these should happen at same time? This is written from memory/logical reasoning, so needs some reviewing.
         self.keys.acknowledge_ours(message.receiver_keyid)?;
         // finally, return the message
         Ok(secrets.recv_crypt_key().decrypt(&nonce, &message.encrypted))
+    }
+
+    fn parse_message(&self, raw_content: &[u8]) -> Result<UserMessage, OTRError> {
+        let mut decoder = OTRDecoder::new(raw_content);
+        let content = decoder.read_bytes_null_terminated()?;
+        let tlvs = decoder.read_tlvs()?;
+        // TODO drop TLV-0-PADDING as it is only padding?
+        // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
+        if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+            Ok(UserMessage::ConfidentialSessionFinished)
+        } else {
+            Ok(UserMessage::Confidential(content, tlvs))
+        }
     }
 }
 
