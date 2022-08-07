@@ -77,7 +77,7 @@ pub mod DH {
         }
 
         pub fn new_custom(private: BigUint, generator: BigUint) -> Self {
-            let public = generator.modpow(&private, &MODULUS);
+            let public = generator.modpow(&private, &*MODULUS);
             Self {
                 generator,
                 private,
@@ -86,7 +86,7 @@ pub mod DH {
         }
 
         pub fn generate_shared_secret(&self, public_key: &BigUint) -> SharedSecret {
-            public_key.modpow(&self.private, &MODULUS)
+            public_key.modpow(&self.private, &*MODULUS)
         }
     }
 
@@ -107,7 +107,7 @@ pub mod DH {
 pub mod OTR {
     use num::BigUint;
 
-    use super::{AES128, SHA1, SHA256};
+    use super::{AES128, DSA, SHA1, SHA256};
 
     pub struct AKESecrets {
         pub ssid: [u8; 8],
@@ -200,6 +200,15 @@ pub mod OTR {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
         return SHA256::digest(&bytes);
+    }
+
+    pub fn fingerprint(public_key: &DSA::PublicKey) -> [u8; 20] {
+        // TODO implement fingerprinting DSA public key
+        todo!("To be implemented")
+    }
+
+    pub fn temp_modinv(value: &BigUint, modulus: &BigUint) -> BigUint {
+        todo!("Implement modular-inverse for use in SMP. This is a placeholder.")
     }
 }
 
@@ -310,7 +319,6 @@ pub mod SHA1 {
     use crate::utils::std::bytes;
 
     use super::CryptoError;
-
 
     type Digest = [u8; 20];
 

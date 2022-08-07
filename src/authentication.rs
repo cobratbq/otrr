@@ -1,18 +1,12 @@
 use std::rc::Rc;
 
 use crate::{
-    crypto::{
-        CryptoError, AES128,
-        DH::{self},
-        OTR::AKESecrets,
-        SHA256,
-    },
+    crypto::{CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
     encoding::{
         DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessageType,
         RevealSignatureMessage, SignatureMessage, SSID,
     },
-    host::Host,
-    Version,
+    Host, Version,
 };
 use num_bigint::BigUint;
 
@@ -366,6 +360,7 @@ impl AKEContext {
                             ssid: secrets.ssid,
                             our_dh: (*state.our_dh_keypair).clone(),
                             their_dh: gx,
+                            their_dsa: pub_b,
                         },
                         OTRMessageType::Signature(SignatureMessage {
                             signature_encrypted: encrypted_signature,
@@ -443,6 +438,7 @@ impl AKEContext {
                         ssid: secrets.ssid,
                         our_dh: (*state.our_dh_keypair).clone(),
                         their_dh: state.gy.clone(),
+                        their_dsa: pub_a,
                     }),
                     AKEState::None(VerificationState::VERIFIED),
                 )
@@ -463,6 +459,7 @@ pub struct CryptographicMaterial {
     // FIXME can we do without the reference-counting so that we know absolutely sure that this is the only instance?
     pub our_dh: DH::Keypair,
     pub their_dh: BigUint,
+    pub their_dsa: DSA::PublicKey,
 }
 
 /// AKEState represents available/recognized AKE states.

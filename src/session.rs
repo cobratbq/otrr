@@ -10,9 +10,8 @@ use crate::{
         OTRMessageType, CTR_LEN,
     },
     fragment::{self, FragmentError},
-    host::Host,
-    instancetag::{InstanceTag, INSTANCE_ZERO},
-    protocol, OTRError, ProtocolStatus, UserMessage, Version,
+    instancetag::{self, InstanceTag, INSTANCE_ZERO},
+    protocol, Host, OTRError, ProtocolStatus, UserMessage, Version,
 };
 
 pub struct Account {
@@ -26,9 +25,14 @@ pub struct Account {
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 impl Account {
-    pub fn new() -> Self {
-        // FIXME implement new account creation
-        todo!("to be implemented")
+    pub fn new(host: Rc<dyn Host>) -> Self {
+        Self {
+            host,
+            details: Rc::new(AccountDetails {
+                tag: instancetag::random_tag(),
+            }),
+            instances: collections::HashMap::new(),
+        }
     }
 
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
@@ -104,7 +108,6 @@ impl Account {
         };
     }
 
-    // TODO should rely on some pool of accepted versions instead of hard-coding.
     fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
         // TODO take policies into account before initiating.
         if versions.contains(&Version::V3) {
@@ -124,7 +127,15 @@ impl Account {
     }
 
     pub fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
-        let receiver = INSTANCE_ZERO;
+        self.initiate_receiver(version, INSTANCE_ZERO)
+    }
+
+    pub fn initiate_receiver(
+        &mut self,
+        version: Version,
+        receiver: InstanceTag,
+    ) -> Result<UserMessage, OTRError> {
+        // FIXME this is an issue: we always start with instance receiver 0, so how can we distinguish instances?
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
@@ -150,7 +161,7 @@ impl Account {
 /// Instance serves a single communication session, ensuring that messages always travel between the same two clients.
 struct Instance {
     // TODO can we share the details in an immutable way?
-    account: Rc<AccountDetails>,
+    details: Rc<AccountDetails>,
     receiver: InstanceTag,
     host: Rc<dyn Host>,
     assembler: Assembler,
@@ -159,10 +170,10 @@ struct Instance {
 }
 
 impl Instance {
-    fn new(account: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
+    fn new(details: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
         // FIXME include both our and their tags for repeated use?
         Self {
-            account,
+            details,
             receiver,
             assembler: Assembler::new(),
             state: protocol::new_state(),
@@ -182,7 +193,7 @@ impl Instance {
             .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
         self.host.inject(&encode_otr_message(
             version,
-            self.account.tag,
+            self.details.tag,
             self.receiver,
             msg,
         ));
@@ -202,7 +213,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.account.tag,
+                    self.details.tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -215,24 +226,24 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.account.tag,
+                    self.details.tag,
                     encoded_message.sender,
                     response,
                 ));
                 Ok(UserMessage::None)
             }
             OTRMessageType::RevealSignature(msg) => {
-                let (CryptographicMaterial{version, ssid, our_dh, their_dh}, response) = self
+                let (CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa}, response) = self
                     .ake
                     .handle_reveal_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(version, ssid, ctr, our_dh, their_dh);
+                self.state = self.state.secure(Rc::clone(&self.host), version, ssid, ctr, our_dh, their_dh, their_dsa);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
-                    self.account.tag,
+                    self.details.tag,
                     encoded_message.sender,
                     response,
                 ));
@@ -240,13 +251,13 @@ impl Instance {
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Signature(msg) => {
-                let CryptographicMaterial{version, ssid, our_dh, their_dh} = self
+                let CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa} = self
                     .ake
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(version, ssid, ctr, our_dh, their_dh);
+                self.state = self.state.secure(Rc::clone(&self.host), version, ssid, ctr, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted)
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
@@ -261,6 +272,7 @@ impl Instance {
                     err @ Err(OTRError::UnreadableMessage) => if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
                         Ok(UserMessage::None)
                     } else {
+                        // TODO warn `host` instance directly in case of unreadable message
                         err
                     },
                     err @ Err(_) => err,
@@ -281,7 +293,7 @@ impl Instance {
         if let Some(msg) = abortmsg {
             self.host.inject(&encode_otr_message(
                 Version::V3,
-                self.account.tag,
+                self.details.tag,
                 // FIXME replace with receiver tag of other party once accessible/available.
                 self.receiver,
                 msg,
@@ -308,7 +320,7 @@ impl Instance {
             | message @ OTRMessageType::Signature(_)
             | message @ OTRMessageType::Data(_) => encode_otr_message(
                 self.state.version(),
-                self.account.tag,
+                self.details.tag,
                 self.receiver,
                 message,
             ),

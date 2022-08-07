@@ -1,11 +1,17 @@
+use std::rc::Rc;
+
 use num::BigUint;
 
 use crate::{
-    crypto::{DH, OTR, SHA1},
-    encoding::{DataMessage, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID, TLV},
+    crypto::{DH, DSA, OTR, SHA1},
+    encoding::{
+        DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID,
+        TLV,
+    },
     keymanager::KeyManager,
+    smp::SMPContext,
     utils::std::{bytes, slice},
-    OTRError, ProtocolStatus, UserMessage, Version, TLV_TYPE_1_DISCONNECT,
+    Host, OTRError, ProtocolStatus, UserMessage, Version, TLV_TYPE_1_DISCONNECT,
 };
 
 pub trait ProtocolState {
@@ -21,11 +27,13 @@ pub trait ProtocolState {
     );
     fn secure(
         &self,
+        host: Rc<dyn Host>,
         version: Version,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
         their_dh: BigUint,
+        their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
     fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError>;
@@ -35,6 +43,7 @@ pub fn new_state() -> Box<dyn ProtocolState> {
     return Box::new(PlaintextState {});
 }
 
+// TODO review public access for various state structs
 pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
@@ -58,13 +67,24 @@ impl ProtocolState for PlaintextState {
 
     fn secure(
         &self,
+        host: Rc<dyn Host>,
         version: Version,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
         their_dh: BigUint,
+        their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
-        return Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh));
+        let their_fingerprint = OTR::fingerprint(&their_dsa);
+        return Box::new(EncryptedState::new(
+            host,
+            version,
+            ssid,
+            ctr,
+            our_dh,
+            their_dh,
+            their_fingerprint,
+        ));
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -83,6 +103,7 @@ impl ProtocolState for PlaintextState {
 pub struct EncryptedState {
     version: Version,
     keys: KeyManager,
+    smp: SMPContext,
 }
 
 impl Drop for EncryptedState {
@@ -109,6 +130,8 @@ impl ProtocolState for EncryptedState {
         Option<Box<dyn ProtocolState>>,
     ) {
         // sanity-checking incoming message content
+        // FIXME can we actually validate the counter-value against local data?
+        assert!(bytes::any_nonzero(&msg.ctr));
         // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
         assert_eq!(msg.revealed.len() % 20, 0);
         assert!(msg.revealed.len() == 0 || bytes::any_nonzero(&msg.revealed));
@@ -130,14 +153,25 @@ impl ProtocolState for EncryptedState {
 
     fn secure(
         &self,
+        host: Rc<dyn Host>,
         version: Version,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
         their_dh: BigUint,
+        their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
+        let their_fingerprint = OTR::fingerprint(&their_dsa);
         // FIXME check if allowed to transition from Encrypted to Encrypted.
-        Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh))
+        Box::new(EncryptedState::new(
+            host,
+            version,
+            ssid,
+            ctr,
+            our_dh,
+            their_dh,
+            their_fingerprint,
+        ))
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -159,13 +193,24 @@ impl ProtocolState for EncryptedState {
 }
 
 impl EncryptedState {
-    fn new(version: Version, ssid: SSID, ctr: CTR, our_dh: DH::Keypair, their_dh: BigUint) -> Self {
+    // FIXME what to do with ctr here (haven't bothered to look it up. Do we reuse or create new CTR value?)
+    fn new(
+        host: Rc<dyn Host>,
+        version: Version,
+        ssid: SSID,
+        ctr: CTR,
+        our_dh: DH::Keypair,
+        their_dh: BigUint,
+        their_fingerprint: Fingerprint,
+    ) -> Self {
+        let our_fingerprint = OTR::fingerprint(&host.keypair().public_key());
         Self {
             version,
             // FIXME spec describes some possible deviations for key-ids/public keys(???)
             // FIXME verify key-ids
             // FIXME need to pass on ctr to keymanager or is next counter predetermined by protocol?
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
+            smp: SMPContext::new(ssid, our_fingerprint, their_fingerprint),
         }
     }
 
@@ -261,6 +306,7 @@ impl EncryptedState {
         let tlvs = decoder.read_tlvs()?;
         // TODO drop TLV-0-PADDING as it is only padding?
         // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
+        // TODO add logic for handling SMP
         if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
             Ok(UserMessage::ConfidentialSessionFinished)
         } else {
@@ -292,17 +338,29 @@ impl ProtocolState for FinishedState {
 
     fn secure(
         &self,
+        host: Rc<dyn Host>,
         version: Version,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
         their_dh: BigUint,
+        their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
+        let their_fingerprint = OTR::fingerprint(&their_dsa);
         // FIXME check if allowed to transition to Encrypted from here.
-        Box::new(EncryptedState::new(version, ssid, ctr, our_dh, their_dh))
+        Box::new(EncryptedState::new(
+            host,
+            version,
+            ssid,
+            ctr,
+            our_dh,
+            their_dh,
+            their_fingerprint,
+        ))
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+        // TODO should we send UserMessage::Reset?
         (None, Box::new(PlaintextState {}))
     }
 

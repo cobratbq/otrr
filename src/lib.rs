@@ -1,6 +1,6 @@
 use authentication::AKEError;
 use bitflags::bitflags;
-use crypto::CryptoError;
+use crypto::{CryptoError, DSA};
 use encoding::TLV;
 
 extern crate aes_ctr;
@@ -21,9 +21,9 @@ mod fragment;
 mod instancetag;
 mod keymanager;
 mod protocol;
+mod smp;
 mod utils;
 
-pub mod host;
 pub mod session;
 
 // TODO early implementation assumptions:
@@ -145,3 +145,12 @@ pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
 /// TLV_TYPE is an alias for an u16 value. The values are not restricted. Therefore define the type.
 pub type TLVType = u16;
+
+/// Host represents the Host implementation for calling back into the messaging client.
+pub trait Host {
+    /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not relevant to return to the client.)
+    fn inject(&self, message: &[u8]);
+
+    /// Acquire the long-term DSA keypair from the host application.
+    fn keypair(&self) -> DSA::Keypair;
+}
