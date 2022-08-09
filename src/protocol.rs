@@ -3,7 +3,7 @@ use std::rc::Rc;
 use num::BigUint;
 
 use crate::{
-    crypto::{DH, DSA, OTR, SHA1},
+    crypto::{DH, DSA, OTR, SHA1, constant},
     encoding::{
         DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID,
         TLV,
@@ -285,7 +285,7 @@ impl EncryptedState {
         let mac_ta = SHA1::hmac(&secrets.recv_mac_key(), &ta);
         // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."
-        SHA1::verify(&message.authenticator, &mac_ta)
+        constant::verify(&message.authenticator, &mac_ta)
             .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         let mut nonce = [0u8; 16];

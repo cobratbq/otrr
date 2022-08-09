@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    crypto::{CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
+    crypto::{CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256, constant},
     encoding::{
         DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessageType,
         RevealSignatureMessage, SignatureMessage, SSID,
@@ -286,7 +286,7 @@ impl AKEContext {
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
                 let gxmpi = msg.key.decrypt(&[0u8; 16], &state.gx_encrypted);
                 let gxmpihash = SHA256::digest(&gxmpi);
-                SHA256::verify(&gxmpihash, &state.gx_hashed)
+                constant::verify(&gxmpihash, &state.gx_hashed)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 // Verify acquired g^x value.
                 let gx = OTRDecoder::new(&gxmpi)
@@ -304,7 +304,7 @@ impl AKEContext {
                         .write_data(&msg.signature_encrypted)
                         .to_vec(),
                 );
-                SHA256::verify(&expected_signature_mac, &msg.signature_mac)
+                constant::verify(&expected_signature_mac, &msg.signature_mac)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
 
                 // Acquire Bob's identity material from the encrypted x_b.
@@ -404,7 +404,7 @@ impl AKEContext {
                         .write_data(&msg.signature_encrypted)
                         .to_vec(),
                 );
-                SHA256::verify(&msg.signature_mac, &mac)
+                constant::verify(&msg.signature_mac, &mac)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
                 let x_a = secrets.cp.decrypt(
                     &[0u8; 16],

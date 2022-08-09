@@ -336,14 +336,6 @@ pub mod SHA1 {
         result.clone_from_slice(digest.as_ref());
         result
     }
-
-    pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
-        assert!(bytes::any_nonzero(mac1));
-        assert!(bytes::any_nonzero(mac2));
-        // TODO needs constant-time verification?
-        // FIXME to be implemented
-        todo!("To be implemented")
-    }
 }
 
 #[allow(non_snake_case)]
@@ -392,16 +384,19 @@ pub mod SHA256 {
         result.clone_from_slice(&digest.as_ref()[..20]);
         result
     }
+}
 
-    pub fn verify(expected: &[u8], actual: &[u8]) -> Result<(), CryptoError> {
-        // TODO implement comparison in constant-time(?)
-        if expected == actual {
-            Ok(())
-        } else {
-            Err(CryptoError::VerificationFailure(
-                "Hash does not match the expected hash value.",
-            ))
-        }
+pub mod constant {
+    use crate::utils::std::bytes;
+
+    use super::CryptoError;
+
+    pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
+        assert!(bytes::any_nonzero(mac1));
+        assert!(bytes::any_nonzero(mac2));
+        ring::constant_time::verify_slices_are_equal(mac1, mac2).or(Err(
+            CryptoError::VerificationFailure("mac verification failed"),
+        ))
     }
 }
 
