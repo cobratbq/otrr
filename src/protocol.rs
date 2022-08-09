@@ -313,6 +313,10 @@ impl EncryptedState {
             Ok(UserMessage::Confidential(content, tlvs))
         }
     }
+
+    pub fn smp(&mut self) -> &mut SMPContext {
+        &mut self.smp
+    }
 }
 
 pub struct FinishedState {}

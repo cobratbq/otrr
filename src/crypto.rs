@@ -207,7 +207,8 @@ pub mod OTR {
         todo!("To be implemented")
     }
 
-    pub fn temp_modinv(value: &BigUint, modulus: &BigUint) -> BigUint {
+    pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
+        // FIXME modular-inverse needs actual implementation or replacement bignum library
         todo!("Implement modular-inverse for use in SMP. This is a placeholder.")
     }
 }
@@ -316,10 +317,6 @@ pub mod DSA {
 // TODO Fingerprint = SHA1(byte-level representation of Public Key without 0x0000 which is the short-type pubkey type identifier)
 #[allow(non_snake_case)]
 pub mod SHA1 {
-    use crate::utils::std::bytes;
-
-    use super::CryptoError;
-
     type Digest = [u8; 20];
 
     pub fn digest(data: &[u8]) -> Digest {
@@ -340,8 +337,6 @@ pub mod SHA1 {
 
 #[allow(non_snake_case)]
 pub mod SHA256 {
-    use super::CryptoError;
-
     type Digest = [u8; 32];
 
     pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
