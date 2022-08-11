@@ -105,7 +105,8 @@ pub mod DH {
 }
 
 pub mod OTR {
-    use num::BigUint;
+    use num::{integer::ExtendedGcd, BigUint, FromPrimitive, Integer, One, Signed};
+    use num_bigint::ToBigInt;
 
     use super::{AES128, DSA, SHA1, SHA256};
 
@@ -207,9 +208,16 @@ pub mod OTR {
         todo!("To be implemented")
     }
 
+    /// mod_inv is a modular-inverse implementation.
+    /// `value` and `modulus` are required to be relatively prime.
+    // TODO mod_inv: basic implementation, but likely (very) inefficient.
     pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
-        // FIXME modular-inverse needs actual implementation or replacement bignum library
-        todo!("Implement modular-inverse for use in SMP. This is a placeholder.")
+        let v = value.to_bigint().unwrap();
+        let m = modulus.to_bigint().unwrap();
+        // NOTE: during initial implementation, `extended_gcd` with BigUint panicked due to negative numbers partway in the computation.
+        let ExtendedGcd { gcd, x, y: _ } = &v.extended_gcd(&m);
+        assert!(&gcd.is_one());
+        x.mod_floor(&m).to_biguint().unwrap()
     }
 }
 
@@ -308,7 +316,7 @@ pub mod DSA {
 
     impl PublicKey {
         pub fn verify(&self, signature: &Signature, content: &Hash) -> Result<(), CryptoError> {
-            // FIXME implement verification
+            // FIXME implement verification (this should probably separate encoding from public key in-use)
             todo!()
         }
     }
@@ -398,4 +406,22 @@ pub mod constant {
 #[derive(Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
+}
+
+#[cfg(test)]
+mod tests {
+    use num::{BigUint, FromPrimitive, Integer, One};
+
+    use super::OTR;
+
+    #[test]
+    fn test_custom_mod_inv() {
+        let m = BigUint::from_u8(13).unwrap();
+        let g = BigUint::from_u8(2).unwrap();
+        for i in 1u8..13u8 {
+            let v = g.modpow(&BigUint::from_u8(i).unwrap(), &m);
+            let v_inv = OTR::mod_inv(&v, &m);
+            assert!((&v * &v_inv).mod_floor(&m).is_one());
+        }
+    }
 }
