@@ -1,4 +1,5 @@
-use num::{BigUint, Zero};
+use num_bigint::BigUint;
+use once_cell::sync::Lazy;
 
 use crate::{crypto::DH, encoding::KeyID, OTRError};
 
@@ -135,6 +136,8 @@ impl KeypairRotation {
     }
 }
 
+const ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
+
 /// Public key rotation, for the other party's public keys.
 struct PublicKeyRotation {
     keys: [BigUint; NUM_KEYS],
@@ -144,8 +147,8 @@ struct PublicKeyRotation {
 impl PublicKeyRotation {
     fn new(key_id: KeyID, public_key: BigUint) -> Self {
         assert!(key_id > 0);
-        assert_ne!(public_key, BigUint::zero());
-        let mut keys: [BigUint; NUM_KEYS] = [BigUint::zero(), BigUint::zero()];
+        assert_ne!(public_key, BigUint::from(0u8));
+        let mut keys: [BigUint; NUM_KEYS] = [BigUint::from(0u8), BigUint::from(0u8)];
         keys[key_id as usize % NUM_KEYS] = public_key;
         Self { keys, id: key_id }
     }
@@ -168,7 +171,7 @@ impl PublicKeyRotation {
     /// Register next DH public key. Result `true` indicates a new key was registered, `false`
     /// indicates the key was already known.
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
-        assert_ne!(next_key, BigUint::zero());
+        assert_ne!(next_key, *ZERO);
         return if self.id == next_id {
             // TODO probably needs constant-time comparison
             // TODO sanity-check if key is same as we already know?

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    crypto::{CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256, constant},
+    crypto::{constant, CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
     encoding::{
         DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, OTRMessageType,
         RevealSignatureMessage, SignatureMessage, SSID,
@@ -177,6 +177,9 @@ impl AKEContext {
                         .write_int(keyid_b)
                         .to_vec(),
                 );
+                // "This is the signature, using the private part of the key pubB, of the 32-byte MB
+                //  (taken modulo q instead of being truncated (as described in FIPS-186), and not
+                //  hashed again)."
                 let sig_b = dsa_keypair
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
@@ -228,7 +231,6 @@ impl AKEContext {
                         .write_int(keyid_b)
                         .to_vec(),
                 );
-                // FIXME replace with actual signature calculation. (appropriate format/input for signature (mod q))
                 let sig_b = dsa_keypair
                     .sign(&m_b)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;

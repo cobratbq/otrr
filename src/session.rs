@@ -6,7 +6,7 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
+        encode, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType, OTREncoder,
         OTRMessageType, CTR_LEN,
     },
     fragment::{self, FragmentError},
@@ -304,7 +304,7 @@ impl Instance {
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME hard-coded instance tag INSTANCE_ZERO
-        Ok(match self.state.send(content)? {
+        Ok(match self.state.send(MessageFlags::empty(), content)? {
             OTRMessageType::Undefined(message) => {
                 if self.state.status() == ProtocolStatus::Plaintext {
                     panic!(
@@ -325,6 +325,30 @@ impl Instance {
                 message,
             ),
         })
+    }
+
+    fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
+        // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
+        // state to send a message with appended TLV.
+        let smp = self.state.smp()?;
+        let tlv = smp.initiate(secret, question)?;
+        let payload = OTREncoder::new()
+            .write_bytes_null_terminated(question)
+            .write_tlv(tlv)
+            .to_vec();
+        // TODO double-check/reason on flag ignore-unreadable.
+        let message = self.state.send(MessageFlags::IGNORE_UNREADABLE, &payload)?;
+        Ok(encode_otr_message(
+            self.state.version(),
+            self.details.tag,
+            self.receiver,
+            message,
+        ))
+    }
+
+    fn respond_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<(), OTRError> {
+        // FIXME continue here
+        todo!("To be implemented")
     }
 }
 

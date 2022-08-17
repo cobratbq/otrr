@@ -9,7 +9,7 @@ use crate::{
     crypto::DSA,
     crypto::{
         AES128,
-        DSA::{Signature, SIGNATURE_LEN},
+        DSA::{Signature, PARAM_Q_LENGTH},
     },
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
@@ -453,6 +453,9 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
     }
 }
 
+// FIXME continue here: restructure encoding of signature into byte-based R and S components.
+const SIGNATURE_LEN: usize = 40;
+
 pub struct OTRDecoder<'a>(&'a [u8]);
 
 // FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
@@ -565,12 +568,12 @@ impl<'a> OTRDecoder<'a> {
                 "Unsupported/invalid public key type.",
             ));
         }
-        Ok(DSA::PublicKey {
-            p: self.read_mpi()?,
-            q: self.read_mpi()?,
-            g: self.read_mpi()?,
-            y: self.read_mpi()?,
-        })
+        let p = self.read_mpi()?;
+        let q = self.read_mpi()?;
+        let g = self.read_mpi()?;
+        let y = self.read_mpi()?;
+        DSA::PublicKey::from_components(p, q, g, y)
+            .or_else(|err| Err(OTRError::CryptographicViolation(err)))
     }
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
@@ -578,8 +581,10 @@ impl<'a> OTRDecoder<'a> {
         if self.0.len() < SIGNATURE_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut sig: Signature = [0; SIGNATURE_LEN];
-        sig.copy_from_slice(&self.0[..SIGNATURE_LEN]);
+        let sig = Signature::from_components(
+            BigUint::from_bytes_be(&self.0[..PARAM_Q_LENGTH]),
+            BigUint::from_bytes_be(&self.0[PARAM_Q_LENGTH..SIGNATURE_LEN]),
+        );
         self.0 = &self.0[SIGNATURE_LEN..];
         Ok(sig)
     }
@@ -638,6 +643,7 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
+// TODO consider moving `OTREncodable` to API, then implementing OTREncodable for crypto::dsa::Signature to further separate dependency on encoding.
 pub trait OTREncodable {
     fn encode(&self, encoder: &mut OTREncoder);
 }
@@ -716,18 +722,20 @@ impl OTREncoder {
         self
     }
 
-    // TODO solve using OTREncodable trait and implementation inside encodable types (??? maybe not because crypto types considered primitive types?)
     pub fn write_public_key(&mut self, key: &DSA::PublicKey) -> &mut Self {
-        self.write_short(0u16)
-            .write_mpi(&key.p)
-            .write_mpi(&key.q)
-            .write_mpi(&key.g)
-            .write_mpi(&key.y)
+        self.write_short(0)
+            .write_mpi(&key.p())
+            .write_mpi(&key.q())
+            .write_mpi(&key.g())
+            .write_mpi(&key.y())
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
         // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_Q_LEN
-        self.buffer.extend_from_slice(sig);
+        self.buffer.extend_from_slice(&sig.r().to_bytes_be());
+        self.buffer.extend_from_slice(&sig.s().to_bytes_be());
+        // TODO ensure {r(),s()}.to_bytes_be() always produce 20 bytes.
+        assert_eq!(self.buffer.len(), 2 * PARAM_Q_LENGTH);
         self
     }
 

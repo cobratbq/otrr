@@ -1,5 +1,10 @@
 use std::fmt::Debug;
 
+use once_cell::sync::Lazy;
+use ring::rand::SystemRandom;
+
+const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
 // TODO verify implementation
 // TODO what constant-time implementations needed?
@@ -10,9 +15,9 @@ pub mod DH {
     use once_cell::sync::Lazy;
 
     use num_bigint::BigUint;
-    use ring::rand::{SecureRandom, SystemRandom};
+    use ring::rand::SecureRandom;
 
-    use super::CryptoError;
+    use super::{CryptoError, RAND};
 
     // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
@@ -41,7 +46,11 @@ pub mod DH {
     /// Modulus - 2
     pub const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
 
-    const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+    // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
+    // "D values are calculated modulo `q = (p - 1) / 2`"
+    // FIXME why should we clone this value??????
+    pub const Q: Lazy<BigUint> =
+        Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
         if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
@@ -104,9 +113,12 @@ pub mod DH {
     }
 }
 
+#[allow(non_snake_case)]
 pub mod OTR {
-    use num::{integer::ExtendedGcd, BigUint, FromPrimitive, Integer, One, Signed};
-    use num_bigint::ToBigInt;
+    use num_bigint::{BigUint, ModInverse, ToBigInt};
+    use num_integer::Integer;
+
+    use crate::encoding::OTREncoder;
 
     use super::{AES128, DSA, SHA1, SHA256};
 
@@ -203,21 +215,22 @@ pub mod OTR {
         return SHA256::digest(&bytes);
     }
 
-    pub fn fingerprint(public_key: &DSA::PublicKey) -> [u8; 20] {
-        // TODO implement fingerprinting DSA public key
-        todo!("To be implemented")
+    pub fn fingerprint(pk: &DSA::PublicKey) -> [u8; 20] {
+        let pk_encoded = &OTREncoder::new().write_public_key(pk).to_vec()[2..];
+        // TODO use 20-byte byte-representation, or 40-byte hex representation in memory?
+        SHA1::digest(&pk_encoded)
     }
 
     /// mod_inv is a modular-inverse implementation.
     /// `value` and `modulus` are required to be relatively prime.
-    // TODO mod_inv: basic implementation, but likely (very) inefficient.
     pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
-        let v = value.to_bigint().unwrap();
-        let m = modulus.to_bigint().unwrap();
-        // NOTE: during initial implementation, `extended_gcd` with BigUint panicked due to negative numbers partway in the computation.
-        let ExtendedGcd { gcd, x, y: _ } = &v.extended_gcd(&m);
-        assert!(&gcd.is_one());
-        x.mod_floor(&m).to_biguint().unwrap()
+        value
+            .mod_inverse(modulus)
+            .unwrap()
+            // TODO is `mod_floor` redundant?
+            .mod_floor(&modulus.to_bigint().unwrap())
+            .to_biguint()
+            .unwrap()
     }
 }
 
@@ -278,46 +291,199 @@ pub mod AES128 {
 // TODO do we need to verify any of the DSA components, also for encoding/decoding?
 #[allow(non_snake_case)]
 pub mod DSA {
-    use num_bigint::BigUint;
+    use core::fmt;
+    use std::rc::Rc;
 
-    use super::CryptoError;
+    use digest::{
+        crypto_common::{AlgorithmName, BlockSizeUser},
+        Digest, FixedOutput, FixedOutputReset, HashMarker, Output, OutputSizeUser, Reset, Update,
+    };
+    use dsa::{
+        signature::{digest, rand_core::OsRng, DigestSigner, DigestVerifier},
+        Components, KeySize, SigningKey, VerifyingKey,
+    };
+    use num_bigint::BigUint;
+    use num_integer::Integer;
+    use typenum::{U32, U64};
+
+    use crate::utils;
+
+    use super::{CryptoError, DH::Q};
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
-    pub const SIGNATURE_PARAM_Q_LEN: usize = 20;
-    pub const SIGNATURE_LEN: usize = 2 * SIGNATURE_PARAM_Q_LEN;
-    pub type Signature = [u8; SIGNATURE_LEN];
+    pub const PARAM_Q_LENGTH: usize = 20;
 
-    type Hash = [u8; 32];
+    const RAND: OsRng = dsa::signature::rand_core::OsRng;
 
-    pub struct Keypair {}
+    pub struct Keypair {
+        sk: SigningKey,
+        pk: Rc<VerifyingKey>,
+    }
+
+    pub struct PublicKey(Rc<VerifyingKey>);
 
     impl Keypair {
+        #[allow(deprecated)]
         pub fn generate() -> Self {
-            todo!()
+            let components = Components::generate(&mut RAND, KeySize::DSA_1024_160);
+            let sk = SigningKey::generate(&mut RAND, components);
+            let pk = Rc::new(sk.verifying_key().clone());
+            Self { sk, pk }
         }
 
         pub fn public_key(&self) -> PublicKey {
-            todo!()
+            PublicKey(Rc::clone(&self.pk))
         }
 
-        pub fn sign(&self, content: &Hash) -> Result<Signature, CryptoError> {
-            // FIXME implement signing
-            todo!()
+        pub fn sign(&self, digest_bytes: &[u8; 32]) -> Result<Signature, CryptoError> {
+            let sig = self
+                .sk
+                .sign_digest(ModQHash::new().chain_update(digest_bytes));
+            Ok(Signature(sig))
         }
     }
 
-    // FIXME do not make fields public to further encapsulate, protect against inconsistent changes.
-    pub struct PublicKey {
-        pub p: BigUint,
-        pub q: BigUint,
-        pub g: BigUint,
-        pub y: BigUint,
-    }
-
+    // TODO check other parts of code where components (e.g. Q) need to be verified/validated.
     impl PublicKey {
-        pub fn verify(&self, signature: &Signature, content: &Hash) -> Result<(), CryptoError> {
-            // FIXME implement verification (this should probably separate encoding from public key in-use)
-            todo!()
+        pub fn from_components(
+            p: BigUint,
+            q: BigUint,
+            g: BigUint,
+            y: BigUint,
+        ) -> Result<Self, CryptoError> {
+            if q.bits() != PARAM_Q_LENGTH {
+                return Err(CryptoError::VerificationFailure(
+                    "Number of bits in component Q does not correspond to prescribed length of 20.",
+                ));
+            }
+            let components = Components::from_components(p, q, g).or(Err(
+                CryptoError::VerificationFailure("illegal values for DSA public components"),
+            ))?;
+            Ok(Self(Rc::new(
+                VerifyingKey::from_components(components, y).or(Err(
+                    CryptoError::VerificationFailure(
+                        "illegal value for public key component y or its shared components",
+                    ),
+                ))?,
+            )))
+        }
+
+        pub fn verify(&self, signature: &Signature, digest: &[u8]) -> Result<(), CryptoError> {
+            self.0
+                .verify_digest(ModQHash::new().chain_update(digest), &signature.0)
+                .or_else(|_| {
+                    Err(CryptoError::VerificationFailure(
+                        "signature verification failed",
+                    ))
+                })
+        }
+
+        pub fn p(&self) -> &BigUint {
+            self.0.components().p()
+        }
+
+        pub fn q(&self) -> &BigUint {
+            self.0.components().q()
+        }
+
+        pub fn g(&self) -> &BigUint {
+            self.0.components().g()
+        }
+
+        pub fn y(&self) -> &BigUint {
+            self.0.y()
+        }
+    }
+
+    pub struct Signature(dsa::Signature);
+
+    impl Signature {
+        pub fn from_components(r: BigUint, s: BigUint) -> Self {
+            Self(dsa::Signature::from_components(r, s))
+        }
+
+        pub fn r(&self) -> &BigUint {
+            self.0.r()
+        }
+
+        pub fn s(&self) -> &BigUint {
+            self.0.s()
+        }
+    }
+
+    /// Core block-level SHA-256 hasher with variable output size.
+    ///
+    /// Supports initialization only for 28 and 32 byte output sizes,
+    /// i.e. 224 and 256 bits respectively.
+    // FIXME continue implementation
+    #[derive(Clone)]
+    struct ModQHash([u8; MOD_Q_HASH_LENGTH]);
+
+    const MOD_Q_HASH_LENGTH: usize = 32;
+
+    impl HashMarker for ModQHash {}
+
+    impl BlockSizeUser for ModQHash {
+        type BlockSize = U64;
+    }
+
+    impl Default for ModQHash {
+        fn default() -> Self {
+            Self([0u8; MOD_Q_HASH_LENGTH])
+        }
+    }
+
+    impl Update for ModQHash {
+        /// update updates the internal data for ModQHash. Subsequent calls to `update` will merely
+        /// replace the content from previous calls.
+        fn update(&mut self, data: &[u8]) {
+            assert_eq!(data.len(), MOD_Q_HASH_LENGTH);
+            utils::std::slice::copy(&mut self.0, data);
+        }
+    }
+
+    impl FixedOutputReset for ModQHash {
+        fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
+            let bytes = ModQHash::finalize(&self);
+            utils::std::slice::copy(out, &bytes);
+            Reset::reset(self);
+        }
+    }
+
+    impl OutputSizeUser for ModQHash {
+        type OutputSize = U32;
+    }
+
+    impl FixedOutput for ModQHash {
+        fn finalize_into(self, out: &mut Output<Self>) {
+            let bytes = ModQHash::finalize(&self);
+            utils::std::slice::copy(out, &bytes);
+        }
+    }
+
+    impl Reset for ModQHash {
+        fn reset(&mut self) {
+            self.0 = [0u8; MOD_Q_HASH_LENGTH];
+        }
+    }
+
+    impl AlgorithmName for ModQHash {
+        #[inline]
+        fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("Mod Q")
+        }
+    }
+
+    impl fmt::Debug for ModQHash {
+        #[inline]
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("Mod Q { ... }")
+        }
+    }
+
+    impl ModQHash {
+        fn finalize(&self) -> Vec<u8> {
+            BigUint::from_bytes_be(&self.0).mod_floor(&Q).to_bytes_be()
         }
     }
 }
@@ -410,18 +576,18 @@ pub enum CryptoError {
 
 #[cfg(test)]
 mod tests {
-    use num::{BigUint, FromPrimitive, Integer, One};
+    //use num_bigint::BigUint;
 
-    use super::OTR;
+    //use super::OTR;
 
-    #[test]
-    fn test_custom_mod_inv() {
-        let m = BigUint::from_u8(13).unwrap();
-        let g = BigUint::from_u8(2).unwrap();
-        for i in 1u8..13u8 {
-            let v = g.modpow(&BigUint::from_u8(i).unwrap(), &m);
-            let v_inv = OTR::mod_inv(&v, &m);
-            assert!((&v * &v_inv).mod_floor(&m).is_one());
-        }
-    }
+    //#[test]
+    //fn test_custom_mod_inv() {
+    //    let m = BigUint::from_u8(13).unwrap();
+    //    let g = BigUint::from_u8(2).unwrap();
+    //    for i in 1u8..13u8 {
+    //        let v = g.modpow(&BigUint::from_u8(i).unwrap(), &m);
+    //        let v_inv = OTR::mod_inv(&v, &m);
+    //        assert!((&v * &v_inv).mod_floor(&m).is_one());
+    //    }
+    //}
 }

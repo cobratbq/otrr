@@ -7,7 +7,7 @@ extern crate aes_ctr;
 extern crate base64;
 extern crate bitflags;
 extern crate hex;
-extern crate num;
+extern crate num_integer;
 extern crate num_bigint;
 // TODO std::lazy::Lazy is in rust nightly, consider using that once available.
 extern crate once_cell;
@@ -82,6 +82,9 @@ pub enum OTRError {
     CryptographicViolation(CryptoError),
     /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
+    /// SMPIncorrectState identifies that SMP operations are called at a inappropriate time: the
+    /// session is not in an encrypted state. SMP has no relevance.
+    SMPIncorrectState,
     /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,

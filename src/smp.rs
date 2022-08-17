@@ -1,12 +1,14 @@
-use std::ops::Sub;
-
-use num::{integer::Integer, FromPrimitive};
 use num_bigint::BigUint;
+use num_integer::Integer;
 use once_cell::sync::Lazy;
 use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
-    crypto::{CryptoError, DH, OTR, SHA256},
+    crypto::{
+        CryptoError,
+        DH::{self, Q},
+        OTR, SHA256,
+    },
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     OTRError, TLVType, TLV,
 };
@@ -24,12 +26,6 @@ const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
 const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
-// FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
-// "D values are calculated modulo `q = (p - 1) / 2`"
-// FIXME why should we clone this value??????
-const Q: Lazy<BigUint> =
-    Lazy::new(|| (&*MODULUS).sub(BigUint::from_u8(1).unwrap()) / BigUint::from_u8(2).unwrap());
-
 pub struct SMPContext {
     ssid: SSID,
     our_fingerprint: Fingerprint,
@@ -43,6 +39,7 @@ pub struct SMPContext {
 // TODO review proper checking of public keys using verification functions
 // TODO review sufficient use of modulo
 // TODO review consistent naming
+#[allow(non_snake_case)]
 impl SMPContext {
     pub fn new(ssid: SSID, our_fingerprint: Fingerprint, their_fingerprint: Fingerprint) -> Self {
         Self {
@@ -55,7 +52,7 @@ impl SMPContext {
     }
 
     /// Initiate SMP. Produces SMPError::AlreadyInProgress if SMP is in progress.
-    pub fn initiate(&mut self, question: &[u8], secret: &[u8]) -> Result<TLV, OTRError> {
+    pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         if let SMPState::Expect1 = self.smp {
             // SMP in initial state, initiation can proceed without interrupting in-progress SMP.
         } else {
@@ -459,7 +456,7 @@ impl SMPContext {
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
         // Check that Pa, Qa and Ra are >= 2 and <= modulus-2.
-        if Pa < BigUint::from_u8(2).unwrap() || Pa > *MODULUS_MINUS_TWO {
+        if Pa < BigUint::from(2u8) || Pa > *MODULUS_MINUS_TWO {
             return Err(OTRError::CryptographicViolation(
                 CryptoError::VerificationFailure("illegal value for Pa"),
             ));
@@ -543,7 +540,6 @@ impl SMPContext {
     pub fn handleMessage4(&mut self, tlv: TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_4);
         let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
         let g3b: BigUint;
         let PadivPb: BigUint;
         let QadivQb: BigUint;
@@ -635,6 +631,7 @@ fn compute_secret(
     BigUint::from_bytes_be(&SHA256::digest(&buffer))
 }
 
+#[allow(non_snake_case)]
 enum SMPState {
     Expect1,
     Expect2 {

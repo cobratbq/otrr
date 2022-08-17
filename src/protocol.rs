@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use num::BigUint;
+use num_bigint::BigUint;
 
 use crate::{
     crypto::{DH, DSA, OTR, SHA1, constant},
@@ -36,7 +36,10 @@ pub trait ProtocolState {
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
-    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError>;
+    // TODO check logic sequence using `send` because this send seems to prepare for a sendable OTR message type only.
+    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
+        // TODO integrate SMP use in session handling logic
+    fn smp(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
 
 pub fn new_state() -> Box<dyn ProtocolState> {
@@ -92,11 +95,15 @@ impl ProtocolState for PlaintextState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state,
         // therefore we return the content as-is to the caller.
         // FIXME not sure if this is the best solution
         Ok(OTRMessageType::Undefined(Vec::from(content)))
+    }
+
+    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+        Err(OTRError::SMPIncorrectState)
     }
 }
 
@@ -185,10 +192,14 @@ impl ProtocolState for EncryptedState {
         (optabort, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         Ok(OTRMessageType::Data(
             self.encrypt_message(MessageFlags::empty(), content),
         ))
+    }
+
+    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+        Ok(&mut self.smp)
     }
 }
 
@@ -313,10 +324,6 @@ impl EncryptedState {
             Ok(UserMessage::Confidential(content, tlvs))
         }
     }
-
-    pub fn smp(&mut self) -> &mut SMPContext {
-        &mut self.smp
-    }
 }
 
 pub struct FinishedState {}
@@ -368,7 +375,11 @@ impl ProtocolState for FinishedState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, _: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         Err(OTRError::ProtocolInFinishedState)
+    }
+
+    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+        Err(OTRError::SMPIncorrectState)
     }
 }
