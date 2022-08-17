@@ -17,6 +17,7 @@ use crate::{
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn version(&self) -> Version;
+    /// handle processes a received message in accordance with the active protocol state.
     // TODO check but I believe we should also handle plaintext message for state correction purposes.
     fn handle(
         &mut self,
@@ -36,8 +37,9 @@ pub trait ProtocolState {
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
-    // TODO check logic sequence using `send` because this send seems to prepare for a sendable OTR message type only.
-    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
+    /// prepare prepares a message for sending in accordance with the active protocol state.
+    // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
         // TODO integrate SMP use in session handling logic
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
@@ -95,7 +97,7 @@ impl ProtocolState for PlaintextState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state,
         // therefore we return the content as-is to the caller.
         // FIXME not sure if this is the best solution
@@ -192,7 +194,7 @@ impl ProtocolState for EncryptedState {
         (optabort, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         Ok(OTRMessageType::Data(
             self.encrypt_message(MessageFlags::empty(), content),
         ))
@@ -375,7 +377,7 @@ impl ProtocolState for FinishedState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn send(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         Err(OTRError::ProtocolInFinishedState)
     }
 

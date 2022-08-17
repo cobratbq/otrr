@@ -304,7 +304,7 @@ impl Instance {
 
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME hard-coded instance tag INSTANCE_ZERO
-        Ok(match self.state.send(MessageFlags::empty(), content)? {
+        Ok(match self.state.prepare(MessageFlags::empty(), content)? {
             OTRMessageType::Undefined(message) => {
                 if self.state.status() == ProtocolStatus::Plaintext {
                     panic!(
@@ -337,7 +337,7 @@ impl Instance {
             .write_tlv(tlv)
             .to_vec();
         // TODO double-check/reason on flag ignore-unreadable.
-        let message = self.state.send(MessageFlags::IGNORE_UNREADABLE, &payload)?;
+        let message = self.state.prepare(MessageFlags::IGNORE_UNREADABLE, &payload)?;
         Ok(encode_otr_message(
             self.state.version(),
             self.details.tag,
