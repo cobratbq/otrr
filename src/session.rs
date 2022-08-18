@@ -11,7 +11,7 @@ use crate::{
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
-    protocol, Host, OTRError, ProtocolStatus, UserMessage, Version,
+    protocol, smp, Host, OTRError, ProtocolStatus, UserMessage, Version,
 };
 
 pub struct Account {
@@ -263,16 +263,27 @@ impl Instance {
             }
             OTRMessageType::Data(msg) => {
                 // TODO verify and validate message before passing on to state.
+                // NOTE that TLV 0 (Padding) and 1 (Disconnect) are handled as part of the protocol.
+                // Other TLVs that are their own protocol or function, must be handled subsequently.
                 let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
                 match message {
+                    Ok(UserMessage::Confidential(content, tlvs)) => {
+                        if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
+                            // Socialist Millionaire Protocol (SMP)
+                            let response = self.state.smp()?.handle(tlv)?;
+                            // FIXME continue here
+                            todo!("to be implemented")
+                        } else {
+                            Ok(UserMessage::Confidential(content, tlvs))
+                        }
+                    },
                     msg @ Ok(_) => msg,
                     err @ Err(OTRError::UnreadableMessage) => if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
                         Ok(UserMessage::None)
                     } else {
-                        // TODO warn `host` instance directly in case of unreadable message
                         err
                     },
                     err @ Err(_) => err,
@@ -332,12 +343,14 @@ impl Instance {
         // state to send a message with appended TLV.
         let smp = self.state.smp()?;
         let tlv = smp.initiate(secret, question)?;
-        let payload = OTREncoder::new()
-            .write_bytes_null_terminated(question)
-            .write_tlv(tlv)
-            .to_vec();
         // TODO double-check/reason on flag ignore-unreadable.
-        let message = self.state.prepare(MessageFlags::IGNORE_UNREADABLE, &payload)?;
+        let message = self.state.prepare(
+            MessageFlags::IGNORE_UNREADABLE,
+            &OTREncoder::new()
+                .write_bytes_null_terminated(question)
+                .write_tlv(tlv)
+                .to_vec(),
+        )?;
         Ok(encode_otr_message(
             self.state.version(),
             self.details.tag,

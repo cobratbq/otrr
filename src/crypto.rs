@@ -82,7 +82,7 @@ pub mod DH {
         }
 
         pub fn new(private: BigUint) -> Self {
-            Self::new_custom(private, (*GENERATOR).clone())
+            Self::new_custom(private, (&*GENERATOR).clone())
         }
 
         pub fn new_custom(private: BigUint, generator: BigUint) -> Self {

@@ -14,6 +14,19 @@ use crate::{
 };
 use DH::{MODULUS, MODULUS_MINUS_TWO};
 
+pub fn is_smp_tlv(tlv: &TLV) -> bool {
+    TLV_TYPES.contains(&tlv.0)
+}
+
+const TLV_TYPES: [u16; 6] = [
+    TLV_TYPE_SMP_MESSAGE_1,
+    TLV_TYPE_SMP_MESSAGE_1Q,
+    TLV_TYPE_SMP_MESSAGE_2,
+    TLV_TYPE_SMP_MESSAGE_3,
+    TLV_TYPE_SMP_MESSAGE_4,
+    TLV_TYPE_SMP_ABORT,
+];
+
 /// TLV for initiating SMP
 const TLV_TYPE_SMP_MESSAGE_1: TLVType = 2u16;
 const TLV_TYPE_SMP_MESSAGE_2: TLVType = 3u16;
@@ -103,15 +116,34 @@ impl SMPContext {
         Ok(tlv)
     }
 
+    pub fn respond(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
+        // FIXME continue here
+        todo!("to be implemented")
+    }
+
     /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
     pub fn abort(&mut self) -> TLV {
         self.smp = SMPState::Expect1;
         TLV(TLV_TYPE_SMP_ABORT, Vec::new())
     }
 
-    pub fn handleMessage1(
+    pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+        match tlv {
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
+                // FIXME this TLV should be handled in two parts due to user
+                self.handleMessage1(tlv, &[], &[])
+            }
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
+            _ => panic!("BUG: unsupported TLV type."),
+        }
+    }
+
+    // FIXME split up handling of messgae 1: first handle received TLV SMP1, then handle response from user on the secret-request.
+    fn handleMessage1(
         &mut self,
-        tlv: TLV,
+        tlv: &TLV,
         targeted_question: &[u8],
         secret: &[u8],
     ) -> Result<TLV, OTRError> {
@@ -237,7 +269,7 @@ impl SMPContext {
         Ok(TLV(TLV_TYPE_SMP_MESSAGE_2, payload))
     }
 
-    pub fn handleMessage2(&mut self, tlv: TLV) -> Result<TLV, OTRError> {
+    fn handleMessage2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_2);
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
@@ -390,7 +422,7 @@ impl SMPContext {
         Ok(tlv)
     }
 
-    pub fn handleMessage3(&mut self, tlv: TLV) -> Result<TLV, OTRError> {
+    fn handleMessage3(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_3);
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
@@ -537,7 +569,7 @@ impl SMPContext {
     ///
     /// SMP message 4 is Bob's final message in the SMP exchange. It has the last of the information
     /// required by Alice to determine if x = y.
-    pub fn handleMessage4(&mut self, tlv: TLV) -> Result<TLV, OTRError> {
+    fn handleMessage4(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_4);
         let MOD: &BigUint = &*MODULUS;
         let g3b: BigUint;

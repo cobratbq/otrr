@@ -82,6 +82,10 @@ pub enum OTRError {
     CryptographicViolation(CryptoError),
     /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
+    /// SMPQuerySecret indicates that an TLV SMP 1 or 1Q is received and the secret needs to be
+    /// entered by the user to continue the SMP process.
+    // FIXME not sure I'm happy with this, should go somehwere else, maybe UserMessage?
+    SMPQuerySecret(&'static str),
     /// SMPIncorrectState identifies that SMP operations are called at a inappropriate time: the
     /// session is not in an encrypted state. SMP has no relevance.
     SMPIncorrectState,
