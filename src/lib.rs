@@ -91,7 +91,7 @@ pub enum OTRError {
     /// SMPSuccess indicates successful finishing SMP without a follow-up TLV needing to be sent.
     SMPSuccess,
     // SMP process aborted, most likely by user request. Provided TLV can be sent to other party to signal SMP abort.
-    SMPAborted(Option<TLV>),
+    SMPAborted,
     // SMP process received invalid input for given state of the SMP.
     SMPProtocolViolation,
 }

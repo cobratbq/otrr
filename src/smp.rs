@@ -35,7 +35,6 @@ const TLV_TYPE_SMP_MESSAGE_2: TLVType = 3u16;
 const TLV_TYPE_SMP_MESSAGE_3: TLVType = 4u16;
 const TLV_TYPE_SMP_MESSAGE_4: TLVType = 5u16;
 const TLV_TYPE_SMP_ABORT: TLVType = 6u16;
-
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
 const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
@@ -46,7 +45,6 @@ pub struct SMPContext {
     our_fingerprint: Fingerprint,
     their_fingerprint: Fingerprint,
     smp: SMPState,
-    rand: SystemRandom,
     host: Rc<dyn Host>,
 }
 
@@ -71,7 +69,6 @@ impl SMPContext {
             our_fingerprint,
             their_fingerprint,
             smp: SMPState::Expect1,
-            rand: SystemRandom::new(),
         }
     }
 
@@ -101,7 +98,6 @@ impl SMPContext {
         let (r2, r3) = (random(), random());
 
         // FIXME should we strip prefix zeroes for public keys when serializing?
-        // FIXME perform modulation?
         let c2 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
             1,
             &OTREncoder::new().write_mpi(&g1.modpow(&r2, MOD)).to_vec(),
@@ -114,23 +110,16 @@ impl SMPContext {
         let D3: BigUint = (&r3 - &a3 * &c3).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
-        // TODO double-check that question should be in user-content part of data message.
-        encoder.write_bytes_null_terminated(question);
         let typ = if question.is_empty() {
             TLV_TYPE_SMP_MESSAGE_1
         } else {
+            encoder.write_bytes_null_terminated(question);
             TLV_TYPE_SMP_MESSAGE_1Q
         };
         encoder.write_mpi_sequence(&[&g2a, &c2, &D2, &g3a, &c3, &D3]);
         let tlv = TLV(typ, encoder.to_vec());
         self.smp = SMPState::Expect2 { x, a2, a3 };
         Ok(tlv)
-    }
-
-    /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
-    pub fn abort(&mut self) -> TLV {
-        self.smp = SMPState::Expect1;
-        TLV(TLV_TYPE_SMP_ABORT, Vec::new())
     }
 
     pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
@@ -142,9 +131,18 @@ impl SMPContext {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
-            tlv @ TLV(TLV_TYPE_SMP_ABORT, _) => self.handleAbort(tlv),
+            TLV(TLV_TYPE_SMP_ABORT, _) => {
+                self.smp = SMPState::Expect1;
+                Err(OTRError::SMPAborted)
+            }
             _ => panic!("BUG: unsupported TLV type."),
         }
+    }
+
+    /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
+    pub fn abort(&mut self) -> TLV {
+        self.smp = SMPState::Expect1;
+        TLV(TLV_TYPE_SMP_ABORT, Vec::new())
     }
 
     fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
@@ -153,8 +151,8 @@ impl SMPContext {
             // SMP in expected state. TLV processing can proceed.
         } else {
             self.smp = SMPState::Expect1;
-            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
-            return Err(OTRError::SMPAborted(Some(abort_tlv)));
+            // TODO log control flow change "abort"?
+            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
@@ -210,8 +208,7 @@ impl SMPContext {
         if answer.is_none() {
             // Abort SMP because user has cancelled query for their secret.
             self.smp = SMPState::Expect1;
-            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
-            return Err(OTRError::SMPAborted(Some(abort_tlv)));
+            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
         let secret = answer.unwrap();
 
@@ -303,8 +300,7 @@ impl SMPContext {
             // "If smpstate is not `SMPSTATE_EXPECT2`:
             //    Set smpstate to `SMPSTATE_EXPECT1` and send a type 6 TLV (`SMP abort`) to Bob."
             self.smp = SMPState::Expect1;
-            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
-            return Err(OTRError::SMPAborted(Some(abort_tlv)));
+            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 11 {
@@ -469,10 +465,7 @@ impl SMPContext {
             Qb = _qb.to_owned();
         } else {
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(Some(TLV(
-                TLV_TYPE_SMP_ABORT,
-                Vec::new(),
-            ))));
+            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
 
         // SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
@@ -606,10 +599,7 @@ impl SMPContext {
             // If smpstate is not SMPSTATE_EXPECT4:
             //   Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(Some(TLV(
-                TLV_TYPE_SMP_ABORT,
-                Vec::new(),
-            ))));
+            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
         let g1 = &*DH::GENERATOR;
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
@@ -652,22 +642,6 @@ impl SMPContext {
         self.smp = SMPState::Expect1;
         Err(OTRError::SMPSuccess)
     }
-
-    fn handleAbort(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
-        self.smp = SMPState::Expect1;
-        Err(OTRError::SMPAborted(None))
-    }
-}
-
-fn hash(version: u8, mpi1: BigUint, mpi2: Option<BigUint>) -> [u8; 32] {
-    let mut data = vec![version];
-    let mut encoder = OTREncoder::new();
-    encoder.write_mpi(&mpi1);
-    if let Some(v) = mpi2 {
-        encoder.write_mpi(&v);
-    }
-    data.extend(encoder.to_vec());
-    SHA256::digest(&data)
 }
 
 fn compute_secret(
