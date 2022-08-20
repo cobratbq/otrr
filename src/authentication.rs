@@ -57,10 +57,11 @@ impl AKEContext {
         let (result, transition) = match &self.state {
             AKEState::None(_) => self.handle_dhcommit_from_initial(msg),
             AKEState::AwaitingDHKey(state) => {
-                // This is the trickiest transition in the whole protocol. It indicates that you have already sent a
-                // D-H Commit message to your correspondent, but that he either didn't receive it, or just didn't
-                // receive it yet, and has sent you one as well. The symmetry will be broken by comparing the hashed gx
-                // you sent in your D-H Commit Message with the one you received, considered as 32-byte unsigned
+                // This is the trickiest transition in the whole protocol. It indicates that you
+                // have already sent a D-H Commit message to your correspondent, but that he either
+                // didn't receive it, or just didn't receive it yet, and has sent you one as well.
+                // The symmetry will be broken by comparing the hashed gx you sent in your
+                // D-H Commit Message with the one you received, considered as 32-byte unsigned
                 // big-endian values.
                 let gxmpi = OTREncoder::new()
                     .write_mpi(&state.our_dh_keypair.public)
@@ -77,23 +78,25 @@ impl AKEContext {
                     });
                     (Ok(dhcommit), None)
                 } else {
-                    // Forget your old gx value that you sent (encrypted) earlier, and pretend you're in
-                    // AUTHSTATE_NONE; i.e. reply with a D-H Key Message, and transition authstate to
-                    // AUTHSTATE_AWAITING_REVEALSIG.
+                    // Forget your old gx value that you sent (encrypted) earlier, and pretend you
+                    // are in AUTHSTATE_NONE; i.e. reply with a D-H Key Message, and transition
+                    // authstate to AUTHSTATE_AWAITING_REVEALSIG.
                     self.handle_dhcommit_from_initial(msg)
                 }
             }
             AKEState::AwaitingRevealSignature(state) => {
                 // Retransmit your D-H Key Message (the same one as you sent when you entered
-                // AUTHSTATE_AWAITING_REVEALSIG). Forget the old D-H Commit message, and use this new one instead.
+                // AUTHSTATE_AWAITING_REVEALSIG). Forget the old D-H Commit message, and use this
+                // new one instead.
                 // There are a number of reasons this might happen, including:
                 // - Your correspondent simply started a new AKE.
                 // - Your correspondent resent his D-H Commit message, as specified above.
-                // - On some networks, like AIM, if your correspondent is logged in multiple times, each of his clients
-                //   will send a D-H Commit Message in response to a Query Message; resending the same D-H Key Message
-                //   in response to each of those messages will prevent compounded confusion, since each of his clients
-                //   will see each of the D-H Key Messages you send. [And the problem gets even worse if you are each
-                //   logged in multiple times.]
+                // - On some networks, like AIM, if your correspondent is logged in multiple times,
+                //   each of his clients will send a D-H Commit Message in response to a
+                //   Query Message; resending the same D-H Key Message in response to each of those
+                //   messages will prevent compounded confusion, since each of his clients will see
+                //   each of the D-H Key Messages you send. [And the problem gets even worse if you
+                //   are each logged in multiple times.]
                 let dhkey = OTRMessageType::DHKey(DHKeyMessage {
                     gy: state.our_dh_keypair.public.clone(),
                 });
@@ -107,7 +110,8 @@ impl AKEContext {
                 )
             }
             AKEState::AwaitingSignature(_) => {
-                // Reply with a new D-H Key message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
+                // Reply with a new D-H Key message, and transition authstate to
+                // AUTHSTATE_AWAITING_REVEALSIG.
                 let our_dh_keypair = DH::Keypair::generate();
                 let dhkey = OTRMessageType::DHKey(DHKeyMessage {
                     gy: our_dh_keypair.public.clone(),
@@ -160,7 +164,8 @@ impl AKEContext {
             AKEState::AwaitingDHKey(state) => {
                 DH::verify_public_key(&msg.gy)
                     .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
-                // Reply with a Reveal Signature Message and transition authstate to AUTHSTATE_AWAITING_SIG.
+                // Reply with a Reveal Signature Message and transition authstate to
+                // AUTHSTATE_AWAITING_SIG.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 // TODO consider random starting key-id for initial key-id. (Spec: keyid > 0)

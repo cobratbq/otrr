@@ -48,12 +48,12 @@ pub struct SMPContext {
     host: Rc<dyn Host>,
 }
 
-// FIXME handle for each message SMP state machine being in wrong state having to discard message and reset.
 // TODO review proper use of `mod q` for D-values
 // TODO review proper checking of public keys using verification functions
 // TODO review sufficient use of modulo
 // TODO review consistent naming
 // TODO currently, unexpected SMP messages, i.e. messages that do not match with current state, are handled as normal with: state-reset + OK(ABORT_TLV)
+// TODO log control flow change "abort"?
 #[allow(non_snake_case)]
 impl SMPContext {
     // TODO provide way to check outcome of SMP, positive (validated) or negative (failure/reset/abort)
@@ -78,10 +78,9 @@ impl SMPContext {
         if let SMPState::Expect1 = self.smp {
             // SMP in initial state, initiation can proceed without interrupting in-progress SMP.
         } else {
-            // TODO handle SMP in-progress
-            // OTR: "SMP is already underway. If you wish to restart SMP, send a type 6 TLV (SMP
-            // abort) to the other party and then proceed as if smpstate was SMPSTATE_EXPECT1.
-            // Otherwise, you may simply continue the current SMP instance."
+            // "SMP is already underway. If you wish to restart SMP, send a type 6 TLV (SMP
+            //  abort) to the other party and then proceed as if smpstate was SMPSTATE_EXPECT1.
+            //  Otherwise, you may simply continue the current SMP instance."
             return Err(OTRError::SMPInProgress);
         }
         let MOD: &BigUint = &*MODULUS;
@@ -98,7 +97,6 @@ impl SMPContext {
         let g3a = g1.modpow(&a3, MOD);
         let (r2, r3) = (random(), random());
 
-        // FIXME should we strip prefix zeroes for public keys when serializing?
         let c2 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
             1,
             &OTREncoder::new().write_mpi(&g1.modpow(&r2, MOD)).to_vec(),
@@ -123,10 +121,17 @@ impl SMPContext {
         Ok(tlv)
     }
 
+    /// `handle` handles the SMP TLVs that are received as payload in OTR Data messages.
+    ///
+    /// Design considerations:
+    /// a)  in case an unexpected TLV (compared to the current state) is received, we silently reset
+    ///     the state to EXPECT1. Returning an error is not very useful as the SMP TLVs are payload
+    ///     of Data messages, meaning that confidentiality and authenticity are already guaranteed.
+    ///     This essentially means that very little can go wrong under normal circumstances, even if
+    ///     some message manipulation is taken into account.
     pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
-                // FIXME this TLV should be handled in two parts due to user
                 self.handleMessage1(tlv)
             }
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
@@ -152,15 +157,13 @@ impl SMPContext {
             // SMP in expected state. TLV processing can proceed.
         } else {
             self.smp = SMPState::Expect1;
-            // TODO log control flow change "abort"?
             return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
-        // FIXME what is the exact format, where is the question embedded?
         let g1 = &*DH::GENERATOR;
         let mut decoder = OTRDecoder::new(&tlv.1);
-        let received_question: Vec<u8> = if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
+        let received_question = if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
             decoder.read_bytes_null_terminated()?
         } else {
             Vec::new()
@@ -433,16 +436,6 @@ impl SMPContext {
 
     fn handleMessage3(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_3);
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
-        // When Bob receives this TLV he should do:
-        //
-        // If smpstate is not SMPSTATE_EXPECT3:
-        //     Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
-
-        // FIXME do we handle the bad case here, or is it handled by the caller before reaching here?
-
-        // If smpstate is SMPSTATE_EXPECT3:
         let g3a: BigUint;
         let g2: BigUint;
         let g3: BigUint;
@@ -458,6 +451,7 @@ impl SMPContext {
             Qb: _qb,
         } = &self.smp
         {
+            // "If smpstate is SMPSTATE_EXPECT3:"
             g3a = _g3a.to_owned();
             g2 = _g2.to_owned();
             g3 = _g3.to_owned();
@@ -465,20 +459,24 @@ impl SMPContext {
             Pb = _pb.to_owned();
             Qb = _qb.to_owned();
         } else {
+            // "If smpstate is not SMPSTATE_EXPECT3:
+            //      Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob."
             self.smp = SMPState::Expect1;
             return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
         }
 
-        // SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
+        let MOD: &BigUint = &*MODULUS;
+        let q: &BigUint = &*Q;
 
-        // Pa, Qa
-        //     These values are used in the final comparison to determine if Alice and Bob share the same secret.
-        // cP, D5, D6
-        //     A zero-knowledge proof that Pa and Qa were created according to the protcol given above.
-        // Ra
-        //     This value is used in the final comparison to determine if Alice and Bob share the same secret.
-        // cR, D7
-        //     A zero-knowledge proof that Ra was created according to the protcol given above.
+        // "SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
+        //  Pa, Qa
+        //      These values are used in the final comparison to determine if Alice and Bob share the same secret.
+        //  cP, D5, D6
+        //      A zero-knowledge proof that Pa and Qa were created according to the protcol given above.
+        //  Ra
+        //      This value is used in the final comparison to determine if Alice and Bob share the same secret.
+        //  cR, D7
+        //      A zero-knowledge proof that Ra was created according to the protcol given above."
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 8 {
             self.smp = SMPState::Expect1;
@@ -689,6 +687,5 @@ fn random() -> BigUint {
     (&*RAND)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
-    // FIXME already perform modulo for efficiency?
-    BigUint::from_bytes_be(&v)
+    BigUint::from_bytes_be(&v).mod_floor(&*MODULUS)
 }

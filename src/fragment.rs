@@ -3,7 +3,8 @@ use regex::bytes::Regex;
 
 use crate::{
     encoding::OTREncodable,
-    instancetag::{verify_instance_tag, InstanceTag}, utils,
+    instancetag::{verify_instance_tag, InstanceTag},
+    utils,
 };
 
 const OTR_FRAGMENT_V2_PREFIX: &[u8] = b"?OTR,";
@@ -36,12 +37,13 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
     let captures = fragment_caps.unwrap();
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
-    // NOTE that in the conversion to bytes we assume that a full-size instance tag is present, therefore decodes into 4 bytes of data.
+    // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
+    // therefore decodes into 4 bytes of data.
     return Ok(Fragment {
         sender: verify_instance_tag(utils::std::u32::from_4byte_be(&sender_bytes))
-        .or(Err(FragmentError::InvalidData))?,
+            .or(Err(FragmentError::InvalidData))?,
         receiver: verify_instance_tag(utils::std::u32::from_4byte_be(&receiver_bytes))
-        .or(Err(FragmentError::InvalidData))?,
+            .or(Err(FragmentError::InvalidData))?,
         part: u16::from_str_radix(
             std::str::from_utf8(captures.get(3).unwrap().as_bytes()).unwrap(),
             10,
@@ -127,6 +129,7 @@ impl Assembler {
             return Err(FragmentError::UnexpectedFragment);
         }
         if self.last == self.total {
+            // TODO should we explicitly clear self.content?
             Ok(Vec::from(self.content.as_slice()))
         } else {
             Err(FragmentError::IncompleteResult)
@@ -138,7 +141,8 @@ impl Assembler {
 pub enum FragmentError {
     /// Fragment has invalid format and cannot be parsed.
     InvalidFormat,
-    /// Fragment contains invalid part information that would result in an invalid partitioning of the content.
+    /// Fragment contains invalid part information that would result in an invalid partitioning of
+    /// the content.
     InvalidData,
     /// Incomplete result. Waiting for more fragments to arrive.
     IncompleteResult,

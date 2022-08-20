@@ -216,6 +216,12 @@ pub mod OTR {
     }
 
     pub fn fingerprint(pk: &DSA::PublicKey) -> [u8; 20] {
+        // "The fingerprint is calculated by taking the SHA-1 hash of the byte-level representation
+        //  of the public key. However, there is an exception for backwards compatibility: if the
+        //  pubkey type is 0x0000, those two leading 0x00 bytes are omitted from the data to be
+        //  hashed. The encoding assures that, assuming the hash function itself has no useful
+        //  collisions, and DSA keys have length less than 524281 bits (500 times larger than most
+        //  DSA keys), no two public keys will have the same fingerprint."
         let pk_encoded = &OTREncoder::new().write_public_key(pk).to_vec()[2..];
         // TODO use 20-byte byte-representation, or 40-byte hex representation in memory?
         SHA1::digest(&pk_encoded)

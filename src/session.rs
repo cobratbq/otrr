@@ -371,6 +371,7 @@ impl Instance {
     }
 }
 
+/// `AccountDetails` contains our own, static account details.
 // TODO either extend AccountDetails as needed, or remove unnecessary wrapper for only single value?
 struct AccountDetails {
     tag: InstanceTag,
