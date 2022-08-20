@@ -82,18 +82,16 @@ pub enum OTRError {
     CryptographicViolation(CryptoError),
     /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
-    /// SMPQuerySecret indicates that an TLV SMP 1 or 1Q is received and the secret needs to be
-    /// entered by the user to continue the SMP process.
-    // FIXME not sure I'm happy with this, should go somehwere else, maybe UserMessage?
-    SMPQuerySecret(&'static str),
     /// SMPIncorrectState identifies that SMP operations are called at a inappropriate time: the
     /// session is not in an encrypted state. SMP has no relevance.
     SMPIncorrectState,
     /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,
+    /// SMPSuccess indicates successful finishing SMP without a follow-up TLV needing to be sent.
+    SMPSuccess,
     // SMP process aborted, most likely by user request. Provided TLV can be sent to other party to signal SMP abort.
-    SMPAborted(TLV),
+    SMPAborted(Option<TLV>),
     // SMP process received invalid input for given state of the SMP.
     SMPProtocolViolation,
 }
@@ -155,9 +153,15 @@ pub type TLVType = u16;
 
 /// Host represents the Host implementation for calling back into the messaging client.
 pub trait Host {
-    /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not relevant to return to the client.)
+    /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not
+    /// relevant to return to the client.)
     fn inject(&self, message: &[u8]);
 
     /// Acquire the long-term DSA keypair from the host application.
     fn keypair(&self) -> DSA::Keypair;
+
+    /// smp_query_secret triggers a query in the client to ask for the secret answer that is
+    /// necessary to continue the SMP.
+    /// TODO NOTE: for now considering empty question same as asking for secret without question.
+    fn smp_query_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 }

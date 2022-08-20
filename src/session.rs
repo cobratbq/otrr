@@ -203,6 +203,7 @@ impl Instance {
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
+        // TODO need to inspect error handling to appropriately respond with OTR message to indicate that an error has occurred. This has not yet been considered.
         assert_eq!(self.receiver, encoded_message.sender);
         // FIXME how to handle AKE errors in each case?
         return match encoded_message.message {
@@ -272,10 +273,21 @@ impl Instance {
                 match message {
                     Ok(UserMessage::Confidential(content, tlvs)) => {
                         if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
+                            // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                             // Socialist Millionaire Protocol (SMP)
-                            let response = self.state.smp()?.handle(tlv)?;
-                            // FIXME continue here
-                            todo!("to be implemented")
+                            if let reply_tlv = self.state.smp()?.handle(tlv)? {
+                                let otr_message = self.state.prepare(
+                                    MessageFlags::IGNORE_UNREADABLE,
+                                    &OTREncoder::new()
+                                        .write_bytes_null_terminated(&[])
+                                        .write_tlv(reply_tlv)
+                                        .to_vec())?;
+                                self.host.inject(&encode_otr_message(self.state.version(),
+                                    self.details.tag, self.receiver, otr_message));
+                            }
+                            // FIXME continue here: determine whether SMP has finished and what the outcome is.
+                            // TODO SMP messages always have empty body?
+                            Ok(UserMessage::None)
                         } else {
                             Ok(UserMessage::Confidential(content, tlvs))
                         }
@@ -313,6 +325,7 @@ impl Instance {
         Ok(UserMessage::Reset)
     }
 
+    // TODO double-check if I use this function correctly, don't encode_otr_message twice!
     fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME hard-coded instance tag INSTANCE_ZERO
         Ok(match self.state.prepare(MessageFlags::empty(), content)? {

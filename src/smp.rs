@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use num_bigint::BigUint;
 use num_integer::Integer;
 use once_cell::sync::Lazy;
@@ -10,7 +12,7 @@ use crate::{
         OTR, SHA256,
     },
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
-    OTRError, TLVType, TLV,
+    Host, OTRError, TLVType, TLV,
 };
 use DH::{MODULUS, MODULUS_MINUS_TWO};
 
@@ -45,6 +47,7 @@ pub struct SMPContext {
     their_fingerprint: Fingerprint,
     smp: SMPState,
     rand: SystemRandom,
+    host: Rc<dyn Host>,
 }
 
 // FIXME handle for each message SMP state machine being in wrong state having to discard message and reset.
@@ -54,8 +57,16 @@ pub struct SMPContext {
 // TODO review consistent naming
 #[allow(non_snake_case)]
 impl SMPContext {
-    pub fn new(ssid: SSID, our_fingerprint: Fingerprint, their_fingerprint: Fingerprint) -> Self {
+    // TODO provide way to check outcome of SMP, positive (validated) or negative (failure/reset/abort)
+
+    pub fn new(
+        host: Rc<dyn Host>,
+        ssid: SSID,
+        our_fingerprint: Fingerprint,
+        their_fingerprint: Fingerprint,
+    ) -> Self {
         Self {
+            host,
             ssid,
             our_fingerprint,
             their_fingerprint,
@@ -116,11 +127,6 @@ impl SMPContext {
         Ok(tlv)
     }
 
-    pub fn respond(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
-        // FIXME continue here
-        todo!("to be implemented")
-    }
-
     /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
     pub fn abort(&mut self) -> TLV {
         self.smp = SMPState::Expect1;
@@ -131,28 +137,24 @@ impl SMPContext {
         match tlv {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
                 // FIXME this TLV should be handled in two parts due to user
-                self.handleMessage1(tlv, &[], &[])
+                self.handleMessage1(tlv)
             }
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_ABORT, _) => self.handleAbort(tlv),
             _ => panic!("BUG: unsupported TLV type."),
         }
     }
 
-    // FIXME split up handling of messgae 1: first handle received TLV SMP1, then handle response from user on the secret-request.
-    fn handleMessage1(
-        &mut self,
-        tlv: &TLV,
-        targeted_question: &[u8],
-        secret: &[u8],
-    ) -> Result<TLV, OTRError> {
+    fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);
         if let SMPState::Expect1 = &self.smp {
             // SMP in expected state. TLV processing can proceed.
         } else {
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(TLV(TLV_TYPE_SMP_ABORT, Vec::new())));
+            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
+            return Err(OTRError::SMPAborted(Some(abort_tlv)));
         }
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
@@ -164,7 +166,6 @@ impl SMPContext {
         } else {
             Vec::new()
         };
-        assert_eq!(targeted_question, &received_question);
         let mut mpis = decoder.read_mpi_sequence()?;
         if mpis.len() != 6 {
             return Err(OTRError::ProtocolViolation(
@@ -204,11 +205,21 @@ impl SMPContext {
 
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
         // "1. Determine Bob's secret input y, which is to be compared to Alice's secret x."
+        // TODO querying the host for the secret is synchronous, so it will hold up the SMP message processing. Would this be a problem in client implementation or can we keep it as simple as this?
+        let answer = self.host.smp_query_secret(&received_question);
+        if answer.is_none() {
+            // Abort SMP because user has cancelled query for their secret.
+            self.smp = SMPState::Expect1;
+            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
+            return Err(OTRError::SMPAborted(Some(abort_tlv)));
+        }
+        let secret = answer.unwrap();
+
         let y = compute_secret(
             &self.their_fingerprint,
             &self.our_fingerprint,
             &self.ssid,
-            secret,
+            &secret,
         );
         // "2. Pick random exponents b2 and b3. These will used during the DH exchange to pick
         // generators."
@@ -292,7 +303,8 @@ impl SMPContext {
             // "If smpstate is not `SMPSTATE_EXPECT2`:
             //    Set smpstate to `SMPSTATE_EXPECT1` and send a type 6 TLV (`SMP abort`) to Bob."
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(TLV(TLV_TYPE_SMP_ABORT, Vec::new())));
+            let abort_tlv = TLV(TLV_TYPE_SMP_ABORT, Vec::new());
+            return Err(OTRError::SMPAborted(Some(abort_tlv)));
         }
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 11 {
@@ -457,7 +469,10 @@ impl SMPContext {
             Qb = _qb.to_owned();
         } else {
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(TLV(TLV_TYPE_SMP_ABORT, Vec::new())));
+            return Err(OTRError::SMPAborted(Some(TLV(
+                TLV_TYPE_SMP_ABORT,
+                Vec::new(),
+            ))));
         }
 
         // SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
@@ -591,7 +606,10 @@ impl SMPContext {
             // If smpstate is not SMPSTATE_EXPECT4:
             //   Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
             self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPAborted(TLV(TLV_TYPE_SMP_ABORT, Vec::new())));
+            return Err(OTRError::SMPAborted(Some(TLV(
+                TLV_TYPE_SMP_ABORT,
+                Vec::new(),
+            ))));
         }
         let g1 = &*DH::GENERATOR;
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
@@ -632,8 +650,12 @@ impl SMPContext {
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         self.smp = SMPState::Expect1;
-        // FIXME return appropriate positive/negative result of SMP at finish.
-        todo!("return success result in some way, also align mechanism with handle SMP 3")
+        Err(OTRError::SMPSuccess)
+    }
+
+    fn handleAbort(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+        self.smp = SMPState::Expect1;
+        Err(OTRError::SMPAborted(None))
     }
 }
 

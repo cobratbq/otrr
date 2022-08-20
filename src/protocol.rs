@@ -223,7 +223,7 @@ impl EncryptedState {
             // FIXME verify key-ids
             // FIXME need to pass on ctr to keymanager or is next counter predetermined by protocol?
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
-            smp: SMPContext::new(ssid, our_fingerprint, their_fingerprint),
+            smp: SMPContext::new(Rc::clone(&host), ssid, our_fingerprint, their_fingerprint),
         }
     }
 

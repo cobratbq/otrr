@@ -463,6 +463,7 @@ pub struct OTRDecoder<'a>(&'a [u8]);
 ///
 /// The OTRDecoder is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
 ///  input cannot be trusted, so we try to handle everything as an Err-result.
+// TODO review every read-operation to ensure each access of the buffer has a corresponding shift to avoid reading same data twice.
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
         Self(content)
