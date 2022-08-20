@@ -3,7 +3,7 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{DH, DSA, OTR, SHA1, constant},
+    crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
         DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID,
         TLV,
@@ -40,7 +40,7 @@ pub trait ProtocolState {
     /// prepare prepares a message for sending in accordance with the active protocol state.
     // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
-        // TODO integrate SMP use in session handling logic
+    // TODO integrate SMP use in session handling logic
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
 
@@ -185,7 +185,7 @@ impl ProtocolState for EncryptedState {
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
         let plaintext = OTREncoder::new()
-            .write_bytes_null_terminated(&[])
+            .write_byte(0)
             .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
         let optabort = Some(OTRMessageType::Data(

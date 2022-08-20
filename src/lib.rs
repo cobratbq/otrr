@@ -163,5 +163,5 @@ pub trait Host {
     /// smp_query_secret triggers a query in the client to ask for the secret answer that is
     /// necessary to continue the SMP.
     /// TODO NOTE: for now considering empty question same as asking for secret without question.
-    fn smp_query_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
+    fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 }

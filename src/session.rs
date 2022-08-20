@@ -84,6 +84,7 @@ impl Account {
                 self.initiate(
                     self.select_version(&versions)
                         .ok_or(OTRError::NoAcceptableVersion)?,
+                    None,
                 )?;
                 Ok(UserMessage::Plaintext(content))
             }
@@ -92,6 +93,7 @@ impl Account {
                 self.initiate(
                     self.select_version(&versions)
                         .ok_or(OTRError::NoAcceptableVersion)?,
+                    None,
                 )?;
                 Ok(UserMessage::None)
             }
@@ -126,16 +128,14 @@ impl Account {
             .send(content)
     }
 
-    pub fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
-        self.initiate_receiver(version, INSTANCE_ZERO)
-    }
-
-    pub fn initiate_receiver(
+    /// initiate initiates the OTR protocol for designated receiver.
+    // FIXME this is an issue: we always start with instance receiver 0, so how can we distinguish instances?
+    pub fn initiate(
         &mut self,
         version: Version,
-        receiver: InstanceTag,
+        receiver: Option<InstanceTag>,
     ) -> Result<UserMessage, OTRError> {
-        // FIXME this is an issue: we always start with instance receiver 0, so how can we distinguish instances?
+        let receiver = receiver.unwrap_or(INSTANCE_ZERO);
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
@@ -275,16 +275,15 @@ impl Instance {
                         if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
                             // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                             // Socialist Millionaire Protocol (SMP)
-                            if let reply_tlv = self.state.smp()?.handle(tlv)? {
-                                let otr_message = self.state.prepare(
-                                    MessageFlags::IGNORE_UNREADABLE,
-                                    &OTREncoder::new()
-                                        .write_bytes_null_terminated(&[])
-                                        .write_tlv(reply_tlv)
-                                        .to_vec())?;
-                                self.host.inject(&encode_otr_message(self.state.version(),
-                                    self.details.tag, self.receiver, otr_message));
-                            }
+                            let reply_tlv = self.state.smp()?.handle(tlv)?;
+                            let otr_message = self.state.prepare(
+                                MessageFlags::IGNORE_UNREADABLE,
+                                &OTREncoder::new()
+                                    .write_byte(0)
+                                    .write_tlv(reply_tlv)
+                                    .to_vec())?;
+                            self.host.inject(&encode_otr_message(self.state.version(),
+                                self.details.tag, self.receiver, otr_message));
                             // FIXME continue here: determine whether SMP has finished and what the outcome is.
                             // TODO SMP messages always have empty body?
                             Ok(UserMessage::None)
@@ -326,29 +325,31 @@ impl Instance {
     }
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!
-    fn send(&mut self, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        // FIXME hard-coded instance tag INSTANCE_ZERO
-        Ok(match self.state.prepare(MessageFlags::empty(), content)? {
-            OTRMessageType::Undefined(message) => {
-                if self.state.status() == ProtocolStatus::Plaintext {
-                    panic!(
-                        "BUG: received undefined message type in state {:?}",
-                        self.state.status()
-                    )
+    fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
+        // TODO need to check for NULL chars, as this is also the separator for subsequent TLVs
+        Ok(
+            match self.state.prepare(MessageFlags::empty(), plaintext)? {
+                OTRMessageType::Undefined(message) => {
+                    if self.state.status() == ProtocolStatus::Plaintext {
+                        panic!(
+                            "BUG: received undefined message type in state {:?}",
+                            self.state.status()
+                        )
+                    }
+                    encode(&MessageType::PlaintextMessage(message))
                 }
-                encode(&MessageType::PlaintextMessage(message))
-            }
-            message @ OTRMessageType::DHCommit(_)
-            | message @ OTRMessageType::DHKey(_)
-            | message @ OTRMessageType::RevealSignature(_)
-            | message @ OTRMessageType::Signature(_)
-            | message @ OTRMessageType::Data(_) => encode_otr_message(
-                self.state.version(),
-                self.details.tag,
-                self.receiver,
-                message,
-            ),
-        })
+                message @ OTRMessageType::DHCommit(_)
+                | message @ OTRMessageType::DHKey(_)
+                | message @ OTRMessageType::RevealSignature(_)
+                | message @ OTRMessageType::Signature(_)
+                | message @ OTRMessageType::Data(_) => encode_otr_message(
+                    self.state.version(),
+                    self.details.tag,
+                    self.receiver,
+                    message,
+                ),
+            },
+        )
     }
 
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -359,10 +360,7 @@ impl Instance {
         // TODO double-check/reason on flag ignore-unreadable.
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,
-            &OTREncoder::new()
-                .write_bytes_null_terminated(question)
-                .write_tlv(tlv)
-                .to_vec(),
+            &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
         )?;
         Ok(encode_otr_message(
             self.state.version(),
@@ -370,11 +368,6 @@ impl Instance {
             self.receiver,
             message,
         ))
-    }
-
-    fn respond_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<(), OTRError> {
-        // FIXME continue here
-        todo!("To be implemented")
     }
 }
 

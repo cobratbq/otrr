@@ -53,6 +53,7 @@ pub struct SMPContext {
 // TODO review proper checking of public keys using verification functions
 // TODO review sufficient use of modulo
 // TODO review consistent naming
+// TODO currently, unexpected SMP messages, i.e. messages that do not match with current state, are handled as normal with: state-reset + OK(ABORT_TLV)
 #[allow(non_snake_case)]
 impl SMPContext {
     // TODO provide way to check outcome of SMP, positive (validated) or negative (failure/reset/abort)
@@ -204,7 +205,7 @@ impl SMPContext {
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
         // "1. Determine Bob's secret input y, which is to be compared to Alice's secret x."
         // TODO querying the host for the secret is synchronous, so it will hold up the SMP message processing. Would this be a problem in client implementation or can we keep it as simple as this?
-        let answer = self.host.smp_query_secret(&received_question);
+        let answer = self.host.query_smp_secret(&received_question);
         if answer.is_none() {
             // Abort SMP because user has cancelled query for their secret.
             self.smp = SMPState::Expect1;
