@@ -32,6 +32,7 @@ __Functionality__:
 - ☐ Authenticated Key Exchange (AKE)
 - ☐ Socialist Millionaire's Protocol (SMP)
 - ☐ Extra Symmetric Key
+  - ☐ TLV `8`
   - __Known issue__: there is no convention on how this key should be used.
 - ☑ Fragmentation:
   - ☑ Assemble fragments of incoming message.

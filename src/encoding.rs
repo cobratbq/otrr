@@ -630,17 +630,20 @@ impl<'a> OTRDecoder<'a> {
         Ok(ssid)
     }
 
-    /// read_bytes_null_terminated reads bytes until a NULL-byte is found. The
-    /// NULL-byte is consumed, but will not be returned in the result.
+    /// read_bytes_null_terminated reads bytes until a NULL-byte is found or the buffer is empty.
+    /// The NULL-byte is consumed, but will not be returned in the result. If no NULL-byte is
+    /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
+    /// if present.
     pub fn read_bytes_null_terminated(&mut self) -> Result<Vec<u8>, OTRError> {
         let mut bytes = Vec::new();
         loop {
             let b = self.read_byte()?;
             if b == b'\0' {
-                return Ok(bytes);
+                break;
             }
             bytes.push(b);
         }
+        Ok(bytes)
     }
 }
 
