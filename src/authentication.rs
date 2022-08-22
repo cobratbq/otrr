@@ -26,6 +26,10 @@ impl AKEContext {
         }
     }
 
+    pub fn version(&self) -> Version {
+        Version::V3
+    }
+
     pub fn is_verified(&self) -> bool {
         if let AKEState::None(VerificationState::VERIFIED) = self.state {
             true

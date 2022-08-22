@@ -41,14 +41,19 @@ pub mod session;
 // TODO support messages in backlog for sending when confidential session established?
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 
-/// UserMessage represents the resulting Message intended for the messaging client, possibly containing content relevant to display to the user.
+/// UserMessage represents the resulting Message intended for the messaging client, possibly
+/// containing content relevant to display to the user.
 #[derive(Debug)]
 pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.
     None,
     /// Message for user received over open, plaintext transport.
     Plaintext(Vec<u8>),
+    /// While encrypted sessions are present or the policy requires encryption, a message is
+    /// received in plaintext. The client must know such that it can issue a warning.
+    WarningUnencrypted(Vec<u8>),
     /// OTR error message received.
+    // TODO under what circumstances should the error message abort anything in-progress and fall back to unencrypted/finished state?
     Error(Vec<u8>),
     /// Message state reset to "plaintext". (by user action)
     Reset,
@@ -56,7 +61,8 @@ pub enum UserMessage {
     ConfidentialSessionStarted,
     /// Message for user received over confidential OTR transport.
     Confidential(Vec<u8>, Vec<TLV>),
-    /// Confidential session ended, transitioned to "finished" state. (Session ended by other party.)
+    /// Confidential session ended, transitioned to "finished" state. (Session ended by other
+    /// party.)
     ConfidentialSessionFinished,
 }
 
@@ -82,6 +88,7 @@ pub enum OTRError {
     CryptographicViolation(CryptoError),
     /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
+    // TODO it would be sensible to define a SMPError(SMPError) type to encapsulate that whole process, like we did for AKE.
     /// SMPIncorrectState identifies that SMP operations are called at a inappropriate time: the
     /// session is not in an encrypted state. SMP has no relevance.
     SMPIncorrectState,
@@ -104,6 +111,7 @@ pub enum ProtocolStatus {
 }
 
 /// Version contains the various supported OTR protocol versions.
+// TODO version preference may be hard-coded in places
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
     None,
@@ -116,7 +124,8 @@ pub enum Version {
 // TODO implement use of policy flags!
 bitflags! {
     /// Policy bit-flags can be set to indicate how OTR should respond to certain events related to messaging and the OTR protocol.
-    struct Policy: u32 {
+    pub struct Policy: u32 {
+    // TODO disabled all ALLOW_Vx flags, because it doesn't make much sense to disable the only version option.
     // ALLOW_V1
     //     Allow version 1 of the OTR protocol to be used (in general this document will not address OTR protocol version 1; see previous protocol documents for these details).
     //const ALLOW_V1 = 0b00000001;
@@ -125,13 +134,13 @@ bitflags! {
     //const ALLOW_V2 = 0b00000010;
     // ALLOW_V3
     //     Allow version 3 of the OTR protocol to be used.
-    const ALLOW_V3 = 0b00000100;
+    //const ALLOW_V3 = 0b00000100;
     // REQUIRE_ENCRYPTION
     //     Refuse to send unencrypted messages.
     const REQUIRE_ENCRYPTION = 0b00001000;
     // SEND_WHITESPACE_TAG
     //     Advertise your support of OTR using the whitespace tag.
-    const WHITESPACE_TAG = 0b00010000;
+    const SEND_WHITESPACE_TAG = 0b00010000;
     // WHITESPACE_START_AKE
     //     Start the OTR AKE when you receive a whitespace tag.
     const WHITESPACE_START_AKE = 0b00100000;

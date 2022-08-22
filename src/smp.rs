@@ -141,7 +141,7 @@ impl SMPContext {
                 self.smp = SMPState::Expect1;
                 Err(OTRError::SMPAborted)
             }
-            _ => panic!("BUG: unsupported TLV type."),
+            _ => panic!("BUG: incorrect TLV type: {}", tlv.0),
         }
     }
 
@@ -643,21 +643,6 @@ impl SMPContext {
     }
 }
 
-fn compute_secret(
-    initiator: &Fingerprint,
-    responder: &Fingerprint,
-    ssid: &SSID,
-    secret: &[u8],
-) -> BigUint {
-    let mut buffer = Vec::<u8>::new();
-    buffer.push(1);
-    buffer.extend_from_slice(initiator);
-    buffer.extend_from_slice(responder);
-    buffer.extend_from_slice(ssid);
-    buffer.extend_from_slice(secret);
-    BigUint::from_bytes_be(&SHA256::digest(&buffer))
-}
-
 #[allow(non_snake_case)]
 enum SMPState {
     Expect1,
@@ -680,6 +665,21 @@ enum SMPState {
         QadivQb: BigUint,
         a3: BigUint,
     },
+}
+
+fn compute_secret(
+    initiator: &Fingerprint,
+    responder: &Fingerprint,
+    ssid: &SSID,
+    secret: &[u8],
+) -> BigUint {
+    let mut buffer = Vec::<u8>::new();
+    buffer.push(1);
+    buffer.extend_from_slice(initiator);
+    buffer.extend_from_slice(responder);
+    buffer.extend_from_slice(ssid);
+    buffer.extend_from_slice(secret);
+    BigUint::from_bytes_be(&SHA256::digest(&buffer))
 }
 
 fn random() -> BigUint {

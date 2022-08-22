@@ -156,7 +156,10 @@ impl ProtocolState for EncryptedState {
                 msg @ Ok(_) => (msg, None),
                 err @ Err(_) => (err, None),
             },
-            Err(error) => (Err(error), None),
+            Err(_) => {
+                // TODO consider logging the details of the error message, but for the client it is not relevant
+                (Err(OTRError::UnreadableMessage), None)
+            }
         }
     }
 
@@ -272,8 +275,8 @@ impl EncryptedState {
 
     fn decrypt_message(&mut self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
         // "Uses Diffie-Hellman to compute a shared secret from the two keys labelled by keyidA and
-        // keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
-        // detailed below. (These will be the same as the keys Alice generated, above.)"
+        //  keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
+        //  detailed below. (These will be the same as the keys Alice generated, above.)"
         let (their_keyid, their_key) = self.keys.their_current();
         if their_keyid != message.sender_keyid {
             return Err(OTRError::ProtocolViolation("unknown keyid for sender key"));
@@ -321,6 +324,7 @@ impl EncryptedState {
         // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
         // TODO add logic for handling SMP
         if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+            // TODO strictly speaking there may be a user-readable message that we do to return to the client. (Spec does not strictly say this is a use case to consider.)
             Ok(UserMessage::ConfidentialSessionFinished)
         } else {
             Ok(UserMessage::Confidential(content, tlvs))
