@@ -98,6 +98,7 @@ impl ProtocolState for PlaintextState {
     }
 
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+        assert_eq!(flags, MessageFlags::empty());
         // Returned as 'Undefined' message as we are not in an encrypted state,
         // therefore we return the content as-is to the caller.
         // FIXME not sure if this is the best solution
@@ -105,7 +106,7 @@ impl ProtocolState for PlaintextState {
     }
 
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
-        Err(OTRError::SMPIncorrectState)
+        Err(OTRError::IncorrectState("SMP is not available when protocol is in Plaintext state."))
     }
 }
 
@@ -377,15 +378,14 @@ impl ProtocolState for FinishedState {
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
-        // TODO should we send UserMessage::Reset?
         (None, Box::new(PlaintextState {}))
     }
 
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
-        Err(OTRError::ProtocolInFinishedState)
+        Err(OTRError::IncorrectState("Sending messages is prohibited in 'Finished' state to prevent races that result in sensitive message being transmitted insecurely."))
     }
 
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
-        Err(OTRError::SMPIncorrectState)
+        Err(OTRError::IncorrectState("SMP is not available when protocol is in Finished state."))
     }
 }

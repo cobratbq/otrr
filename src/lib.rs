@@ -83,15 +83,12 @@ pub enum OTRError {
     /// No acceptable version available in proposed protocol versions.
     NoAcceptableVersion,
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
-    ProtocolInFinishedState,
+    IncorrectState(&'static str),
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
     CryptographicViolation(CryptoError),
     /// (AKE) AuthenticationError indicates that there was an error during AKE.
     AuthenticationError(AKEError),
     // TODO it would be sensible to define a SMPError(SMPError) type to encapsulate that whole process, like we did for AKE.
-    /// SMPIncorrectState identifies that SMP operations are called at a inappropriate time: the
-    /// session is not in an encrypted state. SMP has no relevance.
-    SMPIncorrectState,
     /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,

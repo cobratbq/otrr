@@ -417,8 +417,7 @@ impl Instance {
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
-        let smp = self.state.smp()?;
-        let tlv = smp.initiate(secret, question)?;
+        let tlv = self.state.smp()?.initiate(secret, question)?;
         // TODO double-check/reason on flag ignore-unreadable.
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,

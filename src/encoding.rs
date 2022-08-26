@@ -18,7 +18,10 @@ use crate::{
 bitflags! {
     /// MessageFlag bit-flags can set for OTR-encoded messages.
     pub struct MessageFlags: u8 {
-        /// FLAG_IGNORE_UNREADABLE indicates that the message can be ignored if it cannot be read. This is typically used for control messages that have no value to the user, to indicate that there is no point in alerting the user of an inaccessible message.
+        /// FLAG_IGNORE_UNREADABLE indicates that the message can be ignored if it cannot be read.
+        /// If set, no user-error is produced. This is typically used for control messages that have
+        /// no value to the user, to indicate that there is no point in alerting the user of an
+        /// inaccessible message.
         const IGNORE_UNREADABLE = 0b00000001;
     }
 }

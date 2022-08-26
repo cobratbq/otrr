@@ -52,11 +52,15 @@ __Functionality__:
   - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
 
 __Operational__:
+
+- ☑ Single instance of `Account` represents single account on a chat network: allows for specific identity (_DSA keypair_), chat network/transport.
 - ☐ No thread-safety. (Not yet determined necessary. Expect processing single message at a time.)
 
 __Developmental__:
 
-- ☐ Error do not propagate too far s.t. details leak to the client.
+- ☑ No logic for managing multiple accounts:  
+  _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Session` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
+- ☐ Errors do not propagate too far s.t. details leak to the client.
 - ☐ Threading design choices and in-logic callbacks (into client) are not too restricting (i.e. cause problems)
 - ☐ Need thread-safety for top-level API?
 - ☐ ..
