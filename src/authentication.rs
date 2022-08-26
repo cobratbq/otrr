@@ -22,20 +22,12 @@ impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
             host: host,
-            state: AKEState::None(VerificationState::UNKNOWN),
+            state: AKEState::None,
         }
     }
 
     pub fn version(&self) -> Version {
         Version::V3
-    }
-
-    pub fn is_verified(&self) -> bool {
-        if let AKEState::None(VerificationState::VERIFIED) = self.state {
-            true
-        } else {
-            false
-        }
     }
 
     pub fn initiate(&mut self) -> Result<OTRMessageType, AKEError> {
@@ -59,7 +51,7 @@ impl AKEContext {
 
     pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None(_) => self.handle_dhcommit_from_initial(msg),
+            AKEState::None => self.handle_dhcommit_from_initial(msg),
             AKEState::AwaitingDHKey(state) => {
                 // This is the trickiest transition in the whole protocol. It indicates that you
                 // have already sent a D-H Commit message to your correspondent, but that he either
@@ -161,7 +153,7 @@ impl AKEContext {
 
     pub fn handle_dhkey(&mut self, msg: DHKeyMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None(_) => {
+            AKEState::None => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -273,7 +265,7 @@ impl AKEContext {
         msg: RevealSignatureMessage,
     ) -> Result<(CryptographicMaterial, OTRMessageType), AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None(_) => {
+            AKEState::None => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -378,7 +370,7 @@ impl AKEContext {
                             signature_mac: encrypted_mac,
                         }),
                     )),
-                    AKEState::None(VerificationState::VERIFIED),
+                    AKEState::None,
                 )
             }
         };
@@ -391,7 +383,7 @@ impl AKEContext {
         msg: SignatureMessage,
     ) -> Result<CryptographicMaterial, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None(_) => {
+            AKEState::None => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -451,7 +443,7 @@ impl AKEContext {
                         their_dh: state.gy.clone(),
                         their_dsa: pub_a,
                     }),
-                    AKEState::None(VerificationState::VERIFIED),
+                    AKEState::None,
                 )
             }
         };
@@ -476,7 +468,7 @@ pub struct CryptographicMaterial {
 /// AKEState represents available/recognized AKE states.
 enum AKEState {
     /// None indicates no AKE is in progress. Tuple contains predominant verification status for most recent previous execution.
-    None(VerificationState),
+    None,
     /// AwaitingDHKey state contains data as present/needed upon transitioning to this state.
     AwaitingDHKey(AwaitingDHKey),
     /// AwaitingRevealSignature state contains data up to transitioning to this state.
@@ -502,15 +494,6 @@ struct AwaitingSignature {
     key: AES128::Key,
     gy: BigUint,
     s: DH::SharedSecret,
-}
-
-/// VerificationState represents the various states of verification.
-enum VerificationState {
-    // FIXME should we ever transition back to UNKNOWN on failure during AKE?
-    /// Unknown represents the verification status where we are not aware of a previous successful verification.
-    UNKNOWN,
-    /// Verified indicates that the previous authentication process completed successfully.
-    VERIFIED,
 }
 
 /// AKEError contains the variants of errors produced during AKE.
