@@ -64,7 +64,6 @@ pub mod DH {
 
     #[derive(Clone)]
     pub struct Keypair {
-        generator: BigUint,
         private: BigUint,
         pub public: BigUint,
     }
@@ -82,13 +81,12 @@ pub mod DH {
         }
 
         pub fn new(private: BigUint) -> Self {
-            Self::new_custom(private, (&*GENERATOR).clone())
+            Self::new_custom(&*GENERATOR, private)
         }
 
-        pub fn new_custom(private: BigUint, generator: BigUint) -> Self {
+        pub fn new_custom(generator: &BigUint, private: BigUint) -> Self {
             let public = generator.modpow(&private, &*MODULUS);
             Self {
-                generator,
                 private,
                 public,
             }

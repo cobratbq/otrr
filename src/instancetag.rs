@@ -16,7 +16,8 @@ pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
     }
 }
 
-/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between multiple clients using the same account.
+/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between
+/// multiple clients using the same account.
 pub type InstanceTag = u32;
 
 pub fn random_tag() -> InstanceTag {
@@ -32,6 +33,7 @@ pub fn random_tag() -> InstanceTag {
 }
 
 pub enum InstanceTagError {
-    /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is excluded as it is used for backwards-compatibility.
+    /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is
+    /// excluded as it is used for backwards-compatibility.
     IllegalValue(u32),
 }
