@@ -59,13 +59,13 @@ const OTR_DATA_TYPE_CODE: u8 = 0x03;
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
 
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
-    return if data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX) {
+    if data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX) {
         let start = OTR_ENCODED_PREFIX.len();
         let end = data.len() - OTR_ENCODED_SUFFIX.len();
         parse_encoded_message(&data[start..end])
     } else {
         parse_plain_message(data)
-    };
+    }
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
@@ -73,11 +73,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let mut decoder = OTRDecoder(&data);
     let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
-        _ => {
-            return Err(OTRError::ProtocolViolation(
-                "Invalid or unknown protocol version.",
-            ))
-        }
+        version => return Err(OTRError::UnsupportedVersion(version)),
     };
     let message_type = decoder.read_byte()?;
     let sender: InstanceTag = decoder.read_instance_tag()?;

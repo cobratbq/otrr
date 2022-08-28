@@ -8,6 +8,7 @@ const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
 // TODO verify implementation
 // TODO what constant-time implementations needed?
+// TODO currently two different RNG types in use. (See DSA for OsRng)
 
 #[allow(non_snake_case)]
 pub mod DH {
@@ -317,8 +318,6 @@ pub mod DSA {
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
     pub const PARAM_Q_LENGTH: usize = 20;
 
-    const RAND: OsRng = dsa::signature::rand_core::OsRng;
-
     pub struct Keypair {
         sk: SigningKey,
         pk: Rc<VerifyingKey>,
@@ -329,8 +328,8 @@ pub mod DSA {
     impl Keypair {
         #[allow(deprecated)]
         pub fn generate() -> Self {
-            let components = Components::generate(&mut RAND, KeySize::DSA_1024_160);
-            let sk = SigningKey::generate(&mut RAND, components);
+            let components = Components::generate(&mut OsRng, KeySize::DSA_1024_160);
+            let sk = SigningKey::generate(&mut OsRng, components);
             let pk = Rc::new(sk.verifying_key().clone());
             Self { sk, pk }
         }

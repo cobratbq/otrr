@@ -99,8 +99,8 @@ impl ProtocolState for PlaintextState {
 
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         assert_eq!(flags, MessageFlags::empty());
-        // Returned as 'Undefined' message as we are not in an encrypted state,
-        // therefore we return the content as-is to the caller.
+        // Returned as 'Undefined' message as we are not in an encrypted state, therefore we return
+        // the content as-is to the caller.
         // FIXME not sure if this is the best solution
         Ok(OTRMessageType::Undefined(Vec::from(content)))
     }

@@ -3,6 +3,7 @@ use bitflags::bitflags;
 use crypto::{CryptoError, DSA};
 use encoding::TLV;
 
+extern crate utils;
 extern crate aes_ctr;
 extern crate base64;
 extern crate bitflags;
@@ -22,7 +23,6 @@ mod instancetag;
 mod keymanager;
 mod protocol;
 mod smp;
-mod utils;
 
 pub mod session;
 
@@ -82,6 +82,7 @@ pub enum OTRError {
     // FIXME not sure if this is the way to go...
     /// No acceptable version available in proposed protocol versions.
     NoAcceptableVersion,
+    UnsupportedVersion(u16),
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     IncorrectState(&'static str),
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
@@ -98,6 +99,7 @@ pub enum OTRError {
     SMPAborted,
     // SMP process received invalid input for given state of the SMP.
     SMPProtocolViolation,
+    PolicyRestriction(&'static str),
 }
 
 #[derive(PartialEq, Debug)]
@@ -131,7 +133,7 @@ bitflags! {
     //const ALLOW_V2 = 0b00000010;
     // ALLOW_V3
     //     Allow version 3 of the OTR protocol to be used.
-    //const ALLOW_V3 = 0b00000100;
+    const ALLOW_V3 = 0b00000100;
     // REQUIRE_ENCRYPTION
     //     Refuse to send unencrypted messages.
     const REQUIRE_ENCRYPTION = 0b00001000;

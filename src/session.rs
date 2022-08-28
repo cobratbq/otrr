@@ -24,6 +24,7 @@ pub struct Account {
 }
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
+// TODO check if policy allows version 3 before sending query/whitespace-tag with version 3.
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
         Self {
@@ -45,6 +46,10 @@ impl Account {
 
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
+        if !self.details.policy.contains(Policy::ALLOW_V3) {
+            // OTR: if no version is allowed according to policy, do not do any handling at all.
+            return Ok(UserMessage::Plaintext(Vec::from(payload)));
+        }
         if fragment::match_fragment(payload) {
             // FIXME handle OTRv2 fragments not being supported(?)
             let fragment = fragment::parse(payload).or(Err(OTRError::ProtocolViolation(
@@ -80,13 +85,12 @@ impl Account {
         match parse(&payload)? {
             MessageType::ErrorMessage(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
-                    // TODO if ERROR_START_AKE reply with Query message.
                     self.query(vec![Version::V3]);
                 }
                 Ok(UserMessage::Error(error))
             }
             MessageType::PlaintextMessage(content) => {
-                if self.has_encrypted_sessions() {
+                if self.has_sessions() {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
@@ -96,15 +100,11 @@ impl Account {
             }
             MessageType::TaggedMessage(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
-                    // Given policy, automatically initiate
-                    // TODO currently assumes a version can be found, otherwise errors out too early, losing message.
-                    self.initiate(
-                        self.select_version(&versions)
-                            .ok_or(OTRError::NoAcceptableVersion)?,
-                        None,
-                    )?;
+                    if let Some(selected) = self.select_version(&versions) {
+                        self.initiate(selected, None)?;
+                    }
                 }
-                if self.has_encrypted_sessions() {
+                if self.has_sessions() {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
@@ -113,18 +113,16 @@ impl Account {
                 }
             }
             MessageType::QueryMessage(versions) => {
-                // TODO take policies and instances into account before initiating.
-                self.initiate(
-                    self.select_version(&versions)
-                        .ok_or(OTRError::NoAcceptableVersion)?,
-                    None,
-                )?;
+                if let Some(selected) = self.select_version(&versions) {
+                    self.initiate(selected, None)?;
+                }
                 Ok(UserMessage::None)
             }
             MessageType::EncodedMessage(msg) => {
-                if msg.receiver != INSTANCE_ZERO && msg.receiver != self.details.tag {
-                    return Err(OTRError::MessageForOtherInstance);
+                if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
+                    return Ok(UserMessage::None);
                 }
+                self.verify_encoded_message(&msg)?;
                 // FIXME at some point, need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
                 // FIXME in case of unreadable message, also send OTR Error message to other party
                 self.instances
@@ -136,31 +134,51 @@ impl Account {
     }
 
     fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
-        // TODO take policies into account before initiating.
-        if versions.contains(&Version::V3) {
+        if versions.contains(&Version::V3) && self.details.policy.contains(Policy::ALLOW_V3) {
             Some(Version::V3)
         } else {
             None
         }
     }
 
+    fn verify_encoded_message(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
+        if msg.receiver > INSTANCE_ZERO && msg.receiver != self.details.tag {
+            return Err(OTRError::MessageForOtherInstance);
+        } else if let OTRMessageType::DHCommit(_) = msg.message {
+            // allow receiver tag zero for DH-Commit message
+        } else {
+            return Err(OTRError::MessageForOtherInstance);
+        }
+        Ok(())
+    }
+
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
         // FIXME figure out what the "default" instance is, if session is established, then send query message if in plaintext or whatever is otherwise necessary.
-        // "If msgstate is MSGSTATE_PLAINTEXT:
-        //    If REQUIRE_ENCRYPTION is set:
-        //      Store the plaintext message for possible retransmission, and send a Query Message.
-        //    Otherwise:
-        //      If SEND_WHITESPACE_TAG is set, and you have not received a plaintext message from this correspondent since last entering MSGSTATE_PLAINTEXT, attach the whitespace tag to the message. Send the (possibly modified) message as plaintext.
-        //  If msgstate is MSGSTATE_ENCRYPTED:
+        let instance = self
+            .instances
+            .get_mut(&instance)
+            .ok_or(OTRError::UnknownInstance)?;
+        // "If msgstate is MSGSTATE_PLAINTEXT:"
+        if instance.status() == ProtocolStatus::Plaintext {
+            if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
+                // "   If REQUIRE_ENCRYPTION is set:"
+                // "     Store the plaintext message for possible retransmission, and send a Query Message."
+                self.query(vec![Version::V3]);
+                // TODO OTR: store message for possible retransmission after OTR session is established.
+                return Err(OTRError::PolicyRestriction(
+                    "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
+                ));
+            } else if self.details.policy.contains(Policy::SEND_WHITESPACE_TAG) {
+                // TODO modify message to include whitespace-tag if not already sent. See spec for details.
+            }
+        }
+        // "If msgstate is MSGSTATE_ENCRYPTED:
         //    Encrypt the message, and send it as a Data Message. Store the plaintext message for possible retransmission.
         //  If msgstate is MSGSTATE_FINISHED:
         //    Inform the user that the message cannot be sent at this time. Store the plaintext message for possible retransmission."
-        self.instances
-            .get_mut(&instance)
-            .ok_or(OTRError::UnknownInstance)?
-            .send(content)
+        instance.send(content)
     }
 
     /// `initiate` initiates the OTR protocol for designated receiver.
@@ -186,9 +204,9 @@ impl Account {
             .reset()
     }
 
-    pub fn query(&mut self, possible_versions: Vec<Version>) {
+    pub fn query(&mut self, accepted_versions: Vec<Version>) {
         // TODO verify possible versions against supported (non-blocked) versions.
-        let msg = MessageType::QueryMessage(possible_versions);
+        let msg = MessageType::QueryMessage(accepted_versions);
         self.host.inject(&encode(&msg));
     }
 
@@ -200,7 +218,7 @@ impl Account {
     }
 
     /// has_encrypted_sessions checks if any instances have established or finished an OTR session.
-    fn has_encrypted_sessions(&self) -> bool {
+    fn has_sessions(&self) -> bool {
         self.instances.iter().any(|i| {
             i.1.status() == ProtocolStatus::Encrypted || i.1.status() == ProtocolStatus::Finished
         })
@@ -258,8 +276,10 @@ impl Instance {
 
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
+        assert_eq!(encoded_message.version, Version::V3);
         // TODO need to inspect error handling to appropriately respond with OTR message to indicate that an error has occurred. This has not yet been considered.
         assert_eq!(self.receiver, encoded_message.sender);
+        assert_eq!(self.details.tag, encoded_message.receiver);
         // FIXME how to handle AKE errors in each case?
         match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
@@ -388,30 +408,29 @@ impl Instance {
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!
     fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
-        // TODO need to check for NULL chars, as this is also the separator for subsequent TLVs
-        Ok(
-            match self.state.prepare(MessageFlags::empty(), plaintext)? {
-                OTRMessageType::Undefined(message) => {
-                    if self.state.status() == ProtocolStatus::Plaintext {
-                        panic!(
-                            "BUG: received undefined message type in state {:?}",
-                            self.state.status()
-                        )
-                    }
-                    encode(&MessageType::PlaintextMessage(message))
+        let plaintext = utils::std::bytes::drop_by_value(&plaintext, 0u8);
+        // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
+        match self.state.prepare(MessageFlags::empty(), &plaintext)? {
+            OTRMessageType::Undefined(message) => {
+                if self.state.status() == ProtocolStatus::Plaintext {
+                    panic!(
+                        "BUG: received undefined message type in state {:?}",
+                        self.state.status()
+                    )
                 }
-                message @ OTRMessageType::DHCommit(_)
-                | message @ OTRMessageType::DHKey(_)
-                | message @ OTRMessageType::RevealSignature(_)
-                | message @ OTRMessageType::Signature(_)
-                | message @ OTRMessageType::Data(_) => encode_otr_message(
-                    self.state.version(),
-                    self.details.tag,
-                    self.receiver,
-                    message,
-                ),
-            },
-        )
+                Ok(encode(&MessageType::PlaintextMessage(message)))
+            }
+            message @ OTRMessageType::DHCommit(_)
+            | message @ OTRMessageType::DHKey(_)
+            | message @ OTRMessageType::RevealSignature(_)
+            | message @ OTRMessageType::Signature(_)
+            | message @ OTRMessageType::Data(_) => Ok(encode_otr_message(
+                self.state.version(),
+                self.details.tag,
+                self.receiver,
+                message,
+            )),
+        }
     }
 
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
