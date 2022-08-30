@@ -83,9 +83,11 @@ impl OTREncodable for Fragment {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
         encoder
             .write(OTR_FRAGMENT_V3_PREFIX)
+            // NOTE not very explicit in the specification, but examples seem to indicate that
+            // `part` and `total` should be padded with prefix zeroes.
             .write(
                 format!(
-                    "{:08x}|{:08x},{},{},",
+                    "{:08x}|{:08x},{:05},{:05},",
                     &self.sender, &self.receiver, &self.part, &self.total
                 )
                 .as_bytes(),
@@ -120,20 +122,23 @@ impl Assembler {
         } else if fragment.total == self.total && fragment.part == self.last + 1 {
             // Next fragment encountered.
             self.last = fragment.part;
-            self.content.extend_from_slice(&fragment.payload);
+            self.content.extend(&fragment.payload);
         } else {
             // Unexpected fragment encountered. Resetting state.
-            self.total = 0;
-            self.last = 0;
-            self.content.clear();
+            self.reset();
             return Err(FragmentError::UnexpectedFragment);
         }
         if self.last == self.total {
-            // TODO should we explicitly clear self.content?
-            Ok(Vec::from(self.content.as_slice()))
+            Ok(std::mem::take(&mut self.content))
         } else {
             Err(FragmentError::IncompleteResult)
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.total = 0;
+        self.last = 0;
+        self.content.clear();
     }
 }
 

@@ -153,6 +153,7 @@ impl Account {
     }
 
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+        // TODO need to add policy ALLOW_V3 check here too?
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
         // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
         // FIXME figure out what the "default" instance is, if session is established, then send query message if in plaintext or whatever is otherwise necessary.

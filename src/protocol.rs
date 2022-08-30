@@ -246,6 +246,7 @@ impl EncryptedState {
         slice::copy(&mut nonce, &ctr);
         let ciphertext = secrets.send_crypt_key().encrypt(&nonce, plaintext_message);
         assert!(bytes::any_nonzero(&ciphertext));
+        // TODO the spec says ".. whenever we are about to forget one of our D-H key pairs, ...". Check if implementation satisfies this requiremend.
         let oldmackeys = self.keys.get_used_macs();
         assert_eq!(oldmackeys.len() % 20, 0);
         assert!(bytes::any_nonzero(&oldmackeys));
