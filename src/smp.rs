@@ -40,6 +40,7 @@ const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
 const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
+// FIXME introduce status with indicator of whether or not SMP failed, in progress, succeeded, unknown.
 pub struct SMPContext {
     ssid: SSID,
     our_fingerprint: Fingerprint,
@@ -125,6 +126,13 @@ impl SMPContext {
     ///     some message manipulation is taken into account.
     pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         // FIXME on any error, send Abort TLV. (now just returns error)
+        // FIXME need to check return Ok(abort_tlv) vs Err(SMPAborted) vs Err(SMPProtocolViolation)
+        match dispatch(tlv) {
+            // FIXME continue here
+        }
+    }
+
+    fn dispatch(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
                 self.handleMessage1(tlv)
@@ -133,6 +141,7 @@ impl SMPContext {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
             TLV(TLV_TYPE_SMP_ABORT, _) => {
+                // TODO possibly check payload as we expect 0-length
                 self.smp = SMPState::Expect1;
                 Err(OTRError::SMPAborted)
             }
@@ -411,8 +420,6 @@ impl SMPContext {
             Pb = _pb.to_owned();
             Qb = _qb.to_owned();
         } else {
-            // "If smpstate is not SMPSTATE_EXPECT3:
-            //      Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob."
             return Ok(self.abort());
         }
 
@@ -529,8 +536,6 @@ impl SMPContext {
             QadivQb = _qadivqb.to_owned();
             a3 = _a3.to_owned();
         } else {
-            // If smpstate is not SMPSTATE_EXPECT4:
-            //   Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
             return Ok(self.abort());
         }
         let g1 = &*DH::GENERATOR;
