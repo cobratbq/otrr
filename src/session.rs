@@ -351,7 +351,8 @@ impl Instance {
                         if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
                             // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                             // Socialist Millionaire Protocol (SMP)
-                            let reply_tlv = self.state.smp()?.handle(tlv)?;
+                            // FIXME on any error, send Abort TLV. (now just returns error)
+                            let reply_tlv = self.state.smp().unwrap().handle(tlv)?;
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
@@ -437,8 +438,8 @@ impl Instance {
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
+        // TODO consider what to do if SMP in progress: immediately reset and initiate, or do nothing, or ...?
         let tlv = self.state.smp()?.initiate(secret, question)?;
-        // TODO double-check/reason on flag ignore-unreadable.
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
@@ -448,6 +449,28 @@ impl Instance {
             self.details.tag,
             self.receiver,
             message,
+        ))
+    }
+
+    fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
+        // FIXME finish/fine-tune abort message sending.
+        if let Ok(smp) = self.state.smp() {
+            let tlv = smp.abort();
+            let message = encode_otr_message(
+                self.state.version(),
+                self.details.tag,
+                self.receiver,
+                self.state
+                    .prepare(
+                        MessageFlags::IGNORE_UNREADABLE,
+                        &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
+                    )
+                    .unwrap(),
+            );
+            return Ok(message);
+        }
+        Err(OTRError::IncorrectState(
+            "SMP is unavailable in the current state",
         ))
     }
 }

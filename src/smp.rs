@@ -97,15 +97,9 @@ impl SMPContext {
         let g3a = g1.modpow(&a3, MOD);
         let (r2, r3) = (random(), random());
 
-        let c2 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
-            1,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r2, MOD)).to_vec(),
-        ));
+        let c2 = hash_1_mpi(1, &g1.modpow(&r2, MOD));
         let D2: BigUint = (&r2 - &a2 * &c2).mod_floor(q);
-        let c3 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
-            2,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r3, MOD)).to_vec(),
-        ));
+        let c3 = hash_1_mpi(2, &g1.modpow(&r3, MOD));
         let D3: BigUint = (&r3 - &a3 * &c3).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
@@ -130,6 +124,7 @@ impl SMPContext {
     ///     This essentially means that very little can go wrong under normal circumstances, even if
     ///     some message manipulation is taken into account.
     pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+        // FIXME on any error, send Abort TLV. (now just returns error)
         match tlv {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
                 self.handleMessage1(tlv)
@@ -145,19 +140,12 @@ impl SMPContext {
         }
     }
 
-    /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
-    pub fn abort(&mut self) -> TLV {
-        self.smp = SMPState::Expect1;
-        TLV(TLV_TYPE_SMP_ABORT, Vec::new())
-    }
-
     fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);
         if let SMPState::Expect1 = &self.smp {
             // SMP in expected state. TLV processing can proceed.
         } else {
-            self.smp = SMPState::Expect1;
-            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
+            return Ok(self.abort());
         }
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*Q;
@@ -188,21 +176,17 @@ impl SMPContext {
         DH::verify_public_key(&g3a).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "2. Check that c2 = SHA256(1, g1D2 g2ac2)."
-        let expected_c2 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
+        let expected_c2 = hash_1_mpi(
             1,
-            &OTREncoder::new()
-                .write_mpi(&(g1.modpow(&D2, MOD) * g2a.modpow(&c2, MOD)).mod_floor(MOD))
-                .to_vec(),
-        ));
+            &(g1.modpow(&D2, MOD) * g2a.modpow(&c2, MOD)).mod_floor(MOD),
+        );
         DH::verify(&expected_c2, &c2).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "3. Check that c3 = SHA256(2, g1D3 g3ac3)."
-        let expected_c3 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
+        let expected_c3 = hash_1_mpi(
             2,
-            &OTREncoder::new()
-                .write_mpi(&(g1.modpow(&D3, MOD) * g3a.modpow(&c3, MOD)).mod_floor(MOD))
-                .to_vec(),
-        ));
+            &(g1.modpow(&D3, MOD) * g3a.modpow(&c3, MOD)).mod_floor(MOD),
+        );
         DH::verify(&expected_c3, &c3).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
@@ -236,17 +220,11 @@ impl SMPContext {
         // `c2 = SHA256(3, g1r2)` and `D2 = r2 - b2 c2 mod q`. In the zero-knowledge proofs the `D`
         // values are calculated modulo `q = (p - 1) / 2`, where `p` is the same 1536-bit prime as
         // elsewhere. The random exponents are 1536-bit numbers."
-        let c2 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
-            3u8,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r2, MOD)).to_vec(),
-        ));
+        let c2 = hash_1_mpi(3, &g1.modpow(&r2, MOD));
         let D2 = (&r2 - &b2 * &c2).mod_floor(q);
         // "6. Generate a zero-knowledge proof that the exponent b3 is known by setting
         // `c3 = SHA256(4, g1r3)` and `D3 = r3 - b3 c3 mod q`."
-        let c3 = BigUint::from_bytes_be(&SHA256::digest_with_prefix(
-            4u8,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r3, MOD)).to_vec(),
-        ));
+        let c3 = hash_1_mpi(4, &g1.modpow(&r3, MOD));
         let D3 = (&r3 - &b3 * &c3).mod_floor(q);
         // "7. Compute `g2 = g2ab2` and `g3 = g3ab3`"
         let g2 = g2a.modpow(&b2, MOD);
@@ -257,13 +235,11 @@ impl SMPContext {
         // "9. Generate a zero-knowledge proof that `Pb` and `Qb` were created according to the
         // protocol by setting `cP = SHA256(5, g3r5, g1r5 g2r6)`, `D5 = r5 - r4 cP mod q` and
         // `D6 = r6 - y cP mod q`."
-        let cP = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        let cP = hash_2_mpi(
             5,
-            &OTREncoder::new().write_mpi(&g3.modpow(&r5, MOD)).to_vec(),
-            &OTREncoder::new()
-                .write_mpi(&(g1.modpow(&r5, MOD) * g2.modpow(&r6, MOD)).mod_floor(MOD))
-                .to_vec(),
-        ));
+            &g3.modpow(&r5, MOD),
+            &(g1.modpow(&r5, MOD) * g2.modpow(&r6, MOD)).mod_floor(MOD),
+        );
         let D5 = (&r5 - &r4 * &cP).mod_floor(q);
         let D6 = (&r6 - &y * &cP).mod_floor(q);
 
@@ -301,10 +277,7 @@ impl SMPContext {
             a2 = _a2.to_owned();
             a3 = _a3.to_owned();
         } else {
-            // "If smpstate is not `SMPSTATE_EXPECT2`:
-            //    Set smpstate to `SMPSTATE_EXPECT1` and send a type 6 TLV (`SMP abort`) to Bob."
-            self.smp = SMPState::Expect1;
-            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
+            return Ok(self.abort());
         }
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 11 {
@@ -343,19 +316,11 @@ impl SMPContext {
         DH::verify_public_key(&Qb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Check that `c2 = SHA256(3, g1D2 g2bc2)`."
-        let c2_expected = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-            3,
-            &OTREncoder::new().write_mpi(&g1.modpow(&D2, MOD)).to_vec(),
-            &OTREncoder::new().write_mpi(&g2b.modpow(&c2, MOD)).to_vec(),
-        ));
+        let c2_expected = hash_2_mpi(3, &g1.modpow(&D2, MOD), &g2b.modpow(&c2, MOD));
         DH::verify(&c2_expected, &c2).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Check that `c3 = SHA256(4, g1D3 g3bc3)`."
-        let c3_expected = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-            4,
-            &OTREncoder::new().write_mpi(&g1.modpow(&D3, MOD)).to_vec(),
-            &OTREncoder::new().write_mpi(&g3b.modpow(&c3, MOD)).to_vec(),
-        ));
+        let c3_expected = hash_2_mpi(4, &g1.modpow(&D3, MOD), &g3b.modpow(&c3, MOD));
         DH::verify(&c3_expected, &c3).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Compute `g2 = g2ba2` and `g3 = g3ba3`"
@@ -363,18 +328,11 @@ impl SMPContext {
         let g3 = g3b.modpow(&a3, MOD);
 
         // "Check that `cP = SHA256(5, g3D5 PbcP, g1D5 g2D6 QbcP)`."
-        let cP_expected = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        let cP_expected = hash_2_mpi(
             5,
-            &OTREncoder::new()
-                .write_mpi(&(&g3.modpow(&D5, MOD) * &Pb.modpow(&cP, MOD)).mod_floor(MOD))
-                .to_vec(),
-            &OTREncoder::new()
-                .write_mpi(
-                    &(&g1.modpow(&D5, MOD) * &g2.modpow(&D6, MOD) * &Qb.modpow(&cP, MOD))
-                        .mod_floor(MOD),
-                )
-                .to_vec(),
-        ));
+            &(&g3.modpow(&D5, MOD) * &Pb.modpow(&cP, MOD)).mod_floor(MOD),
+            &(&g1.modpow(&D5, MOD) * &g2.modpow(&D6, MOD) * &Qb.modpow(&cP, MOD)).mod_floor(MOD),
+        );
         DH::verify(&cP_expected, &cP).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Create a type 4 TLV (SMP message 3) and send it to Bob:
@@ -390,13 +348,11 @@ impl SMPContext {
         let Qa = (&g1.modpow(&r4, MOD) * &g2.modpow(&x, MOD)).mod_floor(MOD);
         // "Generate a zero-knowledge proof that Pa and Qa were created according to the protocol
         //  by setting `cP = SHA256(6, g3r5, g1r5 g2r6)`, ..."
-        let cP = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        let cP = hash_2_mpi(
             6,
-            &OTREncoder::new().write_mpi(&g3.modpow(&r5, MOD)).to_vec(),
-            &OTREncoder::new()
-                .write_mpi(&(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD).mod_floor(MOD)))
-                .to_vec(),
-        ));
+            &g3.modpow(&r5, MOD),
+            &(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD).mod_floor(MOD)),
+        );
         // "... `D5 = r5 - r4 cP mod q`, and ..."
         let D5 = (&r5 - r4 * &cP).mod_floor(q);
         // "... `D6 = r6 - x cP mod q`."
@@ -406,11 +362,7 @@ impl SMPContext {
         // "Generate a zero-knowledge proof that Ra was created according to the protocol by
         //  setting `cR = SHA256(7, g1r7, (Qa / Qb)r7)` and ..."
         let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
-        let cR = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-            7,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r7, MOD)).to_vec(),
-            &OTREncoder::new().write_mpi(&QadivQb).to_vec(),
-        ));
+        let cR = hash_2_mpi(7, &g1.modpow(&r7, MOD), &QadivQb);
         // "... `D7 = r7 - a3 cR mod q`."
         let D7 = (&r7 - &a3 * &cR).mod_floor(q);
         /*
@@ -461,8 +413,7 @@ impl SMPContext {
         } else {
             // "If smpstate is not SMPSTATE_EXPECT3:
             //      Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob."
-            self.smp = SMPState::Expect1;
-            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
+            return Ok(self.abort());
         }
 
         let MOD: &BigUint = &*MODULUS;
@@ -504,18 +455,11 @@ impl SMPContext {
         let g1 = &*DH::GENERATOR;
         // Check that cP = SHA256(6, g3^D5 Pa^cP, g1^D5 g2^D6 Qa^cP).
         if cP
-            != BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-                6u8,
-                &OTREncoder::new()
-                    .write_mpi(&(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD))
-                    .to_vec(),
-                &OTREncoder::new()
-                    .write_mpi(
-                        &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD))
-                            .mod_floor(MOD),
-                    )
-                    .to_vec(),
-            ))
+            != hash_2_mpi(
+                6,
+                &(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD),
+                &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD)).mod_floor(MOD),
+            )
         {
             return Err(OTRError::CryptographicViolation(
                 CryptoError::VerificationFailure("failed to verify cR"),
@@ -524,15 +468,11 @@ impl SMPContext {
 
         let QadivQb = (&Qa * &OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
         // Check that cR = SHA256(7, g1**D7 g3a**cR, (Qa / Qb)**D7 Ra**cR).
-        let expected_cR = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        let expected_cR = hash_2_mpi(
             7,
-            &OTREncoder::new()
-                .write_mpi(&(&g1.modpow(&D7, MOD) * &g3a.modpow(&cR, MOD)).mod_floor(MOD))
-                .to_vec(),
-            &OTREncoder::new()
-                .write_mpi(&(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)))
-                .to_vec(),
-        ));
+            &(&g1.modpow(&D7, MOD) * &g3a.modpow(&cR, MOD)).mod_floor(MOD),
+            &(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)),
+        );
         if cR != expected_cR {
             DH::verify(&expected_cR, &cR)
                 .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
@@ -547,13 +487,7 @@ impl SMPContext {
 
         // Generate a zero-knowledge proof that Rb was created according to the protocol by setting
         // cR = SHA256(8, g1r7, (Qa / Qb)r7) and D7 = r7 - b3 cR mod q.
-        let cR = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
-            8,
-            &OTREncoder::new().write_mpi(&g1.modpow(&r7, MOD)).to_vec(),
-            &OTREncoder::new()
-                .write_mpi(&QadivQb.modpow(&r7, MOD))
-                .to_vec(),
-        ));
+        let cR = hash_2_mpi(8, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
         let D7 = (&r7 - &b3 * &cR).mod_floor(q);
 
         // Check whether the protocol was successful:
@@ -597,8 +531,7 @@ impl SMPContext {
         } else {
             // If smpstate is not SMPSTATE_EXPECT4:
             //   Set smpstate to SMPSTATE_EXPECT1 and send a type 6 TLV (SMP abort) to Bob.
-            self.smp = SMPState::Expect1;
-            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
+            return Ok(self.abort());
         }
         let g1 = &*DH::GENERATOR;
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
@@ -623,15 +556,11 @@ impl SMPContext {
         DH::verify_public_key(&Rb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // Check that cR = SHA256(8, g1D7 g3bcR, (Qa / Qb)D7 RbcR).
-        let expected_cR = BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        let expected_cR = hash_2_mpi(
             8,
-            &OTREncoder::new()
-                .write_mpi(&(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)))
-                .to_vec(),
-            &OTREncoder::new()
-                .write_mpi(&(&QadivQb.modpow(&D7, MOD) * (&Rb.modpow(&cR, MOD))).mod_floor(MOD))
-                .to_vec(),
-        ));
+            &(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)),
+            &(&QadivQb.modpow(&D7, MOD) * (&Rb.modpow(&cR, MOD))).mod_floor(MOD),
+        );
         DH::verify(&expected_cR, &cR).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // Compute Rab = Rba3.
@@ -640,6 +569,12 @@ impl SMPContext {
         DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         self.smp = SMPState::Expect1;
         Err(OTRError::SMPSuccess)
+    }
+
+    /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
+    pub fn abort(&mut self) -> TLV {
+        self.smp = SMPState::Expect1;
+        TLV(TLV_TYPE_SMP_ABORT, Vec::new())
     }
 }
 
@@ -667,6 +602,8 @@ enum SMPState {
     },
 }
 
+const SMP_VERSION: u8 = 1;
+
 fn compute_secret(
     initiator: &Fingerprint,
     responder: &Fingerprint,
@@ -674,7 +611,7 @@ fn compute_secret(
     secret: &[u8],
 ) -> BigUint {
     let mut buffer = Vec::<u8>::new();
-    buffer.push(1);
+    buffer.push(SMP_VERSION);
     buffer.extend_from_slice(initiator);
     buffer.extend_from_slice(responder);
     buffer.extend_from_slice(ssid);
@@ -688,4 +625,19 @@ fn random() -> BigUint {
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
     BigUint::from_bytes_be(&v).mod_floor(&*MODULUS)
+}
+
+fn hash_1_mpi(version: u8, mpi1: &BigUint) -> BigUint {
+    BigUint::from_bytes_be(&SHA256::digest_with_prefix(
+        version,
+        &OTREncoder::new().write_mpi(mpi1).to_vec(),
+    ))
+}
+
+fn hash_2_mpi(version: u8, mpi1: &BigUint, mpi2: &BigUint) -> BigUint {
+    BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+        version,
+        &OTREncoder::new().write_mpi(mpi1).to_vec(),
+        &OTREncoder::new().write_mpi(mpi2).to_vec(),
+    ))
 }

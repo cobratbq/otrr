@@ -106,7 +106,9 @@ impl ProtocolState for PlaintextState {
     }
 
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
-        Err(OTRError::IncorrectState("SMP is not available when protocol is in Plaintext state."))
+        Err(OTRError::IncorrectState(
+            "SMP is not available when protocol is in Plaintext state.",
+        ))
     }
 }
 
@@ -387,6 +389,8 @@ impl ProtocolState for FinishedState {
     }
 
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
-        Err(OTRError::IncorrectState("SMP is not available when protocol is in Finished state."))
+        Err(OTRError::IncorrectState(
+            "SMP is not available when protocol is in Finished state.",
+        ))
     }
 }
