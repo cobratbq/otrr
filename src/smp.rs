@@ -6,11 +6,7 @@ use once_cell::sync::Lazy;
 use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
-    crypto::{
-        CryptoError,
-        DH::{self, Q},
-        OTR, SHA256,
-    },
+    crypto::{CryptoError, DH, OTR, SHA256},
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     Host, OTRError, TLVType, TLV,
 };
@@ -42,14 +38,17 @@ const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
 // FIXME introduce status with indicator of whether or not SMP failed, in progress, succeeded, unknown.
 pub struct SMPContext {
+    // FIXME review need for status once implementation is redesigned.
+    status: SMPStatus,
+    state: SMPState,
     ssid: SSID,
     our_fingerprint: Fingerprint,
     their_fingerprint: Fingerprint,
-    smp: SMPState,
     host: Rc<dyn Host>,
 }
 
 // TODO review proper use of `mod q` for D-values
+// TODO check values within boundaries (>2, <order)
 // TODO review proper checking of public keys using verification functions
 // TODO review sufficient use of modulo
 // TODO review consistent naming
@@ -66,18 +65,25 @@ impl SMPContext {
         their_fingerprint: Fingerprint,
     ) -> Self {
         Self {
+            status: SMPStatus::Initial,
+            state: SMPState::Expect1,
             host,
             ssid,
             our_fingerprint,
             their_fingerprint,
-            smp: SMPState::Expect1,
         }
+    }
+
+    pub fn status(&self) -> SMPStatus {
+        // TODO is cloning the most efficient solution here? (it seems overkill)
+        self.status.clone()
     }
 
     /// Initiate SMP. Produces SMPError::AlreadyInProgress if SMP is in progress.
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
-        if let SMPState::Expect1 = self.smp {
+        if let SMPState::Expect1 = self.state {
             // SMP in initial state, initiation can proceed without interrupting in-progress SMP.
+            self.status = SMPStatus::InProgress;
         } else {
             // "SMP is already underway. If you wish to restart SMP, send a type 6 TLV (SMP
             //  abort) to the other party and then proceed as if smpstate was SMPSTATE_EXPECT1.
@@ -85,7 +91,7 @@ impl SMPContext {
             return Err(OTRError::SMPInProgress);
         }
         let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
+        let q: &BigUint = &*DH::Q;
         let g1 = &*DH::GENERATOR;
         let x = compute_secret(
             &self.our_fingerprint,
@@ -112,7 +118,7 @@ impl SMPContext {
         };
         encoder.write_mpi_sequence(&[&g2a, &c2, &D2, &g3a, &c3, &D3]);
         let tlv = TLV(typ, encoder.to_vec());
-        self.smp = SMPState::Expect2 { x, a2, a3 };
+        self.state = SMPState::Expect2 { x, a2, a3 };
         Ok(tlv)
     }
 
@@ -124,11 +130,52 @@ impl SMPContext {
     ///     of Data messages, meaning that confidentiality and authenticity are already guaranteed.
     ///     This essentially means that very little can go wrong under normal circumstances, even if
     ///     some message manipulation is taken into account.
-    pub fn handle(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    pub fn handle(&mut self, tlv: &TLV) -> Option<TLV> {
         // FIXME on any error, send Abort TLV. (now just returns error)
         // FIXME need to check return Ok(abort_tlv) vs Err(SMPAborted) vs Err(SMPProtocolViolation)
-        match dispatch(tlv) {
-            // FIXME continue here
+        match self.dispatch(tlv) {
+            Ok(tlv) => Some(tlv),
+            Err(OTRError::SMPSuccess) => {
+                self.status = SMPStatus::Success;
+                None
+            }
+            Err(OTRError::SMPAborted(need_abort_tlv)) => {
+                self.state = SMPState::Expect1;
+                if need_abort_tlv {
+                    self.status = SMPStatus::Aborted(Vec::from("Aborted by user"));
+                    Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
+                } else {
+                    self.status = SMPStatus::Aborted(Vec::from("SMP Abort TLV received"));
+                    None
+                }
+            }
+            Err(OTRError::ProtocolViolation(msg)) => {
+                self.state = SMPState::Expect1;
+                self.status = SMPStatus::Aborted(Vec::from(format!("Protocol violation: {}", msg)));
+                Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
+            }
+            Err(OTRError::IncompleteMessage) => {
+                self.state = SMPState::Expect1;
+                self.status = SMPStatus::Aborted(Vec::from(
+                    "Protocol violation: message contents missing or malformed.",
+                ));
+                Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
+            }
+            Err(OTRError::CryptographicViolation(error)) => {
+                self.state = SMPState::Expect1;
+                self.status = SMPStatus::Aborted(Vec::from(format!(
+                    "Protocol violation: cryptographic failure: {:?}",
+                    &error
+                )));
+                Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
+            }
+            Err(_) => {
+                self.state = SMPState::Expect1;
+                self.status = SMPStatus::Aborted(Vec::from(
+                    "BUG: unexpected failure: reached default error case, used to mitigate for control flow.",
+                ));
+                panic!("BUG: default-case for error control flow. This is likely a missed error.")
+            }
         }
     }
 
@@ -140,24 +187,21 @@ impl SMPContext {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
-            TLV(TLV_TYPE_SMP_ABORT, _) => {
-                // TODO possibly check payload as we expect 0-length
-                self.smp = SMPState::Expect1;
-                Err(OTRError::SMPAborted)
-            }
+            TLV(TLV_TYPE_SMP_ABORT, _) => Err(OTRError::SMPAborted(false)),
             _ => panic!("BUG: incorrect TLV type: {}", tlv.0),
         }
     }
 
     fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);
-        if let SMPState::Expect1 = &self.smp {
+        if let SMPState::Expect1 = &self.state {
             // SMP in expected state. TLV processing can proceed.
+            self.status = SMPStatus::InProgress;
         } else {
-            return Ok(self.abort());
+            return Err(OTRError::ProtocolViolation("SMP message type 1 was expected."))
         }
         let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
+        let q: &BigUint = &*DH::Q;
         let g1 = &*DH::GENERATOR;
         let mut decoder = OTRDecoder::new(&tlv.1);
         let received_question = if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
@@ -204,8 +248,7 @@ impl SMPContext {
         let answer = self.host.query_smp_secret(&received_question);
         if answer.is_none() {
             // Abort SMP because user has cancelled query for their secret.
-            self.smp = SMPState::Expect1;
-            return Ok(TLV(TLV_TYPE_SMP_ABORT, Vec::new()));
+            return Err(OTRError::SMPAborted(true));
         }
         let secret = answer.unwrap();
 
@@ -255,7 +298,7 @@ impl SMPContext {
         let payload = OTREncoder::new()
             .write_mpi_sequence(&[&g2b, &c2, &D2, &g3b, &c3, &D3, &Pb, &Qb, &cP, &D5, &D6])
             .to_vec();
-        self.smp = SMPState::Expect3 {
+        self.state = SMPState::Expect3 {
             g3a,
             g2,
             g3,
@@ -269,7 +312,7 @@ impl SMPContext {
     fn handleMessage2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_2);
         let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
+        let q: &BigUint = &*DH::Q;
         // "SMP message 2 is sent by Bob to complete the DH exchange to determine the new
         //  generators, `g2` and `g3`. It also begins the construction of the values used in the final
         //  comparison of the protocol."
@@ -280,18 +323,19 @@ impl SMPContext {
             x: _x,
             a2: _a2,
             a3: _a3,
-        } = &self.smp
+        } = &self.state
         {
             x = _x.to_owned();
             a2 = _a2.to_owned();
             a3 = _a3.to_owned();
         } else {
-            return Ok(self.abort());
+            return Err(OTRError::ProtocolViolation("SMP message type 2 was expected."))
         }
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 11 {
-            self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPProtocolViolation);
+            return Err(OTRError::ProtocolViolation(
+                "Unexpected number of MPIs provided as payload for SMP message 2 TLV.",
+            ));
         }
         // "It contains the following mpi values:
         //  `cP`, `D5`, `D6`: A zero-knowledge proof that Pb and Qb were created according to the
@@ -386,7 +430,7 @@ impl SMPContext {
         );
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
         // "Set smpstate to SMPSTATE_EXPECT4."
-        self.smp = SMPState::Expect4 {
+        self.state = SMPState::Expect4 {
             a3,
             g3b,
             PadivPb,
@@ -410,7 +454,7 @@ impl SMPContext {
             b3: _b3,
             Pb: _pb,
             Qb: _qb,
-        } = &self.smp
+        } = &self.state
         {
             // "If smpstate is SMPSTATE_EXPECT3:"
             g3a = _g3a.to_owned();
@@ -420,11 +464,11 @@ impl SMPContext {
             Pb = _pb.to_owned();
             Qb = _qb.to_owned();
         } else {
-            return Ok(self.abort());
+            return Err(OTRError::ProtocolViolation("SMP message type 3 was expected."))
         }
 
         let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*Q;
+        let q: &BigUint = &*DH::Q;
 
         // "SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
         //  Pa, Qa
@@ -437,8 +481,9 @@ impl SMPContext {
         //      A zero-knowledge proof that Ra was created according to the protcol given above."
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 8 {
-            self.smp = SMPState::Expect1;
-            return Err(OTRError::SMPProtocolViolation);
+            return Err(OTRError::ProtocolViolation(
+                "Unexpected number of MPIs provided as payload for SMP message 3 TLV.",
+            ));
         }
         let D7 = mpis.pop().unwrap();
         let cR = mpis.pop().unwrap();
@@ -509,7 +554,7 @@ impl SMPContext {
             .write_mpi_sequence(&[&Rb, &cR, &D7])
             .to_vec();
         // Set smpstate to SMPSTATE_EXPECT1, as no more messages are expected from Alice.
-        self.smp = SMPState::Expect1;
+        self.state = SMPState::Expect1;
         Ok(TLV(TLV_TYPE_SMP_MESSAGE_4, tlv))
     }
 
@@ -529,20 +574,20 @@ impl SMPContext {
             PadivPb: _padivpb,
             QadivQb: _qadivqb,
             a3: _a3,
-        } = &self.smp
+        } = &self.state
         {
             g3b = _g3b.to_owned();
             PadivPb = _padivpb.to_owned();
             QadivQb = _qadivqb.to_owned();
             a3 = _a3.to_owned();
         } else {
-            return Ok(self.abort());
+            return Err(OTRError::ProtocolViolation("SMP message type 4 was expected."))
         }
         let g1 = &*DH::GENERATOR;
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 3 {
             return Err(OTRError::ProtocolViolation(
-                "Unexpected number of MPI values.",
+                "Unexpected number of MPIs provided as payload for SMP message 4 TLV.",
             ));
         }
 
@@ -572,13 +617,14 @@ impl SMPContext {
         let Rab = Rb.modpow(&a3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        self.smp = SMPState::Expect1;
+        self.state = SMPState::Expect1;
         Err(OTRError::SMPSuccess)
     }
 
     /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
     pub fn abort(&mut self) -> TLV {
-        self.smp = SMPState::Expect1;
+        self.state = SMPState::Expect1;
+        self.status = SMPStatus::Aborted(Vec::from("Aborted by user"));
         TLV(TLV_TYPE_SMP_ABORT, Vec::new())
     }
 }
@@ -605,6 +651,18 @@ enum SMPState {
         QadivQb: BigUint,
         a3: BigUint,
     },
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum SMPStatus {
+    /// Initial status: no SMP session, no activity.
+    Initial,
+    /// SMP currently in progress, i.e. awaiting next message.
+    InProgress,
+    /// SMP deliberately aborted, either by local user action, or through received abort-TLV.
+    Aborted(Vec<u8>),
+    /// SMP process succeeded.
+    Success,
 }
 
 const SMP_VERSION: u8 = 1;

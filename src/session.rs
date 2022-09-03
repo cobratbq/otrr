@@ -11,7 +11,9 @@ use crate::{
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
-    protocol, smp, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version,
+    protocol,
+    smp::{self, SMPStatus},
+    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version,
 };
 
 pub struct Account {
@@ -275,6 +277,7 @@ impl Instance {
         Ok(UserMessage::None)
     }
 
+    // TODO can we use top-level std::panic::catch_unwind for catching/diagnosing unexpected failures?
     // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         assert_eq!(encoded_message.version, Version::V3);
@@ -348,22 +351,25 @@ impl Instance {
                 }
                 match message {
                     Ok(UserMessage::Confidential(content, tlvs)) => {
+                        // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                         if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
-                            // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                             // Socialist Millionaire Protocol (SMP)
-                            // FIXME on any error, send Abort TLV. (now just returns error)
-                            let reply_tlv = self.state.smp().unwrap().handle(tlv)?;
-                            let otr_message = self.state.prepare(
-                                MessageFlags::IGNORE_UNREADABLE,
-                                &OTREncoder::new()
-                                    .write_byte(0)
-                                    .write_tlv(reply_tlv)
-                                    .to_vec())?;
-                            self.host.inject(&encode_otr_message(self.state.version(),
-                                self.details.tag, self.receiver, otr_message));
-                            // FIXME continue here: determine whether SMP has finished and what the outcome is.
-                            // TODO SMP messages always have empty body?
-                            Ok(UserMessage::None)
+                            if let Some(reply_tlv) = self.state.smp().unwrap().handle(tlv) {
+                                let otr_message = self.state.prepare(
+                                    MessageFlags::IGNORE_UNREADABLE,
+                                    &OTREncoder::new()
+                                        .write_byte(0)
+                                        .write_tlv(reply_tlv)
+                                        .to_vec())?;
+                                self.host.inject(&encode_otr_message(self.state.version(),
+                                    self.details.tag, self.receiver, otr_message));
+                            }
+                            match self.state.smp().unwrap().status() {
+                                SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
+                                SMPStatus::InProgress => Ok(UserMessage::None),
+                                SMPStatus::Success => Ok(UserMessage::SMPSucceeded),
+                                SMPStatus::Aborted(_) => Ok(UserMessage::SMPFailed),
+                            }
                         } else {
                             Ok(UserMessage::Confidential(content, tlvs))
                         }

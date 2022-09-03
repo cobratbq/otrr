@@ -3,13 +3,13 @@ use bitflags::bitflags;
 use crypto::{CryptoError, DSA};
 use encoding::TLV;
 
-extern crate utils;
 extern crate aes_ctr;
 extern crate base64;
 extern crate bitflags;
 extern crate hex;
-extern crate num_integer;
 extern crate num_bigint;
+extern crate num_integer;
+extern crate utils;
 // TODO std::lazy::Lazy is in rust nightly, consider using that once available.
 extern crate once_cell;
 extern crate regex;
@@ -64,9 +64,15 @@ pub enum UserMessage {
     /// Confidential session ended, transitioned to "finished" state. (Session ended by other
     /// party.)
     ConfidentialSessionFinished,
+    /// SMP process succeeded, signaling the client that authenticity is verified.
+    SMPSucceeded,
+    /// SMP process failed, signaling the client that some final concluion was reached.
+    // TODO consider carrying the reason for the failure, but may contain technical details, so may be better queried at `smp`.
+    SMPFailed,
 }
 
 /// OTRError is the enum containing the various errors that can occur.
+// TODO consider implementing `std::fmt::Display` trait for passing on error messages.
 #[derive(Debug)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
@@ -95,10 +101,10 @@ pub enum OTRError {
     SMPInProgress,
     /// SMPSuccess indicates successful finishing SMP without a follow-up TLV needing to be sent.
     SMPSuccess,
-    // SMP process aborted, most likely by user request. Provided TLV can be sent to other party to signal SMP abort.
-    SMPAborted,
-    // SMP process received invalid input for given state of the SMP.
-    SMPProtocolViolation,
+    /// SMP process aborted, most likely by user request. Provided TLV can be sent to other party to
+    /// signal SMP abort. The boolean value indicates whether the abort-action needs to be
+    /// communicated, that is: true to require sending abort-TLV, false if no further action needed.
+    SMPAborted(bool),
     PolicyRestriction(&'static str),
 }
 
