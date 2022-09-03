@@ -10,7 +10,7 @@ use crate::{
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     Host, OTRError, TLVType, TLV,
 };
-use DH::{MODULUS, MODULUS_MINUS_TWO};
+use DH::MODULUS;
 
 pub fn is_smp_tlv(tlv: &TLV) -> bool {
     TLV_TYPES.contains(&tlv.0)
@@ -90,24 +90,26 @@ impl SMPContext {
             //  Otherwise, you may simply continue the current SMP instance."
             return Err(OTRError::SMPInProgress);
         }
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
         let x = compute_secret(
             &self.our_fingerprint,
             &self.their_fingerprint,
             &self.ssid,
             secret,
         );
+
+        let MOD: &BigUint = &*MODULUS;
+        let q: &BigUint = &*DH::Q;
+        let g1 = &*DH::GENERATOR;
+
         let (a2, a3) = (random(), random());
         let g2a = g1.modpow(&a2, MOD);
         let g3a = g1.modpow(&a3, MOD);
         let (r2, r3) = (random(), random());
 
         let c2 = hash_1_mpi(1, &g1.modpow(&r2, MOD));
-        let D2: BigUint = (&r2 - &a2 * &c2).mod_floor(q);
+        let D2 = (&r2 - &a2 * &c2).mod_floor(q);
         let c3 = hash_1_mpi(2, &g1.modpow(&r3, MOD));
-        let D3: BigUint = (&r3 - &a3 * &c3).mod_floor(q);
+        let D3 = (&r3 - &a3 * &c3).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
         let typ = if question.is_empty() {
@@ -133,15 +135,16 @@ impl SMPContext {
     pub fn handle(&mut self, tlv: &TLV) -> Option<TLV> {
         // FIXME on any error, send Abort TLV. (now just returns error)
         // FIXME need to check return Ok(abort_tlv) vs Err(SMPAborted) vs Err(SMPProtocolViolation)
+        // TODO add some assertions for state corresponding to status, for sanity-checking.
         match self.dispatch(tlv) {
             Ok(tlv) => Some(tlv),
-            Err(OTRError::SMPSuccess) => {
+            Err(OTRError::SMPSuccess(response)) => {
                 self.status = SMPStatus::Success;
-                None
+                response
             }
-            Err(OTRError::SMPAborted(need_abort_tlv)) => {
+            Err(OTRError::SMPAborted(needs_abort_tlv)) => {
                 self.state = SMPState::Expect1;
-                if need_abort_tlv {
+                if needs_abort_tlv {
                     self.status = SMPStatus::Aborted(Vec::from("Aborted by user"));
                     Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
                 } else {
@@ -198,11 +201,11 @@ impl SMPContext {
             // SMP in expected state. TLV processing can proceed.
             self.status = SMPStatus::InProgress;
         } else {
-            return Err(OTRError::ProtocolViolation("SMP message type 1 was expected."))
+            return Err(OTRError::ProtocolViolation(
+                "SMP message type 1 was expected.",
+            ));
         }
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
+
         let mut decoder = OTRDecoder::new(&tlv.1);
         let received_question = if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
             decoder.read_bytes_null_terminated()?
@@ -212,7 +215,7 @@ impl SMPContext {
         let mut mpis = decoder.read_mpi_sequence()?;
         if mpis.len() != 6 {
             return Err(OTRError::ProtocolViolation(
-                "Unexpected number of MPI values",
+                "Unexpected number of MPI values in SMP message 1 TLV",
             ));
         }
         let D3 = mpis.pop().unwrap();
@@ -227,6 +230,10 @@ impl SMPContext {
         // "1. Check that both g2a and g3a are >= 2 and <= modulus-2."
         DH::verify_public_key(&g2a).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         DH::verify_public_key(&g3a).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+
+        let MOD: &BigUint = &*MODULUS;
+        let q: &BigUint = &*DH::Q;
+        let g1 = &*DH::GENERATOR;
 
         // "2. Check that c2 = SHA256(1, g1D2 g2ac2)."
         let expected_c2 = hash_1_mpi(
@@ -250,13 +257,11 @@ impl SMPContext {
             // Abort SMP because user has cancelled query for their secret.
             return Err(OTRError::SMPAborted(true));
         }
-        let secret = answer.unwrap();
-
         let y = compute_secret(
             &self.their_fingerprint,
             &self.our_fingerprint,
             &self.ssid,
-            &secret,
+            &answer.unwrap(),
         );
         // "2. Pick random exponents b2 and b3. These will used during the DH exchange to pick
         // generators."
@@ -311,8 +316,6 @@ impl SMPContext {
 
     fn handleMessage2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_2);
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
         // "SMP message 2 is sent by Bob to complete the DH exchange to determine the new
         //  generators, `g2` and `g3`. It also begins the construction of the values used in the final
         //  comparison of the protocol."
@@ -329,12 +332,15 @@ impl SMPContext {
             a2 = _a2.to_owned();
             a3 = _a3.to_owned();
         } else {
-            return Err(OTRError::ProtocolViolation("SMP message type 2 was expected."))
+            return Err(OTRError::ProtocolViolation(
+                "SMP message type 2 was expected.",
+            ));
         }
+
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 11 {
             return Err(OTRError::ProtocolViolation(
-                "Unexpected number of MPIs provided as payload for SMP message 2 TLV.",
+                "Unexpected number of MPI values in SMP message 2 TLV",
             ));
         }
         // "It contains the following mpi values:
@@ -361,19 +367,28 @@ impl SMPContext {
         let g2b = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        let g1 = &*DH::GENERATOR;
         // "Check that `g2b`, `g3b`, `Pb` and `Qb` are `>= 2 and <= modulus-2`."
         DH::verify_public_key(&g2b).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         DH::verify_public_key(&g3b).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         DH::verify_public_key(&Pb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         DH::verify_public_key(&Qb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
+        let MOD: &BigUint = &*MODULUS;
+        let q: &BigUint = &*DH::Q;
+        let g1 = &*DH::GENERATOR;
+
         // "Check that `c2 = SHA256(3, g1D2 g2bc2)`."
-        let c2_expected = hash_2_mpi(3, &g1.modpow(&D2, MOD), &g2b.modpow(&c2, MOD));
+        let c2_expected = hash_1_mpi(
+            3,
+            &(&g1.modpow(&D2, MOD) * &g2b.modpow(&c2, MOD)).mod_floor(MOD),
+        );
         DH::verify(&c2_expected, &c2).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Check that `c3 = SHA256(4, g1D3 g3bc3)`."
-        let c3_expected = hash_2_mpi(4, &g1.modpow(&D3, MOD), &g3b.modpow(&c3, MOD));
+        let c3_expected = hash_1_mpi(
+            4,
+            &(&g1.modpow(&D3, MOD) * &g3b.modpow(&c3, MOD)).mod_floor(MOD),
+        );
         DH::verify(&c3_expected, &c3).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // "Compute `g2 = g2ba2` and `g3 = g3ba3`"
@@ -392,10 +407,7 @@ impl SMPContext {
         //  Pick random exponents `r4`, `r5`, `r6` and `r7`. These will be used to add a blinding
         //  factor to the final results, and to generate zero-knowledge proofs that this message
         //  was created honestly."
-        let r4 = random();
-        let r5 = random();
-        let r6 = random();
-        let r7 = random();
+        let (r4, r5, r6, r7) = (random(), random(), random(), random());
         // "Compute `Pa = g3r4` and `Qa = g1r4 g2x`"
         let Pa = g3.modpow(&r4, MOD);
         let Qa = (&g1.modpow(&r4, MOD) * &g2.modpow(&x, MOD)).mod_floor(MOD);
@@ -404,18 +416,18 @@ impl SMPContext {
         let cP = hash_2_mpi(
             6,
             &g3.modpow(&r5, MOD),
-            &(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD).mod_floor(MOD)),
+            &(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD)).mod_floor(MOD),
         );
         // "... `D5 = r5 - r4 cP mod q`, and ..."
         let D5 = (&r5 - r4 * &cP).mod_floor(q);
         // "... `D6 = r6 - x cP mod q`."
         let D6 = (&r6 - x * &cP).mod_floor(q);
         // "Compute `Ra = (Qa / Qb) a3`"
-        let Ra = (&Qa * OTR::mod_inv(&Qb, MOD)).modpow(&a3, MOD);
+        let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
+        let Ra = QadivQb.modpow(&a3, MOD);
         // "Generate a zero-knowledge proof that Ra was created according to the protocol by
         //  setting `cR = SHA256(7, g1r7, (Qa / Qb)r7)` and ..."
-        let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
-        let cR = hash_2_mpi(7, &g1.modpow(&r7, MOD), &QadivQb);
+        let cR = hash_2_mpi(7, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
         // "... `D7 = r7 - a3 cR mod q`."
         let D7 = (&r7 - &a3 * &cR).mod_floor(q);
         /*
@@ -425,7 +437,7 @@ impl SMPContext {
         let tlv = TLV(
             TLV_TYPE_SMP_MESSAGE_3,
             OTREncoder::new()
-                .write_mpi_sequence(&[&Pa, &Pa, &cP, &D5, &D6, &Ra, &cR, &D7])
+                .write_mpi_sequence(&[&Pa, &Qa, &cP, &D5, &D6, &Ra, &cR, &D7])
                 .to_vec(),
         );
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
@@ -464,11 +476,10 @@ impl SMPContext {
             Pb = _pb.to_owned();
             Qb = _qb.to_owned();
         } else {
-            return Err(OTRError::ProtocolViolation("SMP message type 3 was expected."))
+            return Err(OTRError::ProtocolViolation(
+                "SMP message type 3 was expected.",
+            ));
         }
-
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
 
         // "SMP message 3 is Alice's final message in the SMP exchange. It has the last of the information required by Bob to determine if x = y. It contains the following mpi values:
         //  Pa, Qa
@@ -482,7 +493,7 @@ impl SMPContext {
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 8 {
             return Err(OTRError::ProtocolViolation(
-                "Unexpected number of MPIs provided as payload for SMP message 3 TLV.",
+                "Unexpected number of MPI values in SMP message 3 TLV",
             ));
         }
         let D7 = mpis.pop().unwrap();
@@ -498,44 +509,37 @@ impl SMPContext {
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
         // Check that Pa, Qa and Ra are >= 2 and <= modulus-2.
-        if Pa < BigUint::from(2u8) || Pa > *MODULUS_MINUS_TWO {
-            return Err(OTRError::CryptographicViolation(
-                CryptoError::VerificationFailure("illegal value for Pa"),
-            ));
-        }
+        DH::verify_public_key(&Pa).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&Qa).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&Ra).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
+        let MOD: &BigUint = &*MODULUS;
+        let q: &BigUint = &*DH::Q;
         let g1 = &*DH::GENERATOR;
+
         // Check that cP = SHA256(6, g3^D5 Pa^cP, g1^D5 g2^D6 Qa^cP).
-        if cP
-            != hash_2_mpi(
-                6,
-                &(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD),
-                &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD)).mod_floor(MOD),
-            )
-        {
-            return Err(OTRError::CryptographicViolation(
-                CryptoError::VerificationFailure("failed to verify cR"),
-            ));
-        }
+        let expected_cP = hash_2_mpi(
+            6,
+            &(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD),
+            &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD)).mod_floor(MOD),
+        );
+        DH::verify(&cP, &expected_cP).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         let QadivQb = (&Qa * &OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
         // Check that cR = SHA256(7, g1**D7 g3a**cR, (Qa / Qb)**D7 Ra**cR).
         let expected_cR = hash_2_mpi(
             7,
             &(&g1.modpow(&D7, MOD) * &g3a.modpow(&cR, MOD)).mod_floor(MOD),
-            &(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)),
+            &(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)).mod_floor(MOD),
         );
-        if cR != expected_cR {
-            DH::verify(&expected_cR, &cR)
-                .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        }
+        DH::verify(&cR, &expected_cR).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
 
         // Pick a random exponent r7. This will be used to generate Bob's final zero-knowledge proof
         // that this message was created honestly.
         let r7 = random();
 
         // Compute Rb = (Qa / Qb) b3
-        let Rb = (&QadivQb * &b3).mod_floor(MOD);
+        let Rb = &QadivQb.modpow(&b3, MOD);
 
         // Generate a zero-knowledge proof that Rb was created according to the protocol by setting
         // cR = SHA256(8, g1r7, (Qa / Qb)r7) and D7 = r7 - b3 cR mod q.
@@ -547,6 +551,7 @@ impl SMPContext {
         let Rab = Ra.modpow(&b3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
+        // FIXME use DH::verify for other expected_xx comparisons.
         DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // TODO need to signal successful finishing protocol with positive/negative result. Also, always send TLV to Alice, even if failure?
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
@@ -555,7 +560,7 @@ impl SMPContext {
             .to_vec();
         // Set smpstate to SMPSTATE_EXPECT1, as no more messages are expected from Alice.
         self.state = SMPState::Expect1;
-        Ok(TLV(TLV_TYPE_SMP_MESSAGE_4, tlv))
+        Err(OTRError::SMPSuccess(Some(TLV(TLV_TYPE_SMP_MESSAGE_4, tlv))))
     }
 
     /// handleMessage4 handles the 4th SMP message.
@@ -564,7 +569,6 @@ impl SMPContext {
     /// required by Alice to determine if x = y.
     fn handleMessage4(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_4);
-        let MOD: &BigUint = &*MODULUS;
         let g3b: BigUint;
         let PadivPb: BigUint;
         let QadivQb: BigUint;
@@ -581,13 +585,15 @@ impl SMPContext {
             QadivQb = _qadivqb.to_owned();
             a3 = _a3.to_owned();
         } else {
-            return Err(OTRError::ProtocolViolation("SMP message type 4 was expected."))
+            return Err(OTRError::ProtocolViolation(
+                "SMP message type 4 was expected.",
+            ));
         }
-        let g1 = &*DH::GENERATOR;
+
         let mut mpis = OTRDecoder::new(&tlv.1).read_mpi_sequence()?;
         if mpis.len() != 3 {
             return Err(OTRError::ProtocolViolation(
-                "Unexpected number of MPIs provided as payload for SMP message 4 TLV.",
+                "Unexpected number of MPI values in SMP message 4 TLV",
             ));
         }
 
@@ -601,6 +607,9 @@ impl SMPContext {
         let Rb = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
+        let MOD: &BigUint = &*MODULUS;
+        let g1 = &*DH::GENERATOR;
+
         // Verify Bob's zero-knowledge proof for Rb:
         // Check that Rb is >= 2 and <= modulus-2.
         DH::verify_public_key(&Rb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
@@ -608,7 +617,7 @@ impl SMPContext {
         // Check that cR = SHA256(8, g1D7 g3bcR, (Qa / Qb)D7 RbcR).
         let expected_cR = hash_2_mpi(
             8,
-            &(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)),
+            &(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)).mod_floor(MOD),
             &(&QadivQb.modpow(&D7, MOD) * (&Rb.modpow(&cR, MOD))).mod_floor(MOD),
         );
         DH::verify(&expected_cR, &cR).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
@@ -618,7 +627,7 @@ impl SMPContext {
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         self.state = SMPState::Expect1;
-        Err(OTRError::SMPSuccess)
+        Err(OTRError::SMPSuccess(None))
     }
 
     /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.

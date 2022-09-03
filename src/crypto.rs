@@ -45,7 +45,7 @@ pub mod DH {
     });
 
     /// Modulus - 2
-    pub const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
+    const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
 
     // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
     // "D values are calculated modulo `q = (p - 1) / 2`"
@@ -54,7 +54,7 @@ pub mod DH {
         Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
-        if public_key > &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
+        if public_key >= &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(

@@ -459,25 +459,25 @@ impl Instance {
     }
 
     fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
-        // FIXME finish/fine-tune abort message sending.
-        if let Ok(smp) = self.state.smp() {
-            let tlv = smp.abort();
-            let message = encode_otr_message(
-                self.state.version(),
-                self.details.tag,
-                self.receiver,
-                self.state
-                    .prepare(
-                        MessageFlags::IGNORE_UNREADABLE,
-                        &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
-                    )
-                    .unwrap(),
-            );
-            return Ok(message);
+        let smp = self.state.smp();
+        if smp.is_err() {
+            return Err(OTRError::IncorrectState(
+                "SMP is unavailable in the current state",
+            ));
         }
-        Err(OTRError::IncorrectState(
-            "SMP is unavailable in the current state",
-        ))
+        let tlv = smp.unwrap().abort();
+        let message = encode_otr_message(
+            self.state.version(),
+            self.details.tag,
+            self.receiver,
+            self.state
+                .prepare(
+                    MessageFlags::IGNORE_UNREADABLE,
+                    &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
+                )
+                .unwrap(),
+        );
+        Ok(message)
     }
 }
 

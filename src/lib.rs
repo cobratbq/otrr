@@ -100,7 +100,7 @@ pub enum OTRError {
     /// the previous one needs to be aborted first.
     SMPInProgress,
     /// SMPSuccess indicates successful finishing SMP without a follow-up TLV needing to be sent.
-    SMPSuccess,
+    SMPSuccess(Option<TLV>),
     /// SMP process aborted, most likely by user request. Provided TLV can be sent to other party to
     /// signal SMP abort. The boolean value indicates whether the abort-action needs to be
     /// communicated, that is: true to require sending abort-TLV, false if no further action needed.
