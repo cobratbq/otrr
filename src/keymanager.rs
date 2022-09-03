@@ -35,6 +35,10 @@ impl KeyManager {
         self.ours.next()
     }
 
+    pub fn our_keys(&self, key_id: KeyID) -> Result<&DH::Keypair, OTRError> {
+        self.ours.select(key_id)
+    }
+
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         if self.ours.acknowledge(key_id)? {
             self.ctr.reset();
@@ -46,17 +50,25 @@ impl KeyManager {
         self.theirs.current()
     }
 
+    pub fn their_key(&self, key_id: KeyID) -> Result<&BigUint, OTRError> {
+        self.theirs.select(key_id)
+    }
+
     pub fn take_shared_secret(&self) -> BigUint {
         let (_, keypair) = self.ours.current();
         let (_, their_pk) = self.theirs.current();
         keypair.generate_shared_secret(&their_pk)
     }
 
-    pub fn register_their_next(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
+    pub fn register_their_key(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
         if self.theirs.register(key_id, key)? {
             self.ctr.reset();
         }
         Ok(())
+    }
+
+    pub fn verify_counter(&self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
+        self.ctr.verify(ctr)
     }
 
     pub fn take_counter(&mut self) -> [u8; COUNTER_HALF_LEN] {
@@ -115,6 +127,17 @@ impl KeypairRotation {
         (self.acknowledged + 1, &self.keys[idx])
     }
 
+    fn select(&self, key_id: KeyID) -> Result<&DH::Keypair, OTRError> {
+        if self.acknowledged == key_id || self.acknowledged + 1 == key_id {
+            // The message for which we request keys must either contain the acknowledged keyid,
+            // or the keyid for the next key (because this is the message that acknowledges it).
+            Ok(&self.keys[key_id as usize % NUM_KEYS])
+        } else {
+            // An unknown keyid/key is requested. This is either an error or intentional violation.
+            Err(OTRError::ProtocolViolation("Key ID for requested key is not current or previous key."))
+        }
+    }
+
     /// Acknowledge that a keyID was encountered in a return message from other
     /// party. This allows rotating to the next DH-key. KeyIDs may be
     /// acknowledged multiple times, as long as the protocol is followed and
@@ -153,6 +176,17 @@ impl PublicKeyRotation {
 
     pub fn current(&self) -> (KeyID, &BigUint) {
         (self.id, &self.keys[self.id as usize % NUM_KEYS])
+    }
+
+    pub fn select(&self, key_id: KeyID) -> Result<&BigUint, OTRError> {
+        if self.id - 1 == key_id || self.id == key_id {
+            // Either they have received or acknowledgement first and this message contains the
+            // current keyid or the message was sent earlier and this is still the previous keyid.
+            Ok(&self.keys[key_id as usize % NUM_KEYS])
+        } else {
+            // An unknown keyid/key is requested. This is either an error or intentional violation.
+            Err(OTRError::ProtocolViolation("Key ID for requested key is not current or previous key."))
+        }
     }
 
     fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
@@ -207,6 +241,12 @@ impl Counter {
 
     fn reset(&mut self) {
         self.0 = COUNTER_INITIAL_VALUE;
+    }
+
+    fn verify(&self, ctr: &[u8;COUNTER_HALF_LEN]) -> Result<(), OTRError> {
+        // FIXME check that the counter in the data message is strictly larger than the last counter you saw using this pair of keys. If not, reject the message.
+        //Err(OTRError::ProtocolViolation("Counter value fails verification: illegal value"))
+        todo!("To be implemented")
     }
 
     fn take(&mut self) -> [u8; COUNTER_HALF_LEN] {

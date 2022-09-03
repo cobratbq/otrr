@@ -281,16 +281,8 @@ impl EncryptedState {
         // "Uses Diffie-Hellman to compute a shared secret from the two keys labelled by keyidA and
         //  keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
         //  detailed below. (These will be the same as the keys Alice generated, above.)"
-        let (their_keyid, their_key) = self.keys.their_current();
-        if their_keyid != message.sender_keyid {
-            return Err(OTRError::ProtocolViolation("unknown keyid for sender key"));
-        }
-        let (our_keyid, our_dh) = self.keys.current_keys();
-        if our_keyid != message.receiver_keyid {
-            return Err(OTRError::ProtocolViolation(
-                "unknown keyid for receiver key",
-            ));
-        }
+        let their_key = self.keys.their_key(message.sender_keyid)?;
+        let our_dh = self.keys.our_keys(message.receiver_keyid)?;
         let secbytes = OTREncoder::new()
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
@@ -308,14 +300,15 @@ impl EncryptedState {
         constant::verify(&message.authenticator, &mac_ta)
             .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
+        self.keys.verify_counter(&message.ctr)?;
         let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &message.ctr);
-        // TODO cryptographic maintenance such as registering new dh-key, etc.
+        assert!(utils::std::bytes::any_nonzero(&nonce));
+        // TODO double-check if this is appropriate time to register mac-to-be-revealed.
         self.keys.reveal_mac(&message.authenticator);
-        self.keys
-            .register_their_next(message.sender_keyid + 1, message.dh_y.clone())?;
-        // TODO check with spec if these should happen at same time? This is written from memory/logical reasoning, so needs some reviewing.
         self.keys.acknowledge_ours(message.receiver_keyid)?;
+        self.keys
+            .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;
         // finally, return the message
         Ok(secrets.receiver_crypt_key().decrypt(&nonce, &message.encrypted))
     }
