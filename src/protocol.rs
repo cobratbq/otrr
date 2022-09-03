@@ -244,9 +244,9 @@ impl EncryptedState {
         assert!(bytes::any_nonzero(&secbytes));
         let secrets = OTR::DataSecrets::derive(&our_dh.public, &receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
-        assert!(bytes::any_nonzero(&nonce));
         slice::copy(&mut nonce, &ctr);
-        let ciphertext = secrets.send_crypt_key().encrypt(&nonce, plaintext_message);
+        assert!(bytes::any_nonzero(&nonce));
+        let ciphertext = secrets.sender_crypt_key().encrypt(&nonce, plaintext_message);
         assert!(bytes::any_nonzero(&ciphertext));
         // TODO the spec says ".. whenever we are about to forget one of our D-H key pairs, ...". Check if implementation satisfies this requiremend.
         let oldmackeys = self.keys.get_used_macs();
@@ -262,7 +262,7 @@ impl EncryptedState {
             .write_data(&ciphertext)
             .to_vec();
         assert!(bytes::any_nonzero(&ta));
-        let mac_ta = SHA1::hmac(&secrets.send_mac_key(), &ta);
+        let mac_ta = SHA1::hmac(&secrets.sender_mac_key(), &ta);
         assert!(bytes::any_nonzero(&mac_ta));
 
         DataMessage {
@@ -302,7 +302,7 @@ impl EncryptedState {
             .write_ctr(&message.ctr)
             .write_data(&message.encrypted)
             .to_vec();
-        let mac_ta = SHA1::hmac(&secrets.recv_mac_key(), &ta);
+        let mac_ta = SHA1::hmac(&secrets.receiver_mac_key(), &ta);
         // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."
         constant::verify(&message.authenticator, &mac_ta)
@@ -317,7 +317,7 @@ impl EncryptedState {
         // TODO check with spec if these should happen at same time? This is written from memory/logical reasoning, so needs some reviewing.
         self.keys.acknowledge_ours(message.receiver_keyid)?;
         // finally, return the message
-        Ok(secrets.recv_crypt_key().decrypt(&nonce, &message.encrypted))
+        Ok(secrets.receiver_crypt_key().decrypt(&nonce, &message.encrypted))
     }
 
     fn parse_message(&self, raw_content: &[u8]) -> Result<UserMessage, OTRError> {

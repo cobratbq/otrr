@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
-    crypto::{CryptoError, DH, OTR, SHA256},
+    crypto::{DH, OTR, SHA256},
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     Host, OTRError, TLVType, TLV,
 };

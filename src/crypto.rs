@@ -185,19 +185,19 @@ pub mod OTR {
             }
         }
 
-        pub fn send_crypt_key(&self) -> &AES128::Key {
+        pub fn sender_crypt_key(&self) -> &AES128::Key {
             &self.sendkey
         }
 
-        pub fn send_mac_key(&self) -> [u8; 20] {
+        pub fn sender_mac_key(&self) -> [u8; 20] {
             SHA1::digest(&self.sendkey.0)
         }
 
-        pub fn recv_crypt_key(&self) -> &AES128::Key {
+        pub fn receiver_crypt_key(&self) -> &AES128::Key {
             &self.recvkey
         }
 
-        pub fn recv_mac_key(&self) -> [u8; 20] {
+        pub fn receiver_mac_key(&self) -> [u8; 20] {
             SHA1::digest(&self.recvkey.0)
         }
     }
