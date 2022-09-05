@@ -15,6 +15,8 @@ pub struct KeyManager {
 // TODO double-check counter reset logic.
 impl KeyManager {
     pub fn new(ours: (KeyID, DH::Keypair), theirs: (KeyID, BigUint)) -> Self {
+        assert_ne!(0, ours.0);
+        assert_ne!(0, theirs.0);
         Self {
             ours: KeypairRotation::new(ours.0, ours.1),
             theirs: PublicKeyRotation::new(theirs.0, theirs.1),
@@ -106,7 +108,8 @@ impl KeypairRotation {
     /// New instance of KeyRotation struct.
     // TODO neither generated keypair is actually used. Create a dummy "zero"-type (risk?) or ignore as insignificant?
     fn new(initial_keyid: KeyID, initial_key: DH::Keypair) -> Self {
-        assert!(initial_keyid > 0);
+        assert_ne!(0, initial_keyid);
+        assert_ne!(*ZERO, initial_key.public);
         let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
         keys[initial_keyid as usize % NUM_KEYS] = initial_key;
         Self {
@@ -128,7 +131,8 @@ impl KeypairRotation {
     }
 
     fn select(&self, key_id: KeyID) -> Result<&DH::Keypair, OTRError> {
-        if self.acknowledged == key_id || self.acknowledged + 1 == key_id {
+        assert_ne!(0, key_id);
+        if key_id > 0 && self.acknowledged == key_id || self.acknowledged + 1 == key_id {
             // The message for which we request keys must either contain the acknowledged keyid,
             // or the keyid for the next key (because this is the message that acknowledges it).
             Ok(&self.keys[key_id as usize % NUM_KEYS])
@@ -167,8 +171,8 @@ struct PublicKeyRotation {
 
 impl PublicKeyRotation {
     fn new(key_id: KeyID, public_key: BigUint) -> Self {
-        assert!(key_id > 0);
-        assert_ne!(public_key, BigUint::from(0u8));
+        assert_ne!(0, key_id);
+        assert_ne!(*ZERO, public_key);
         let mut keys: [BigUint; NUM_KEYS] = [BigUint::from(0u8), BigUint::from(0u8)];
         keys[key_id as usize % NUM_KEYS] = public_key;
         Self { keys, id: key_id }
@@ -179,7 +183,8 @@ impl PublicKeyRotation {
     }
 
     pub fn select(&self, key_id: KeyID) -> Result<&BigUint, OTRError> {
-        if self.id - 1 == key_id || self.id == key_id {
+        assert_ne!(0, key_id);
+        if key_id > 0 && self.id - 1 == key_id || self.id == key_id {
             // Either they have received or acknowledgement first and this message contains the
             // current keyid or the message was sent earlier and this is still the previous keyid.
             Ok(&self.keys[key_id as usize % NUM_KEYS])
@@ -190,6 +195,7 @@ impl PublicKeyRotation {
     }
 
     fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
+        assert_ne!(0, key_id);
         let idx = key_id as usize % NUM_KEYS;
         return if self.keys[idx] == public_key {
             Ok(())
@@ -203,7 +209,8 @@ impl PublicKeyRotation {
     /// Register next DH public key. Result `true` indicates a new key was registered, `false`
     /// indicates the key was already known.
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
-        assert_ne!(next_key, *ZERO);
+        assert_ne!(0, next_id);
+        assert_ne!(*ZERO, next_key);
         return if self.id == next_id {
             // TODO probably needs constant-time comparison
             // TODO sanity-check if key is same as we already know?

@@ -353,8 +353,10 @@ impl DataMessage {
         Ok(DataMessage {
             flags: MessageFlags::from_bits(decoder.read_byte()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
-            sender_keyid: decoder.read_int()?,
-            receiver_keyid: decoder.read_int()?,
+            sender_keyid: utils::std::u32::nonzero(decoder.read_int()?)
+                .ok_or_else(|| OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
+            receiver_keyid: utils::std::u32::nonzero(decoder.read_int()?)
+                .ok_or_else(|| OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
             dh_y: decoder.read_mpi()?,
             ctr: decoder.read_ctr()?,
             encrypted: decoder.read_data()?,

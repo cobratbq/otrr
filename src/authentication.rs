@@ -317,6 +317,7 @@ impl AKEContext {
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
                 let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                assert_ne!(0, keyid_b);
                 let sig_b = decoder
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
@@ -420,6 +421,7 @@ impl AKEContext {
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete))?;
                 let keyid_a = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                assert_ne!(0, keyid_a);
                 let sig_m_a = decoder
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
