@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 
@@ -73,6 +75,7 @@ impl KeyManager {
         self.ctr.verify(ctr)
     }
 
+    // FIXME something in the use of the counter is wrong: should the value be shared between parties? Or keep two counter-values, one for receiving and one for sending?
     pub fn take_counter(&mut self) -> [u8; COUNTER_HALF_LEN] {
         self.ctr.take()
     }
@@ -138,7 +141,9 @@ impl KeypairRotation {
             Ok(&self.keys[key_id as usize % NUM_KEYS])
         } else {
             // An unknown keyid/key is requested. This is either an error or intentional violation.
-            Err(OTRError::ProtocolViolation("Key ID for requested key is not current or previous key."))
+            Err(OTRError::ProtocolViolation(
+                "Key ID for requested key is not current or previous key.",
+            ))
         }
     }
 
@@ -178,11 +183,11 @@ impl PublicKeyRotation {
         Self { keys, id: key_id }
     }
 
-    pub fn current(&self) -> (KeyID, &BigUint) {
+    fn current(&self) -> (KeyID, &BigUint) {
         (self.id, &self.keys[self.id as usize % NUM_KEYS])
     }
 
-    pub fn select(&self, key_id: KeyID) -> Result<&BigUint, OTRError> {
+    fn select(&self, key_id: KeyID) -> Result<&BigUint, OTRError> {
         assert_ne!(0, key_id);
         if key_id > 0 && self.id - 1 == key_id || self.id == key_id {
             // Either they have received or acknowledgement first and this message contains the
@@ -190,7 +195,9 @@ impl PublicKeyRotation {
             Ok(&self.keys[key_id as usize % NUM_KEYS])
         } else {
             // An unknown keyid/key is requested. This is either an error or intentional violation.
-            Err(OTRError::ProtocolViolation("Key ID for requested key is not current or previous key."))
+            Err(OTRError::ProtocolViolation(
+                "Key ID for requested key is not current or previous key.",
+            ))
         }
     }
 
@@ -235,9 +242,6 @@ impl PublicKeyRotation {
     }
 }
 
-const COUNTER_HALF_LEN: usize = 8;
-const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 1];
-
 struct Counter([u8; COUNTER_HALF_LEN]);
 
 // TODO confirm correct type and sizes
@@ -250,10 +254,18 @@ impl Counter {
         self.0 = COUNTER_INITIAL_VALUE;
     }
 
-    fn verify(&self, ctr: &[u8;COUNTER_HALF_LEN]) -> Result<(), OTRError> {
-        // FIXME check that the counter in the data message is strictly larger than the last counter you saw using this pair of keys. If not, reject the message.
-        //Err(OTRError::ProtocolViolation("Counter value fails verification: illegal value"))
-        todo!("To be implemented")
+    fn verify(&self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
+        if utils::std::bytes::all_zero(ctr) {
+            return Err(OTRError::ProtocolViolation(
+                "Counter-value cannot be all-zero.",
+            ));
+        }
+        match utils::std::bytes::cmp(ctr, &self.0) {
+            Ordering::Greater => Ok(()),
+            Ordering::Less | Ordering::Equal => {
+                Err(OTRError::ProtocolViolation("Counter value must be strictly larger than previous value."))
+            }
+        }
     }
 
     fn take(&mut self) -> [u8; COUNTER_HALF_LEN] {
@@ -270,6 +282,9 @@ impl Counter {
         panic!("BUG: wrapped around counter value completely.")
     }
 }
+
+const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 1];
+const COUNTER_HALF_LEN: usize = 8;
 
 #[cfg(test)]
 mod tests {}
