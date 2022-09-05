@@ -97,8 +97,7 @@ impl ProtocolState for PlaintextState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
-        assert_eq!(flags, MessageFlags::empty());
+    fn prepare(&mut self, _: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state, therefore we return
         // the content as-is to the caller.
         // FIXME not sure if this is the best solution
@@ -202,7 +201,7 @@ impl ProtocolState for EncryptedState {
 
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         Ok(OTRMessageType::Data(
-            self.encrypt_message(MessageFlags::empty(), content),
+            self.encrypt_message(flags, content),
         ))
     }
 
@@ -254,6 +253,7 @@ impl EncryptedState {
         assert!(bytes::any_nonzero(&oldmackeys));
 
         // compute authenticator
+        // FIXME wrong calculation of authenticator value!
         let ta = OTREncoder::new()
             .write_int(our_keyid)
             .write_int(receiver_keyid)
@@ -287,6 +287,7 @@ impl EncryptedState {
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
         let secrets = OTR::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
+        // FIXME wrong calculation of authenticator value!
         let ta = OTREncoder::new()
             .write_int(message.sender_keyid)
             .write_int(message.receiver_keyid)
@@ -377,7 +378,7 @@ impl ProtocolState for FinishedState {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, _: MessageFlags, _: &[u8]) -> Result<OTRMessageType, OTRError> {
         Err(OTRError::IncorrectState("Sending messages is prohibited in 'Finished' state to prevent races that result in sensitive message being transmitted insecurely."))
     }
 
