@@ -53,7 +53,7 @@ const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
 const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
 const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
 const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
-const OTR_DATA_TYPE_CODE: u8 = 0x03;
+pub const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
 // TODO over all necessary writes, do usize size-of assertions. (or use type-aliasing to ensure appropriate size)
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
@@ -189,11 +189,7 @@ pub struct EncodedMessage {
 impl OTREncodable for EncodedMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
-            .write_short(match self.version {
-                Version::None => 0,
-                Version::V3 => 3,
-                Version::Unsupported(_) => panic!("BUG: unsupported version"),
-            })
+            .write_short(encode_version(&self.version))
             .write_byte(match self.message {
                 OTRMessageType::Undefined(_) => panic!(
                     "BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."
@@ -451,6 +447,14 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
             buffer.push(b'.');
             buffer
         }
+    }
+}
+
+pub fn encode_version(version: &Version) -> u16 {
+    match version {
+        Version::None => 0,
+        Version::V3 => 3,
+        Version::Unsupported(_) => panic!("BUG: unsupported version"),
     }
 }
 

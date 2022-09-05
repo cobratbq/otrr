@@ -320,7 +320,8 @@ impl Instance {
                 // FIXME handle errors and inject response.
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(Rc::clone(&self.host), version, ssid, ctr, our_dh, their_dh, their_dsa);
+                self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
+                    encoded_message.sender, ssid, ctr, our_dh, their_dh, their_dsa);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.details.tag,
@@ -337,7 +338,8 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME ensure proper, verified transition to confidential session.
                 let ctr = [0u8; CTR_LEN];
-                self.state = self.state.secure(Rc::clone(&self.host), version, ssid, ctr, our_dh, their_dh, their_dsa);
+                self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
+                    encoded_message.sender, ssid, ctr, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted)
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }

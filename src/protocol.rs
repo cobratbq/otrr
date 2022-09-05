@@ -5,9 +5,10 @@ use num_bigint::BigUint;
 use crate::{
     crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
-        DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder, OTRMessageType, CTR, SSID,
-        TLV,
+        encode_version, DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder,
+        OTRMessageType, CTR, OTR_DATA_TYPE_CODE, SSID, TLV,
     },
+    instancetag::InstanceTag,
     keymanager::KeyManager,
     smp::SMPContext,
     utils::std::{bytes, slice},
@@ -30,6 +31,8 @@ pub trait ProtocolState {
         &self,
         host: Rc<dyn Host>,
         version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
@@ -74,6 +77,8 @@ impl ProtocolState for PlaintextState {
         &self,
         host: Rc<dyn Host>,
         version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
@@ -84,6 +89,8 @@ impl ProtocolState for PlaintextState {
         return Box::new(EncryptedState::new(
             host,
             version,
+            our_instance,
+            their_instance,
             ssid,
             ctr,
             our_dh,
@@ -113,6 +120,8 @@ impl ProtocolState for PlaintextState {
 
 pub struct EncryptedState {
     version: Version,
+    our_instance: InstanceTag,
+    their_instance: InstanceTag,
     keys: KeyManager,
     smp: SMPContext,
 }
@@ -169,6 +178,8 @@ impl ProtocolState for EncryptedState {
         &self,
         host: Rc<dyn Host>,
         version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
@@ -180,6 +191,8 @@ impl ProtocolState for EncryptedState {
         Box::new(EncryptedState::new(
             host,
             version,
+            our_instance,
+            their_instance,
             ssid,
             ctr,
             our_dh,
@@ -200,9 +213,7 @@ impl ProtocolState for EncryptedState {
     }
 
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
-        Ok(OTRMessageType::Data(
-            self.encrypt_message(flags, content),
-        ))
+        Ok(OTRMessageType::Data(self.encrypt_message(flags, content)))
     }
 
     fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
@@ -215,6 +226,8 @@ impl EncryptedState {
     fn new(
         host: Rc<dyn Host>,
         version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
@@ -224,6 +237,8 @@ impl EncryptedState {
         let our_fingerprint = OTR::fingerprint(&host.keypair().public_key());
         Self {
             version,
+            our_instance,
+            their_instance,
             // FIXME spec describes some possible deviations for key-ids/public keys(???)
             // FIXME verify key-ids
             // FIXME need to pass on ctr to keymanager or is next counter predetermined by protocol?
@@ -245,7 +260,9 @@ impl EncryptedState {
         let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &ctr);
         assert!(bytes::any_nonzero(&nonce));
-        let ciphertext = secrets.sender_crypt_key().encrypt(&nonce, plaintext_message);
+        let ciphertext = secrets
+            .sender_crypt_key()
+            .encrypt(&nonce, plaintext_message);
         assert!(bytes::any_nonzero(&ciphertext));
         // TODO the spec says ".. whenever we are about to forget one of our D-H key pairs, ...". Check if implementation satisfies this requiremend.
         let oldmackeys = self.keys.get_used_macs();
@@ -253,17 +270,22 @@ impl EncryptedState {
         assert!(bytes::any_nonzero(&oldmackeys));
 
         // compute authenticator
-        // FIXME wrong calculation of authenticator value!
-        let ta = OTREncoder::new()
-            .write_int(our_keyid)
-            .write_int(receiver_keyid)
-            .write_mpi(&next_dh)
-            .write_ctr(&ctr)
-            .write_data(&ciphertext)
-            .to_vec();
-        assert!(bytes::any_nonzero(&ta));
-        let mac_ta = SHA1::hmac(&secrets.sender_mac_key(), &ta);
-        assert!(bytes::any_nonzero(&mac_ta));
+        let authenticator = SHA1::hmac(
+            &secrets.sender_mac_key(),
+            &OTREncoder::new()
+                .write_short(encode_version(&self.version))
+                .write_byte(OTR_DATA_TYPE_CODE)
+                .write_int(self.our_instance)
+                .write_int(self.their_instance)
+                .write_byte(flags.bits())
+                .write_int(our_keyid)
+                .write_int(receiver_keyid)
+                .write_mpi(&next_dh)
+                .write_ctr(&ctr)
+                .write_data(&ciphertext)
+                .to_vec(),
+        );
+        assert!(bytes::any_nonzero(&authenticator));
 
         DataMessage {
             flags,
@@ -272,7 +294,7 @@ impl EncryptedState {
             dh_y: next_dh,
             ctr,
             encrypted: ciphertext,
-            authenticator: mac_ta,
+            authenticator,
             revealed: oldmackeys,
         }
     }
@@ -288,17 +310,24 @@ impl EncryptedState {
             .to_vec();
         let secrets = OTR::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
         // FIXME wrong calculation of authenticator value!
-        let ta = OTREncoder::new()
-            .write_int(message.sender_keyid)
-            .write_int(message.receiver_keyid)
-            .write_mpi(&message.dh_y)
-            .write_ctr(&message.ctr)
-            .write_data(&message.encrypted)
-            .to_vec();
-        let mac_ta = SHA1::hmac(&secrets.receiver_mac_key(), &ta);
+        let authenticator = SHA1::hmac(
+            &secrets.receiver_mac_key(),
+            &OTREncoder::new()
+                .write_short(encode_version(&self.version))
+                .write_byte(OTR_DATA_TYPE_CODE)
+                .write_int(self.their_instance)
+                .write_int(self.our_instance)
+                .write_byte(message.flags.bits())
+                .write_int(message.sender_keyid)
+                .write_int(message.receiver_keyid)
+                .write_mpi(&message.dh_y)
+                .write_ctr(&message.ctr)
+                .write_data(&message.encrypted)
+                .to_vec(),
+        );
         // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."
-        constant::verify(&message.authenticator, &mac_ta)
+        constant::verify(&message.authenticator, &authenticator)
             .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         self.keys.verify_counter(&message.ctr)?;
@@ -311,7 +340,9 @@ impl EncryptedState {
         self.keys
             .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;
         // finally, return the message
-        Ok(secrets.receiver_crypt_key().decrypt(&nonce, &message.encrypted))
+        Ok(secrets
+            .receiver_crypt_key()
+            .decrypt(&nonce, &message.encrypted))
     }
 
     fn parse_message(&self, raw_content: &[u8]) -> Result<UserMessage, OTRError> {
@@ -355,6 +386,8 @@ impl ProtocolState for FinishedState {
         &self,
         host: Rc<dyn Host>,
         version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
         ssid: SSID,
         ctr: CTR,
         our_dh: DH::Keypair,
@@ -366,6 +399,8 @@ impl ProtocolState for FinishedState {
         Box::new(EncryptedState::new(
             host,
             version,
+            our_instance,
+            their_instance,
             ssid,
             ctr,
             our_dh,
