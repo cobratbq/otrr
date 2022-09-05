@@ -6,7 +6,7 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType, OTREncoder,
+        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType, OTREncoder,
         OTRMessageType, CTR_LEN,
     },
     fragment::{self, FragmentError},
@@ -210,7 +210,7 @@ impl Account {
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
         // TODO verify possible versions against supported (non-blocked) versions.
         let msg = MessageType::QueryMessage(accepted_versions);
-        self.host.inject(&encode(&msg));
+        self.host.inject(&encode_message(&msg));
     }
 
     pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
@@ -378,7 +378,7 @@ impl Instance {
                     },
                     msg @ Ok(_) => msg,
                     err @ Err(OTRError::UnreadableMessage) => {
-                        self.host.inject(&encode(&MessageType::ErrorMessage(
+                        self.host.inject(&encode_message(&MessageType::ErrorMessage(
                             Vec::from("unreadable message")
                         )));
                         if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
@@ -428,7 +428,7 @@ impl Instance {
                         self.state.status()
                     )
                 }
-                Ok(encode(&MessageType::PlaintextMessage(message)))
+                Ok(encode_message(&MessageType::PlaintextMessage(message)))
             }
             message @ OTRMessageType::DHCommit(_)
             | message @ OTRMessageType::DHKey(_)

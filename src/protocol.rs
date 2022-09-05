@@ -5,8 +5,8 @@ use num_bigint::BigUint;
 use crate::{
     crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
-        encode_version, DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder,
-        OTRMessageType, CTR, OTR_DATA_TYPE_CODE, SSID, TLV,
+        encode_authenticator_data, DataMessage, Fingerprint, MessageFlags,
+        OTRDecoder, OTREncoder, OTRMessageType, CTR, MAC_LEN, SSID, TLV,
     },
     instancetag::InstanceTag,
     keymanager::KeyManager,
@@ -269,34 +269,33 @@ impl EncryptedState {
         assert_eq!(oldmackeys.len() % 20, 0);
         assert!(bytes::any_nonzero(&oldmackeys));
 
-        // compute authenticator
-        let authenticator = SHA1::hmac(
-            &secrets.sender_mac_key(),
-            &OTREncoder::new()
-                .write_short(encode_version(&self.version))
-                .write_byte(OTR_DATA_TYPE_CODE)
-                .write_int(self.our_instance)
-                .write_int(self.their_instance)
-                .write_byte(flags.bits())
-                .write_int(our_keyid)
-                .write_int(receiver_keyid)
-                .write_mpi(&next_dh)
-                .write_ctr(&ctr)
-                .write_data(&ciphertext)
-                .to_vec(),
-        );
-        assert!(bytes::any_nonzero(&authenticator));
-
-        DataMessage {
+        // Create data message without valid authenticator.
+        let mut data_message = DataMessage {
             flags,
             sender_keyid: our_keyid,
             receiver_keyid,
             dh_y: next_dh,
             ctr,
             encrypted: ciphertext,
-            authenticator,
+            authenticator: [0u8; MAC_LEN],
             revealed: oldmackeys,
-        }
+        };
+
+        // Generate authenticator for data message, then update data message with correct
+        // authenticator.
+        let authenticator = SHA1::hmac(
+            &secrets.sender_mac_key(),
+            &encode_authenticator_data(
+                &self.version,
+                self.our_instance,
+                self.their_instance,
+                &data_message,
+            ),
+        );
+        assert!(bytes::any_nonzero(&authenticator));
+        data_message.authenticator = authenticator;
+
+        data_message
     }
 
     fn decrypt_message(&mut self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
@@ -309,21 +308,14 @@ impl EncryptedState {
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
         let secrets = OTR::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
-        // FIXME wrong calculation of authenticator value!
         let authenticator = SHA1::hmac(
             &secrets.receiver_mac_key(),
-            &OTREncoder::new()
-                .write_short(encode_version(&self.version))
-                .write_byte(OTR_DATA_TYPE_CODE)
-                .write_int(self.their_instance)
-                .write_int(self.our_instance)
-                .write_byte(message.flags.bits())
-                .write_int(message.sender_keyid)
-                .write_int(message.receiver_keyid)
-                .write_mpi(&message.dh_y)
-                .write_ctr(&message.ctr)
-                .write_data(&message.encrypted)
-                .to_vec(),
+            &encode_authenticator_data(
+                &self.version,
+                self.their_instance,
+                self.our_instance,
+                &message,
+            ),
         );
         // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."

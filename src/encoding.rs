@@ -53,7 +53,7 @@ const OTR_DH_COMMIT_TYPE_CODE: u8 = 0x02;
 const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
 const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
 const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
-pub const OTR_DATA_TYPE_CODE: u8 = 0x03;
+const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
 // TODO over all necessary writes, do usize size-of assertions. (or use type-aliasing to ensure appropriate size)
 // TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
@@ -382,7 +382,7 @@ pub fn encode_otr_message(
     receiver: InstanceTag,
     message: OTRMessageType,
 ) -> Vec<u8> {
-    encode(&MessageType::EncodedMessage(EncodedMessage {
+    encode_message(&MessageType::EncodedMessage(EncodedMessage {
         version,
         sender,
         receiver,
@@ -390,7 +390,7 @@ pub fn encode_otr_message(
     }))
 }
 
-pub fn encode(msg: &MessageType) -> Vec<u8> {
+pub fn encode_message(msg: &MessageType) -> Vec<u8> {
     let mut buffer = Vec::<u8>::new();
     match msg {
         MessageType::ErrorMessage(error) => {
@@ -450,7 +450,27 @@ pub fn encode(msg: &MessageType) -> Vec<u8> {
     }
 }
 
-pub fn encode_version(version: &Version) -> u16 {
+pub fn encode_authenticator_data(
+    version: &Version,
+    sender: InstanceTag,
+    receiver: InstanceTag,
+    message: &DataMessage,
+) -> Vec<u8> {
+    OTREncoder::new()
+        .write_short(encode_version(version))
+        .write_byte(OTR_DATA_TYPE_CODE)
+        .write_int(sender)
+        .write_int(receiver)
+        .write_byte(message.flags.bits())
+        .write_int(message.sender_keyid)
+        .write_int(message.receiver_keyid)
+        .write_mpi(&message.dh_y)
+        .write_ctr(&message.ctr)
+        .write_data(&message.encrypted)
+        .to_vec()
+}
+
+fn encode_version(version: &Version) -> u16 {
     match version {
         Version::None => 0,
         Version::V3 => 3,
