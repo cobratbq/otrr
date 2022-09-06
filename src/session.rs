@@ -7,7 +7,7 @@ use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
         encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
-        OTREncoder, OTRMessageType, CTR_LEN,
+        OTREncoder, OTRMessageType,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -46,6 +46,9 @@ impl Account {
     pub fn sessions(&self) -> Vec<InstanceTag> {
         let mut sessions = Vec::<InstanceTag>::new();
         for k in self.instances.keys() {
+            if *k == INSTANCE_ZERO {
+                continue;
+            }
             sessions.push(*k);
         }
         sessions
@@ -137,6 +140,9 @@ impl Account {
                     return Ok(UserMessage::None);
                 }
                 self.verify_encoded_message(&msg)?;
+                // FIXME if encoded message is DH-Key message, this could be the first opportunity to discover the instance tag of the other party, so we need to copy the in-progress AKE from instance ZERO to that instance tag.
+                // FIXME DH-Key may be received multiple times.
+                // FIXME check how to respond if AKE initiated, then DH-Key reveals instance tag for Encrypted/Finished session?
                 // FIXME at some point, need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
                 // FIXME in case of unreadable message, also send OTR Error message to other party
                 self.instances
@@ -331,10 +337,8 @@ impl Instance {
                     .handle_reveal_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 // FIXME handle errors and inject response.
-                // FIXME ensure proper, verified transition to confidential session.
-                let ctr = [0u8; CTR_LEN];
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
-                    encoded_message.sender, ssid, ctr, our_dh, their_dh, their_dsa);
+                    encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.details.tag,
@@ -349,10 +353,8 @@ impl Instance {
                     .ake
                     .handle_signature(msg)
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
-                // FIXME ensure proper, verified transition to confidential session.
-                let ctr = [0u8; CTR_LEN];
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
-                    encoded_message.sender, ssid, ctr, our_dh, their_dh, their_dsa);
+                    encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted)
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
@@ -431,7 +433,7 @@ impl Instance {
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!
     fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
-        let plaintext = utils::std::bytes::drop_by_value(&plaintext, 0u8);
+        let plaintext = utils::std::bytes::drop_by_value(&plaintext, 0);
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             OTRMessageType::Undefined(message) => {

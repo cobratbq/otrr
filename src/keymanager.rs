@@ -201,6 +201,7 @@ impl PublicKeyRotation {
         }
     }
 
+    // TODO use verification where appropriate.
     fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
         assert_ne!(0, key_id);
         let idx = key_id as usize % NUM_KEYS;
