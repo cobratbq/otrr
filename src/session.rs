@@ -6,8 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType, OTREncoder,
-        OTRMessageType, CTR_LEN,
+        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
+        OTREncoder, OTRMessageType, CTR_LEN,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -37,6 +37,18 @@ impl Account {
             }),
             instances: collections::HashMap::new(),
         }
+    }
+
+    /// sessions returns a list of known instance tags (i.e. sessions). The session may be in any
+    /// state of the protocol, i.e. MSGSTATE_PLAINTEXT, MSGSTATE_ENCRYPTED, MSGSTATE_FINISHED.
+    /// However, the fact that a session (known by instance tag) exists, means that this instance
+    /// tag was once revealed.
+    pub fn sessions(&self) -> Vec<InstanceTag> {
+        let mut sessions = Vec::<InstanceTag>::new();
+        for k in self.instances.keys() {
+            sessions.push(*k);
+        }
+        sessions
     }
 
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
@@ -174,7 +186,7 @@ impl Account {
                     "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
                 ));
             } else if self.details.policy.contains(Policy::SEND_WHITESPACE_TAG) {
-                // TODO modify message to include whitespace-tag if not already sent. See spec for details.
+                // TODO add logic for sending whitespace-tagged message to probe for OTR capabilities. (Send until receiving a follow-up plaintext message, then assume Alice is either not capable or not interested.)
             }
         }
         // "If msgstate is MSGSTATE_ENCRYPTED:
@@ -209,6 +221,7 @@ impl Account {
 
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
         // TODO verify possible versions against supported (non-blocked) versions.
+        // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
         let msg = MessageType::QueryMessage(accepted_versions);
         self.host.inject(&encode_message(&msg));
     }
@@ -443,6 +456,7 @@ impl Instance {
         }
     }
 
+    // TODO delegate to here from Account instance.
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
@@ -460,6 +474,7 @@ impl Instance {
         ))
     }
 
+    // TODO delegate to here from Account instance.
     fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
         let smp = self.state.smp();
         if smp.is_err() {

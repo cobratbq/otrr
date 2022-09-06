@@ -54,7 +54,7 @@ pub mod DH {
         Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
-        if public_key >= &*GENERATOR && public_key <= &MODULUS_MINUS_TWO {
+        if public_key >= &*GENERATOR && public_key <= &*MODULUS_MINUS_TWO {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
@@ -222,7 +222,7 @@ pub mod OTR {
         //  collisions, and DSA keys have length less than 524281 bits (500 times larger than most
         //  DSA keys), no two public keys will have the same fingerprint."
         let pk_encoded = &OTREncoder::new().write_public_key(pk).to_vec()[2..];
-        // TODO use 20-byte byte-representation, or 40-byte hex representation in memory?
+        // TODO using 20-byte representation in memory, but spec documents 40-byte hex-string.
         SHA1::digest(&pk_encoded)
     }
 
@@ -339,6 +339,7 @@ pub mod DSA {
         }
 
         pub fn sign(&self, digest_bytes: &[u8; 32]) -> Result<Signature, CryptoError> {
+            // TODO ensure that digest_bytes themselves are signed, instead of first hashed!
             let sig = self
                 .sk
                 .sign_digest(ModQHash::new().chain_update(digest_bytes));

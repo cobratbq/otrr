@@ -161,8 +161,9 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     let mut result = Vec::new();
     for i in (0..data.len()).step_by(8) {
         match &data[i..i + 8] {
-            WHITESPACE_TAG_OTRV1 => { /* ignore OTRv1 tag, unsupported version */ }
-            WHITESPACE_TAG_OTRV2 => { /* ignore OTRv2 tag, unsupported version */ }
+            WHITESPACE_TAG_OTRV1 | WHITESPACE_TAG_OTRV2 => {
+                /* ignore OTRv2 tag, unsupported version */
+            }
             WHITESPACE_TAG_OTRV3 => result.push(Version::V3),
             _ => { /* ignore unknown tags */ }
         }
@@ -444,7 +445,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
             buffer.extend(encode_base64(
                 OTREncoder::new().write_encodable(encoded_message).to_vec(),
             ));
-            buffer.push(b'.');
+            buffer.extend_from_slice(OTR_ENCODED_SUFFIX);
             buffer
         }
     }
