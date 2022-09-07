@@ -6,8 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
-        OTREncoder, OTRMessageType,
+        encode_message, encode_otr_message, parse, DHKeyMessage, EncodedMessage, MessageFlags,
+        MessageType, OTREncoder, OTRMessageType,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -136,15 +136,18 @@ impl Account {
                 Ok(UserMessage::None)
             }
             MessageType::EncodedMessage(msg) => {
+                // FIXME in case of unreadable message, also send OTR Error message to other party
+                self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
-                self.verify_encoded_message(&msg)?;
-                // FIXME if encoded message is DH-Key message, this could be the first opportunity to discover the instance tag of the other party, so we need to copy the in-progress AKE from instance ZERO to that instance tag.
-                // FIXME DH-Key may be received multiple times.
-                // FIXME check how to respond if AKE initiated, then DH-Key reveals instance tag for Encrypted/Finished session?
-                // FIXME at some point, need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
-                // FIXME in case of unreadable message, also send OTR Error message to other party
+                if let OTRMessageType::DHKey(message) = &msg.message {
+                    // FIXME this could be the first opportunity to discover the instance tag of the other party, so we need to copy the in-progress AKE from instance ZERO to that instance tag.
+                    // FIXME DH-Key may be received multiple times.
+                    // FIXME how to respond if AKE initiated, then DH-Key reveals instance tag for Encrypted/Finished session?
+                    // FIXME need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
+                    // FIXME how to respond if instance already is confidential session
+                }
                 self.instances
                     .get_mut(&msg.sender)
                     .ok_or(OTRError::UnknownInstance)?
@@ -161,12 +164,33 @@ impl Account {
         }
     }
 
-    fn verify_encoded_message(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
-        if msg.receiver > INSTANCE_ZERO && msg.receiver != self.details.tag {
-            return Err(OTRError::MessageForOtherInstance);
-        } else if let OTRMessageType::DHCommit(_) = msg.message {
+    fn verify_encoded_message_header(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
+        match msg.version {
+            Version::None => {
+                return Err(OTRError::ProtocolViolation(
+                    "Encoded message must always have a protocol version.",
+                ))
+            }
+            Version::Unsupported(version) => return Err(OTRError::UnsupportedVersion(version)),
+            Version::V3 => { /* This is acceptable. */ }
+        }
+        instancetag::verify_instance_tag(msg.sender).or(Err(OTRError::ProtocolViolation(
+            "Sender instance tag is illegal value",
+        )))?;
+        if msg.sender == INSTANCE_ZERO {
+            return Err(OTRError::ProtocolViolation("Sender instance tag is zero"));
+        }
+        instancetag::verify_instance_tag(msg.receiver).or(Err(OTRError::ProtocolViolation(
+            "Receiver instance tag is illegal value",
+        )))?;
+        if let OTRMessageType::DHCommit(_) = msg.message {
             // allow receiver tag zero for DH-Commit message
-        } else {
+        } else if msg.receiver == INSTANCE_ZERO {
+            return Err(OTRError::ProtocolViolation(
+                "Receiver instance tag is zero.",
+            ));
+        }
+        if msg.receiver > INSTANCE_ZERO && msg.receiver != self.details.tag {
             return Err(OTRError::MessageForOtherInstance);
         }
         Ok(())
