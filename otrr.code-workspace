@@ -13,7 +13,8 @@
 	"extensions": {
 		"recommendations": [
 			"wayou.vscode-todo-highlight",
-			"matklad.rust-analyzer"
-		]
+			"EditorConfig.EditorConfig",
+			"matklad.rust-analyzer",
+		],
 	}
 }
