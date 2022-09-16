@@ -49,6 +49,24 @@ impl AKEContext {
         }))
     }
 
+    pub fn transfer(&mut self, src: &Self) -> Result<(), AKEError> {
+        // FIXME verify that transfer-destination state is correct
+        match &src.state {
+            AKEState::AwaitingDHKey(state) => {
+                self.state = AKEState::AwaitingDHKey(AwaitingDHKey {
+                    our_dh_keypair: state.our_dh_keypair.clone(),
+                    r: state.r.clone(),
+                });
+                Ok(())
+            }
+            AKEState::None
+            | AKEState::AwaitingRevealSignature(_)
+            | AKEState::AwaitingSignature(_) => {
+                panic!("BUG: transfer initiated in wrong source AKE state.")
+            }
+        }
+    }
+
     pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None => self.handle_dhcommit_from_initial(msg),
