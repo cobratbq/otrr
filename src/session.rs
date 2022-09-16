@@ -177,10 +177,7 @@ impl Account {
                     return Ok(UserMessage::None);
                 }
                 // FIXME ensure correct instance is found even if above case for DH-Key message is true.
-                self.instances
-                    .get_mut(&msg.sender)
-                    .ok_or(OTRError::UnknownInstance)?
-                    .handle(msg)
+                self.get_instance(&msg.sender)?.handle(msg)
             }
         }
     }
@@ -271,11 +268,9 @@ impl Account {
             .initiate(version)
     }
 
-    pub fn end(&mut self, receiver: InstanceTag) -> Result<UserMessage, OTRError> {
-        self.instances
-            .get_mut(&receiver)
-            .ok_or(OTRError::UnknownInstance)?
-            .reset()
+    pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
+        // TODO same as `reset`, should we merge and somehow make clear in api that `reset`/`end` has two functions?
+        self.get_instance(&instance)?.reset()
     }
 
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
@@ -286,10 +281,30 @@ impl Account {
     }
 
     pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
+        self.get_instance(&instance)?.reset()
+    }
+
+    pub fn start_smp(
+        &mut self,
+        instance: InstanceTag,
+        secret: &[u8],
+        question: &[u8],
+    ) -> Result<(), OTRError> {
+        let message = self.get_instance(&instance)?.start_smp(secret, question)?;
+        self.host.inject(&message);
+        Ok(())
+    }
+
+    pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
+        let message = self.get_instance(&instance)?.abort_smp()?;
+        self.host.inject(&message);
+        Ok(())
+    }
+
+    fn get_instance(&mut self, instance: &InstanceTag) -> Result<&mut Instance, OTRError> {
         self.instances
             .get_mut(&instance)
-            .ok_or(OTRError::UnknownInstance)?
-            .reset()
+            .ok_or(OTRError::UnknownInstance)
     }
 
     /// has_encrypted_sessions checks if any instances have established or finished an OTR session.
