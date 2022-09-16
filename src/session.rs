@@ -6,8 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags,
-        MessageType, OTREncoder, OTRMessageType,
+        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
+        OTREncoder, OTRMessageType,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -135,34 +135,46 @@ impl Account {
                 }
                 Ok(UserMessage::None)
             }
-            MessageType::EncodedMessage(msg) => {
+            MessageType::EncodedMessage(
+                msg @ EncodedMessage {
+                    version: _,
+                    sender: _,
+                    receiver: INSTANCE_ZERO,
+                    message: OTRMessageType::DHKey(_),
+                },
+            ) => {
+                // When a DH-Commit message was sent with receiver tag ZERO, then we may receive
+                // any number of DH-Key messages in response. That is, a DH-Key message for each
+                // client of the account that receives the DH-Commit message. (Potentially even
+                // after the fact if client OTR plug-in incorrectly responds to history (replay)
+                // of chat.
                 // FIXME in case of unreadable message, also send OTR Error message to other party
                 self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
-                if let OTRMessageType::DHKey(message) = &msg.message {
-                    // TODO allowing replies from multiple instances on single DH-Commit message: reuse of CTR value for same symmetric key r, opens up avenue to single (malicious) client responding multiple times (either with same instance tag, or with different instance tags). This means that they can respond, knowing the `r` value and therefore the DH public key. Opens up possibility for brute-forcing by spamming DH-Key messages from single malicious instance? Probably need to reinitiate with targeted message to DH-Key sender instance tag(?) to prevent multiple responses.
-                    // When a DH-Commit message was sent with receiver tag ZERO, then we may receive
-                    // any number of DH-Key messages in response. That is, a DH-Key message for each
-                    // client of the account that receives the DH-Commit message. (Potentially even
-                    // after the fact if client OTR plug-in incorrectly responds to history (replay)
-                    // of chat.
-                    // FIXME this could be the first opportunity to discover the instance tag of the other party, so we need to copy the in-progress AKE from instance ZERO to that instance tag.
-                    // FIXME DH-Key may be received multiple times.
-                    // FIXME detect when response is to "old" DH-Commit message.
-                    let main = self.instances.get(&INSTANCE_ZERO).unwrap();
-                    let instance = self.instances.entry(msg.sender).or_insert_with(|| {
-                        Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
-                    });
-                    if instance.status() == ProtocolStatus::Plaintext {
-                        instance.transfer_akecontext(main);
-                        // FIXME continue here
-                        // FIXME need to clone the AKE state to the sender instance-tag once we have the actual tag (i.s.o. zero-tag) to continue establishing instance-personalized session.
-                    } else {
-                        // FIXME how to respond if AKE initiated, then DH-Key reveals instance tag for Encrypted/Finished session?
-                        // FIXME how to respond if instance already is confidential session
-                    }
+                // TODO allowing replies from multiple instances (different instances, repeats/replays) on single DH-Commit message: reuse of CTR value for same symmetric key r, opens up avenue to single (malicious) client responding multiple times (either with same instance tag, or with different instance tags). This means that they can respond, knowing the `r` value and therefore the DH public key. Opens up possibility for brute-forcing by spamming DH-Key messages from single malicious instance? Probably need to reinitiate with targeted message to DH-Key sender instance tag(?) to prevent multiple responses.
+                // TODO DH-Key may be received multiple times. (reuse of `r`, dh-key)
+                let result_context = self
+                    .instances
+                    .get(&INSTANCE_ZERO)
+                    .unwrap()
+                    .transfer_akecontext();
+                // TODO do we transfer in all cases?
+                let instance = self.instances.entry(msg.sender).or_insert_with(|| {
+                    Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
+                });
+                if let Ok(context) = result_context {
+                    // TODO how to respond if AKE is already initiated (i.e. in-progress)?
+                    // TODO how to respond if instance already is confidential session (or finished)?
+                    instance.adopt_akecontext(context);
+                }
+                instance.handle(msg)
+            }
+            MessageType::EncodedMessage(msg) => {
+                self.verify_encoded_message_header(&msg)?;
+                if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
+                    return Ok(UserMessage::None);
                 }
                 // FIXME ensure correct instance is found even if above case for DH-Key message is true.
                 self.instances
@@ -337,8 +349,14 @@ impl Instance {
         Ok(UserMessage::None)
     }
 
-    fn transfer_akecontext(&mut self, source: &Instance) -> Result<(), OTRError> {
-        self.ake.transfer(&source.ake).or_else(|err| Err(OTRError::AuthenticationError(err)))
+    fn transfer_akecontext(&self) -> Result<AKEContext, OTRError> {
+        self.ake
+            .transfer()
+            .or_else(|err| Err(OTRError::AuthenticationError(err)))
+    }
+
+    fn adopt_akecontext(&mut self, context: AKEContext) {
+        self.ake = context;
     }
 
     // TODO can we use top-level std::panic::catch_unwind for catching/diagnosing unexpected failures?

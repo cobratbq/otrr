@@ -49,21 +49,19 @@ impl AKEContext {
         }))
     }
 
-    pub fn transfer(&mut self, src: &Self) -> Result<(), AKEError> {
+    pub fn transfer(&self) -> Result<AKEContext, AKEError> {
         // FIXME verify that transfer-destination state is correct
-        match &src.state {
-            AKEState::AwaitingDHKey(state) => {
-                self.state = AKEState::AwaitingDHKey(AwaitingDHKey {
+        match &self.state {
+            AKEState::AwaitingDHKey(state) => Ok(Self {
+                host: Rc::clone(&self.host),
+                state: AKEState::AwaitingDHKey(AwaitingDHKey {
                     our_dh_keypair: state.our_dh_keypair.clone(),
                     r: state.r.clone(),
-                });
-                Ok(())
-            }
+                }),
+            }),
             AKEState::None
             | AKEState::AwaitingRevealSignature(_)
-            | AKEState::AwaitingSignature(_) => {
-                panic!("BUG: transfer initiated in wrong source AKE state.")
-            }
+            | AKEState::AwaitingSignature(_) => Err(AKEError::IncorrectState),
         }
     }
 
@@ -527,4 +525,5 @@ pub enum AKEError {
     MessageIncomplete,
     /// AKE completed and no response message is produced/necessary.
     Completed,
+    IncorrectState,
 }
