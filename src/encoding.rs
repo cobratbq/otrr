@@ -635,18 +635,6 @@ impl<'a> OTRDecoder<'a> {
         self.0 = &self.0[len..];
         Ok(TLV(typ, data))
     }
-
-    pub fn read_fingerprint(&mut self) -> Result<Fingerprint, OTRError> {
-        // FIXME should fingerprint be decoded from 40-byte hexadecimal representation?
-        if self.0.len() < FINGERPRINT_LEN {
-            return Err(OTRError::IncompleteMessage);
-        }
-        let mut fingerprint = [0u8; FINGERPRINT_LEN];
-        fingerprint.clone_from_slice(&self.0[..FINGERPRINT_LEN]);
-        self.0 = &self.0[FINGERPRINT_LEN..];
-        Ok(fingerprint)
-    }
-
     /// read_bytes_null_terminated reads bytes until a NULL-byte is found or the buffer is empty.
     /// The NULL-byte is consumed, but will not be returned in the result. If no NULL-byte is
     /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
@@ -770,12 +758,6 @@ impl OTREncoder {
     pub fn write_bytes_null_terminated(&mut self, data: &[u8]) -> &mut Self {
         self.buffer.extend_from_slice(data);
         self.buffer.push(0u8);
-        self
-    }
-
-    pub fn write_fingerprint(&mut self, fingerprint: &Fingerprint) -> &mut Self {
-        // FIXME should fingerprint be encoded as 40-byte hexadecimal representation?
-        self.buffer.extend_from_slice(fingerprint);
         self
     }
 
