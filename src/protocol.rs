@@ -8,7 +8,7 @@ use crate::{
         encode_authenticator_data, DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder,
         OTRMessageType, MAC_LEN, SSID, TLV,
     },
-    instancetag::InstanceTag,
+    instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
     utils::std::{bytes, slice},
@@ -20,6 +20,7 @@ pub trait ProtocolState {
     fn version(&self) -> Version;
     /// handle processes a received message in accordance with the active protocol state.
     // TODO check but I believe we should also handle plaintext message for state correction purposes.
+    // FIXME consider not returning a UserMessage here, but some convenient intermediate format.
     fn handle(
         &mut self,
         msg: &DataMessage,
@@ -27,6 +28,7 @@ pub trait ProtocolState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     );
+    // TODO review to check that `secure` functions all have same quality of implementation/delegation
     fn secure(
         &self,
         host: Rc<dyn Host>,
@@ -69,7 +71,7 @@ impl ProtocolState for PlaintextState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        (Err(OTRError::UnreadableMessage), None)
+        (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
     fn secure(
@@ -158,7 +160,7 @@ impl ProtocolState for EncryptedState {
             // TODO check if just plaintext or contains OTR protocol directions, ...
             // TODO carefully inspect possible state transitions, now assumes None.
             Ok(plaintext) => match self.parse_message(&plaintext) {
-                msg @ Ok(UserMessage::ConfidentialSessionFinished) => {
+                msg @ Ok(UserMessage::ConfidentialSessionFinished(_)) => {
                     (msg, Some(Box::new(FinishedState {})))
                 }
                 msg @ Ok(_) => (msg, None),
@@ -166,7 +168,7 @@ impl ProtocolState for EncryptedState {
             },
             Err(_) => {
                 // TODO consider logging the details of the error message, but for the client it is not relevant
-                (Err(OTRError::UnreadableMessage), None)
+                (Err(OTRError::UnreadableMessage(self.their_instance)), None)
             }
         }
     }
@@ -340,9 +342,9 @@ impl EncryptedState {
         // TODO add logic for handling SMP
         if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
             // TODO strictly speaking there may be a user-readable message that we do to return to the client. (Spec does not strictly say this is a use case to consider.)
-            Ok(UserMessage::ConfidentialSessionFinished)
+            Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO))
         } else {
-            Ok(UserMessage::Confidential(content, tlvs))
+            Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs))
         }
     }
 }
@@ -365,7 +367,7 @@ impl ProtocolState for FinishedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        (Err(OTRError::UnreadableMessage), None)
+        (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
     fn secure(

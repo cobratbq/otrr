@@ -2,6 +2,7 @@ use authentication::AKEError;
 use bitflags::bitflags;
 use crypto::{CryptoError, DSA};
 use encoding::TLV;
+use instancetag::InstanceTag;
 
 extern crate aes_ctr;
 extern crate base64;
@@ -19,11 +20,11 @@ mod authentication;
 mod crypto;
 mod encoding;
 mod fragment;
-mod instancetag;
 mod keymanager;
 mod protocol;
 mod smp;
 
+pub mod instancetag;
 pub mod session;
 
 // TODO early implementation assumptions:
@@ -57,19 +58,19 @@ pub enum UserMessage {
     // TODO under what circumstances should the error message abort anything in-progress and fall back to unencrypted/finished state?
     Error(Vec<u8>),
     /// Message state reset to "plaintext". (by user action)
-    Reset,
+    Reset(InstanceTag),
     /// Confidential session started, transitioned to "encrypted" state.
-    ConfidentialSessionStarted,
+    ConfidentialSessionStarted(InstanceTag),
     /// Message for user received over confidential OTR transport.
-    Confidential(Vec<u8>, Vec<TLV>),
+    Confidential(InstanceTag, Vec<u8>, Vec<TLV>),
     /// Confidential session ended, transitioned to "finished" state. (Session ended by other
     /// party.)
-    ConfidentialSessionFinished,
+    ConfidentialSessionFinished(InstanceTag),
     /// SMP process succeeded, signaling the client that authenticity is verified.
-    SMPSucceeded,
+    SMPSucceeded(InstanceTag),
     /// SMP process failed, signaling the client that some final concluion was reached.
     // TODO consider carrying the reason for the failure, but may contain technical details, so may be better queried at `smp`.
-    SMPFailed,
+    SMPFailed(InstanceTag),
 }
 
 /// OTRError is the enum containing the various errors that can occur.
@@ -81,11 +82,11 @@ pub enum OTRError {
     /// Message payload is incomplete. The message cannot be reconstructed from the received bytes.
     IncompleteMessage,
     /// Encrypted message is unreadable due to loss of keys and/or wrong protocol state.
-    UnreadableMessage,
+    UnreadableMessage(InstanceTag),
     /// An OTR message was received that is intended for a different instance (client).
     MessageForOtherInstance,
     /// Message to be sent to an unknown instance. (FIXME need to check with spec on details)
-    UnknownInstance,
+    UnknownInstance(InstanceTag),
     // FIXME not sure if this is the way to go...
     /// No acceptable version available in proposed protocol versions.
     NoAcceptableVersion,

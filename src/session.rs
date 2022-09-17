@@ -177,7 +177,7 @@ impl Account {
                     return Ok(UserMessage::None);
                 }
                 // FIXME ensure correct instance is found even if above case for DH-Key message is true.
-                self.get_instance(&msg.sender)?.handle(msg)
+                self.get_instance(msg.sender)?.handle(msg)
             }
         }
     }
@@ -230,7 +230,7 @@ impl Account {
         let instance = self
             .instances
             .get_mut(&instance)
-            .ok_or(OTRError::UnknownInstance)?;
+            .ok_or(OTRError::UnknownInstance(instance))?;
         // "If msgstate is MSGSTATE_PLAINTEXT:"
         if instance.status() == ProtocolStatus::Plaintext {
             if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -270,7 +270,7 @@ impl Account {
 
     pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
         // TODO same as `reset`, should we merge and somehow make clear in api that `reset`/`end` has two functions?
-        self.get_instance(&instance)?.reset()
+        self.get_instance(instance)?.reset()
     }
 
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
@@ -281,7 +281,7 @@ impl Account {
     }
 
     pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        self.get_instance(&instance)?.reset()
+        self.get_instance(instance)?.reset()
     }
 
     pub fn start_smp(
@@ -290,21 +290,22 @@ impl Account {
         secret: &[u8],
         question: &[u8],
     ) -> Result<(), OTRError> {
-        let message = self.get_instance(&instance)?.start_smp(secret, question)?;
+        let message = self.get_instance(instance)?.start_smp(secret, question)?;
         self.host.inject(&message);
         Ok(())
     }
 
     pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
-        let message = self.get_instance(&instance)?.abort_smp()?;
+        let message = self.get_instance(instance)?.abort_smp()?;
         self.host.inject(&message);
         Ok(())
     }
 
-    fn get_instance(&mut self, instance: &InstanceTag) -> Result<&mut Instance, OTRError> {
+    // TODO this function has nasty detail that borrow checker sees these calls as a persistent mutable borrow. This unnecessarily limits flexibility. Can we do something with lifetimes to avoid this?
+    fn get_instance(&mut self, instance: InstanceTag) -> Result<&mut Instance, OTRError> {
         self.instances
             .get_mut(&instance)
-            .ok_or(OTRError::UnknownInstance)
+            .ok_or(OTRError::UnknownInstance(instance))
     }
 
     /// has_encrypted_sessions checks if any instances have established or finished an OTR session.
@@ -423,7 +424,7 @@ impl Instance {
                     encoded_message.sender,
                     response,
                 ));
-                Ok(UserMessage::ConfidentialSessionStarted)
+                Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Signature(msg) => {
@@ -433,7 +434,7 @@ impl Instance {
                     .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
-                Ok(UserMessage::ConfidentialSessionStarted)
+                Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Data(msg) => {
@@ -445,42 +446,51 @@ impl Instance {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(UserMessage::Confidential(content, tlvs)) => {
+                    Ok(UserMessage::Confidential(_, _, tlvs)) if tlvs.iter().any(|tlv| smp::is_smp_tlv(tlv)) => {
+                        // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
-                        if let Some(tlv) = tlvs.iter().find(|t| smp::is_smp_tlv(&t)) {
-                            // Socialist Millionaire Protocol (SMP)
-                            if let Some(reply_tlv) = self.state.smp().unwrap().handle(tlv) {
-                                let otr_message = self.state.prepare(
-                                    MessageFlags::IGNORE_UNREADABLE,
-                                    &OTREncoder::new()
-                                        .write_byte(0)
-                                        .write_tlv(reply_tlv)
-                                        .to_vec())?;
-                                self.host.inject(&encode_otr_message(self.state.version(),
-                                    self.details.tag, self.receiver, otr_message));
-                            }
-                            match self.state.smp().unwrap().status() {
-                                SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
-                                SMPStatus::InProgress => Ok(UserMessage::None),
-                                SMPStatus::Success => Ok(UserMessage::SMPSucceeded),
-                                SMPStatus::Aborted(_) => Ok(UserMessage::SMPFailed),
-                            }
-                        } else {
-                            Ok(UserMessage::Confidential(content, tlvs))
+                        let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(&t)).unwrap();
+                        // Socialist Millionaire Protocol (SMP) handling.
+                        if let Some(reply_tlv) = self.state.smp().unwrap().handle(tlv) {
+                            let otr_message = self.state.prepare(
+                                MessageFlags::IGNORE_UNREADABLE,
+                                &OTREncoder::new()
+                                    .write_byte(0)
+                                    .write_tlv(reply_tlv)
+                                    .to_vec())?;
+                            self.host.inject(&encode_otr_message(self.state.version(),
+                                self.details.tag, self.receiver, otr_message));
                         }
-                    },
+                        match self.state.smp().unwrap().status() {
+                            SMPStatus::InProgress => Ok(UserMessage::None),
+                            SMPStatus::Success => Ok(UserMessage::SMPSucceeded(self.receiver)),
+                            SMPStatus::Aborted(_) => Ok(UserMessage::SMPFailed(self.receiver)),
+                            SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
+                        }
+                    }
+                    // TODO following three patterns are there only to replace 0 instance tag value with actual receiver value.
+                    Ok(UserMessage::ConfidentialSessionStarted(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionStarted(self.receiver)),
+                    Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
+                    Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
                     msg @ Ok(_) => msg,
-                    err @ Err(OTRError::UnreadableMessage) => {
+                    Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
+                        // TODO check which error message is relevant.
                         self.host.inject(&encode_message(&MessageType::ErrorMessage(
                             Vec::from("unreadable message")
                         )));
-                        if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
-                            Ok(UserMessage::None)
-                        } else {
-                            err
-                        }
+                        Ok(UserMessage::None)
                     }
-                    err @ Err(_) => err,
+                    Err(OTRError::UnreadableMessage(_)) => {
+                        // FIXME now only responding with error for Unreadable Message, but which other errors need response with error message?
+                        self.host.inject(&encode_message(&MessageType::ErrorMessage(
+                            Vec::from("unreadable message")
+                        )));
+                        Err(OTRError::UnreadableMessage(self.receiver))
+                    }
+                    err @ Err(_) => {
+                        // TODO do all these errors require Error Message response to other party?
+                        err
+                    }
                 }
             }
             OTRMessageType::Undefined(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
@@ -506,7 +516,7 @@ impl Instance {
                 msg,
             ));
         }
-        Ok(UserMessage::Reset)
+        Ok(UserMessage::Reset(self.receiver))
     }
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!

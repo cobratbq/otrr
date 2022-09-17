@@ -104,8 +104,8 @@ impl SMPContext {
         let (a2, a3) = (random(), random());
         let g2a = g1.modpow(&a2, MOD);
         let g3a = g1.modpow(&a3, MOD);
-        let (r2, r3) = (random(), random());
 
+        let (r2, r3) = (random(), random());
         let c2 = hash_1_mpi(1, &g1.modpow(&r2, MOD));
         let D2 = (&r2 - &a2 * &c2).mod_floor(q);
         let c3 = hash_1_mpi(2, &g1.modpow(&r3, MOD));
