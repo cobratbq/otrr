@@ -637,6 +637,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_fingerprint(&mut self) -> Result<Fingerprint, OTRError> {
+        // FIXME should fingerprint be decoded from 40-byte hexadecimal representation?
         if self.0.len() < FINGERPRINT_LEN {
             return Err(OTRError::IncompleteMessage);
         }
@@ -644,16 +645,6 @@ impl<'a> OTRDecoder<'a> {
         fingerprint.clone_from_slice(&self.0[..FINGERPRINT_LEN]);
         self.0 = &self.0[FINGERPRINT_LEN..];
         Ok(fingerprint)
-    }
-
-    pub fn read_ssid(&mut self) -> Result<SSID, OTRError> {
-        if self.0.len() < SSID_LEN {
-            return Err(OTRError::IncompleteMessage);
-        }
-        let mut ssid = [0u8; SSID_LEN];
-        ssid.clone_from_slice(&self.0[..SSID_LEN]);
-        self.0 = &self.0[SSID_LEN..];
-        Ok(ssid)
     }
 
     /// read_bytes_null_terminated reads bytes until a NULL-byte is found or the buffer is empty.
@@ -783,12 +774,8 @@ impl OTREncoder {
     }
 
     pub fn write_fingerprint(&mut self, fingerprint: &Fingerprint) -> &mut Self {
+        // FIXME should fingerprint be encoded as 40-byte hexadecimal representation?
         self.buffer.extend_from_slice(fingerprint);
-        self
-    }
-
-    pub fn write_ssid(&mut self, ssid: &SSID) -> &mut Self {
-        self.buffer.extend_from_slice(ssid);
         self
     }
 
