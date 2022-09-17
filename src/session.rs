@@ -446,7 +446,7 @@ impl Instance {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(UserMessage::Confidential(_, _, tlvs)) if tlvs.iter().any(|tlv| smp::is_smp_tlv(tlv)) => {
+                    Ok(UserMessage::Confidential(_, _, tlvs)) if smp::any_smp_tlv(&tlvs) => {
                         // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                         let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(&t)).unwrap();

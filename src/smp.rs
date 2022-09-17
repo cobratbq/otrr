@@ -12,6 +12,10 @@ use crate::{
 };
 use DH::MODULUS;
 
+pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
+    tlvs.iter().any(|tlv| is_smp_tlv(tlv))
+}
+
 pub fn is_smp_tlv(tlv: &TLV) -> bool {
     TLV_TYPES.contains(&tlv.0)
 }
