@@ -335,7 +335,6 @@ struct Instance {
 // TODO check rest of code for design-goal to have choices made in `Session` as much as possible.
 impl Instance {
     fn new(details: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
-        // FIXME include both our and their tags for repeated use?
         Self {
             details,
             receiver,

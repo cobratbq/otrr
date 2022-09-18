@@ -10,11 +10,11 @@ use crate::{crypto::DH, encoding::KeyID, OTRError};
 pub struct KeyManager {
     ours: KeypairRotation,
     theirs: PublicKeyRotation,
-    ctr: Counter,
+    our_ctr: Counter,
+    their_ctr: Counter,
     oldmacs: Vec<u8>,
 }
 
-// TODO double-check counter reset logic.
 impl KeyManager {
     pub fn new(ours: (KeyID, DH::Keypair), theirs: (KeyID, BigUint)) -> Self {
         assert_ne!(0, ours.0);
@@ -26,7 +26,8 @@ impl KeyManager {
             // "This should monotonically increase (as a big-endian value) for
             // each message sent with the same (sender keyid, recipient keyid)
             // pair, and must not be all 0x00."
-            ctr: Counter::new(),
+            our_ctr: Counter::new(),
+            their_ctr: Counter::new(),
             oldmacs: Vec::new(),
         }
     }
@@ -45,7 +46,7 @@ impl KeyManager {
 
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         if self.ours.acknowledge(key_id)? {
-            self.ctr.reset();
+            self.reset_counters();
         }
         Ok(())
     }
@@ -66,18 +67,17 @@ impl KeyManager {
 
     pub fn register_their_key(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
         if self.theirs.register(key_id, key)? {
-            self.ctr.reset();
+            self.reset_counters();
         }
         Ok(())
     }
 
-    pub fn verify_counter(&self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
-        self.ctr.verify(ctr)
+    pub fn verify_counter(&mut self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
+        self.their_ctr.verify(ctr)
     }
 
-    // FIXME something in the use of the counter is wrong: should the value be shared between parties? Or keep two counter-values, one for receiving and one for sending?
     pub fn take_counter(&mut self) -> [u8; COUNTER_HALF_LEN] {
-        self.ctr.take()
+        self.our_ctr.take()
     }
 
     pub fn reveal_mac(&mut self, mac: &[u8]) {
@@ -88,6 +88,11 @@ impl KeyManager {
         let reveal_macs = std::mem::take(&mut self.oldmacs);
         assert_eq!(self.oldmacs.len(), 0);
         reveal_macs
+    }
+
+    fn reset_counters(&mut self) {
+        self.our_ctr.reset();
+        self.their_ctr.reset();
     }
 }
 
@@ -201,19 +206,6 @@ impl PublicKeyRotation {
         }
     }
 
-    // TODO use verification where appropriate.
-    fn verify(&self, key_id: KeyID, public_key: BigUint) -> Result<(), OTRError> {
-        assert_ne!(0, key_id);
-        let idx = key_id as usize % NUM_KEYS;
-        return if self.keys[idx] == public_key {
-            Ok(())
-        } else {
-            Err(OTRError::ProtocolViolation(
-                "Failed to verify DH public key with local key cache.",
-            ))
-        };
-    }
-
     /// Register next DH public key. Result `true` indicates a new key was registered, `false`
     /// indicates the key was already known.
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
@@ -243,6 +235,11 @@ impl PublicKeyRotation {
     }
 }
 
+/// Counter represents either the sending or receiving counter. The counter value is required to be
+/// strictly greater than zero. The invariant is uphold in the proper logic sequences for verifying
+/// and taking the value:
+/// - verify: requires value to be strictly greater than internal state
+/// - take: increments internal state before providing value as result
 struct Counter([u8; COUNTER_HALF_LEN]);
 
 // TODO confirm correct type and sizes
@@ -255,14 +252,17 @@ impl Counter {
         self.0 = COUNTER_INITIAL_VALUE;
     }
 
-    fn verify(&self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
+    fn verify(&mut self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
         if utils::std::bytes::all_zero(ctr) {
             return Err(OTRError::ProtocolViolation(
                 "Counter-value cannot be all-zero.",
             ));
         }
         match utils::std::bytes::cmp(ctr, &self.0) {
-            Ordering::Greater => Ok(()),
+            Ordering::Greater => {
+                self.0 = *ctr;
+                Ok(())
+            }
             Ordering::Less | Ordering::Equal => {
                 Err(OTRError::ProtocolViolation("Counter value must be strictly larger than previous value."))
             }
@@ -277,6 +277,7 @@ impl Counter {
             if carry {
                 continue;
             }
+            assert!(utils::std::bytes::any_nonzero(&result));
             return result;
         }
         // TODO This is very unlikely to happen, so just panic and make this a problem for the future.
@@ -284,7 +285,9 @@ impl Counter {
     }
 }
 
-const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 1];
+// NOTE: see invariant: we initialize to zero such that verify/take can work with strict larger
+// value than internal state.
+const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 0];
 const COUNTER_HALF_LEN: usize = 8;
 
 #[cfg(test)]

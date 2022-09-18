@@ -221,9 +221,8 @@ pub mod OTR {
         //  hashed. The encoding assures that, assuming the hash function itself has no useful
         //  collisions, and DSA keys have length less than 524281 bits (500 times larger than most
         //  DSA keys), no two public keys will have the same fingerprint."
-        let pk_encoded = &OTREncoder::new().write_public_key(pk).to_vec()[2..];
         // TODO using 20-byte representation in memory, but spec documents 40-byte hex-string.
-        SHA1::digest(&pk_encoded)
+        SHA1::digest(&OTREncoder::new().write_public_key(pk).to_vec()[2..])
     }
 
     /// mod_inv is a modular-inverse implementation.
