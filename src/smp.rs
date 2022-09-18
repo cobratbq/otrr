@@ -40,9 +40,7 @@ const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
 const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
-// FIXME introduce status with indicator of whether or not SMP failed, in progress, succeeded, unknown.
 pub struct SMPContext {
-    // FIXME review need for status once implementation is redesigned.
     status: SMPStatus,
     state: SMPState,
     ssid: SSID,

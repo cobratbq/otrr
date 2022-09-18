@@ -148,9 +148,6 @@ impl ProtocolState for EncryptedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        // sanity-checking incoming message content
-        // FIXME can we actually validate the counter-value against local data?
-        assert!(bytes::any_nonzero(&msg.ctr));
         // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
         assert_eq!(msg.revealed.len() % 20, 0);
         assert!(msg.revealed.len() == 0 || bytes::any_nonzero(&msg.revealed));
@@ -158,7 +155,6 @@ impl ProtocolState for EncryptedState {
         match self.decrypt_message(msg) {
             // TODO carefully inspect possible state transitions, now assumes None.
             // TODO check if just plaintext or contains OTR protocol directions, ...
-            // TODO carefully inspect possible state transitions, now assumes None.
             Ok(plaintext) => match self.parse_message(&plaintext) {
                 msg @ Ok(UserMessage::ConfidentialSessionFinished(_)) => {
                     (msg, Some(Box::new(FinishedState {})))
@@ -219,7 +215,6 @@ impl ProtocolState for EncryptedState {
 }
 
 impl EncryptedState {
-    // FIXME what to do with ctr here (haven't bothered to look it up. Do we reuse or create new CTR value?)
     fn new(
         host: Rc<dyn Host>,
         version: Version,
@@ -237,7 +232,6 @@ impl EncryptedState {
             their_instance,
             // FIXME spec describes some possible deviations for key-ids/public keys(???)
             // FIXME verify key-ids
-            // FIXME need to pass on ctr to keymanager or is next counter predetermined by protocol?
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
             smp: SMPContext::new(Rc::clone(&host), ssid, our_fingerprint, their_fingerprint),
         }

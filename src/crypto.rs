@@ -47,9 +47,7 @@ pub mod DH {
     /// Modulus - 2
     const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
 
-    // FIXME verify correct modulus is used in all D-value calculations (Q i.s.o. DH::MODULUS)
     // "D values are calculated modulo `q = (p - 1) / 2`"
-    // FIXME why should we clone this value??????
     pub const Q: Lazy<BigUint> =
         Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
 
@@ -418,7 +416,6 @@ pub mod DSA {
     ///
     /// Supports initialization only for 28 and 32 byte output sizes,
     /// i.e. 224 and 256 bits respectively.
-    // FIXME continue implementation
     #[derive(Clone)]
     struct ModQHash([u8; MOD_Q_HASH_LENGTH]);
 
