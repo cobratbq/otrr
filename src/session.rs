@@ -99,7 +99,7 @@ impl Account {
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
         // FIXME we need to route non-OTR-encoded message through the session too, so that the session instance can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
-        match parse(&payload)? {
+        match parse(payload)? {
             MessageType::ErrorMessage(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
                     self.query(vec![Version::V3]);
@@ -107,9 +107,7 @@ impl Account {
                 Ok(UserMessage::Error(error))
             }
             MessageType::PlaintextMessage(content) => {
-                if self.has_sessions() {
-                    Ok(UserMessage::WarningUnencrypted(content))
-                } else if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
+                if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else {
                     Ok(UserMessage::Plaintext(content))
@@ -121,9 +119,7 @@ impl Account {
                         self.initiate(selected, None)?;
                     }
                 }
-                if self.has_sessions() {
-                    Ok(UserMessage::WarningUnencrypted(content))
-                } else if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
+                if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else {
                     Ok(UserMessage::Plaintext(content))
@@ -182,7 +178,7 @@ impl Account {
         }
     }
 
-    fn select_version(&self, versions: &Vec<Version>) -> Option<Version> {
+    fn select_version(&self, versions: &[Version]) -> Option<Version> {
         if versions.contains(&Version::V3) && self.details.policy.contains(Policy::ALLOW_V3) {
             Some(Version::V3)
         } else {
@@ -351,10 +347,7 @@ impl Instance {
 
     fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
         assert_eq!(version, Version::V3);
-        let msg = self
-            .ake
-            .initiate()
-            .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+        let msg = self.ake.initiate().map_err(OTRError::AuthenticationError)?;
         self.host.inject(&encode_otr_message(
             self.ake.version(),
             self.details.tag,
@@ -365,9 +358,7 @@ impl Instance {
     }
 
     fn transfer_akecontext(&self) -> Result<AKEContext, OTRError> {
-        self.ake
-            .transfer()
-            .or_else(|err| Err(OTRError::AuthenticationError(err)))
+        self.ake.transfer().map_err(OTRError::AuthenticationError)
     }
 
     fn adopt_akecontext(&mut self, context: AKEContext) {
@@ -386,8 +377,7 @@ impl Instance {
             OTRMessageType::DHCommit(msg) => {
                 let response = self
                     .ake
-                    .handle_dhcommit(msg)
-                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+                    .handle_dhcommit(msg).map_err(OTRError::AuthenticationError)?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.details.tag,
@@ -399,8 +389,7 @@ impl Instance {
             OTRMessageType::DHKey(msg) => {
                 let response = self
                     .ake
-                    .handle_dhkey(msg)
-                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+                    .handle_dhkey(msg).map_err(OTRError::AuthenticationError)?;
                 self.host.inject(&encode_otr_message(
                     Version::V3,
                     self.details.tag,
@@ -412,8 +401,7 @@ impl Instance {
             OTRMessageType::RevealSignature(msg) => {
                 let (CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa}, response) = self
                     .ake
-                    .handle_reveal_signature(msg)
-                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+                    .handle_reveal_signature(msg).map_err(OTRError::AuthenticationError)?;
                 // FIXME handle errors and inject response.
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
@@ -429,8 +417,7 @@ impl Instance {
             OTRMessageType::Signature(msg) => {
                 let CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa} = self
                     .ake
-                    .handle_signature(msg)
-                    .or_else(|err| Err(OTRError::AuthenticationError(err)))?;
+                    .handle_signature(msg).map_err(OTRError::AuthenticationError)?;
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
@@ -448,7 +435,7 @@ impl Instance {
                     Ok(UserMessage::Confidential(_, _, tlvs)) if smp::any_smp_tlv(&tlvs) => {
                         // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
-                        let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(&t)).unwrap();
+                        let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(t)).unwrap();
                         // Socialist Millionaire Protocol (SMP) handling.
                         if let Some(reply_tlv) = self.state.smp().unwrap().handle(tlv) {
                             let otr_message = self.state.prepare(
@@ -520,7 +507,7 @@ impl Instance {
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!
     fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
-        let plaintext = utils::std::bytes::drop_by_value(&plaintext, 0);
+        let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             OTRMessageType::Undefined(message) => {

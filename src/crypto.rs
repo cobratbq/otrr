@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use once_cell::sync::Lazy;
 use ring::rand::SystemRandom;
 
-const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+const RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
 // TODO verify implementation
@@ -85,10 +85,7 @@ pub mod DH {
 
         pub fn new_custom(generator: &BigUint, private: BigUint) -> Self {
             let public = generator.modpow(&private, &*MODULUS);
-            Self {
-                private,
-                public,
-            }
+            Self { private, public }
         }
 
         pub fn generate_shared_secret(&self, public_key: &BigUint) -> SharedSecret {
@@ -142,16 +139,16 @@ pub mod OTR {
     impl AKESecrets {
         /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
         pub fn derive(secbytes: &[u8]) -> AKESecrets {
-            let h2secret0 = h2(0x00, &secbytes);
-            let h2secret1 = h2(0x01, &secbytes);
+            let h2secret0 = h2(0x00, secbytes);
+            let h2secret1 = h2(0x01, secbytes);
             AKESecrets {
                 ssid: h2secret0[..8].try_into().unwrap(),
                 c: AES128::Key(h2secret1[..16].try_into().unwrap()),
                 cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
-                m1: h2(0x02, &secbytes),
-                m2: h2(0x03, &secbytes),
-                m1p: h2(0x04, &secbytes),
-                m2p: h2(0x05, &secbytes),
+                m1: h2(0x02, secbytes),
+                m2: h2(0x03, secbytes),
+                m1p: h2(0x04, secbytes),
+                m2p: h2(0x05, secbytes),
             }
         }
     }
@@ -209,7 +206,7 @@ pub mod OTR {
     fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
-        return SHA256::digest(&bytes);
+        SHA256::digest(&bytes)
     }
 
     pub fn fingerprint(pk: &DSA::PublicKey) -> [u8; 20] {
@@ -242,15 +239,15 @@ pub mod AES128 {
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
     };
-    use once_cell::sync::Lazy;
-    use ring::rand::{SecureRandom, SystemRandom};
+    
+    use ring::rand::SecureRandom;
     use std::ops::Drop;
+
+    use super::RAND;
 
     const KEY_LENGTH: usize = 16;
 
     type Nonce = [u8; 16];
-
-    const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
 
     #[derive(Clone)]
     pub struct Key(pub [u8; KEY_LENGTH]);
@@ -276,7 +273,7 @@ pub mod AES128 {
             let mut result = Vec::from(data);
             let key = GenericArray::from_slice(&self.0);
             let nonce = GenericArray::from_slice(nonce);
-            let mut cipher = Aes128Ctr::new(&key, &nonce);
+            let mut cipher = Aes128Ctr::new(key, nonce);
             cipher.apply_keystream(result.as_mut_slice());
             result
         }
@@ -372,11 +369,7 @@ pub mod DSA {
         pub fn verify(&self, signature: &Signature, digest: &[u8]) -> Result<(), CryptoError> {
             self.0
                 .verify_digest(ModQHash::new().chain_update(digest), &signature.0)
-                .or_else(|_| {
-                    Err(CryptoError::VerificationFailure(
-                        "signature verification failed",
-                    ))
-                })
+                .map_err(|_| CryptoError::VerificationFailure("signature verification failed"))
         }
 
         pub fn p(&self) -> &BigUint {
@@ -444,7 +437,7 @@ pub mod DSA {
 
     impl FixedOutputReset for ModQHash {
         fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
-            let bytes = ModQHash::finalize(&self);
+            let bytes = ModQHash::finalize(self);
             utils::std::slice::copy(out, &bytes);
             Reset::reset(self);
         }

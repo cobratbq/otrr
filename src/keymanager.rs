@@ -62,7 +62,7 @@ impl KeyManager {
     pub fn take_shared_secret(&self) -> BigUint {
         let (_, keypair) = self.ours.current();
         let (_, their_pk) = self.theirs.current();
-        keypair.generate_shared_secret(&their_pk)
+        keypair.generate_shared_secret(their_pk)
     }
 
     pub fn register_their_key(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
@@ -211,7 +211,7 @@ impl PublicKeyRotation {
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
         assert_ne!(0, next_id);
         assert_ne!(*ZERO, next_key);
-        return if self.id == next_id {
+        if self.id == next_id {
             // TODO probably needs constant-time comparison
             // TODO sanity-check if key is same as we already know?
             if self.keys[(self.id as usize) % NUM_KEYS] == next_key {
@@ -231,7 +231,7 @@ impl PublicKeyRotation {
             Err(OTRError::ProtocolViolation(
                 "Unexpected next DH public key ID",
             ))
-        };
+        }
     }
 }
 

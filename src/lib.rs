@@ -110,7 +110,7 @@ pub enum OTRError {
     PolicyRestriction(&'static str),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum ProtocolStatus {
     Plaintext,
     Encrypted,

@@ -69,7 +69,7 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let data = decode_base64(&data)?;
+    let data = decode_base64(data)?;
     let mut decoder = OTRDecoder(&data);
     let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
@@ -79,19 +79,19 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let sender: InstanceTag = decoder.read_instance_tag()?;
     let receiver: InstanceTag = decoder.read_instance_tag()?;
     let encoded = parse_encoded_content(message_type, decoder)?;
-    return Result::Ok(MessageType::EncodedMessage(EncodedMessage {
-        version: version,
-        sender: sender,
-        receiver: receiver,
+    Result::Ok(MessageType::EncodedMessage(EncodedMessage {
+        version,
+        sender,
+        receiver,
         message: encoded,
-    }));
+    }))
 }
 
 fn parse_encoded_content(
     message_type: u8,
     mut decoder: OTRDecoder,
 ) -> Result<OTRMessageType, OTRError> {
-    return match message_type {
+    match message_type {
         OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessageType::DHCommit(DHCommitMessage::decode(
             &mut decoder,
         )?)),
@@ -106,7 +106,7 @@ fn parse_encoded_content(
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type.",
         )),
-    };
+    }
 }
 
 fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
@@ -116,7 +116,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
             &data[OTR_ERROR_PREFIX.len()..],
         )));
     }
-    if let Some(caps) = QUERY_PATTERN.captures(data) {
+    if let Some(caps) = (&*QUERY_PATTERN).captures(data) {
         let versions = caps
             .get(QUERY_GROUP_VERSIONS)
             .expect("BUG: hard-coded regex should contain capture group for versions");
@@ -144,8 +144,10 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         ));
     }
     // TODO search for multiple occurrences?
-    if let Some(caps) = WHITESPACE_PATTERN.captures(data) {
-        let cleaned = WHITESPACE_PATTERN.replace_all(data, b"".as_ref()).to_vec();
+    if let Some(caps) = (&*WHITESPACE_PATTERN).captures(data) {
+        let cleaned = (&*WHITESPACE_PATTERN)
+            .replace_all(data, b"".as_ref())
+            .to_vec();
         let cap = caps
             .get(WHITESPACE_GROUP_TAGS)
             .expect("BUG: hard-coded regex should include capture group");
@@ -168,7 +170,7 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
             _ => { /* ignore unknown tags */ }
         }
     }
-    return result;
+    result
 }
 
 // TODO it would probably make more sense for some of the types to accept '&[u8]'-style content
@@ -351,9 +353,9 @@ impl DataMessage {
             flags: MessageFlags::from_bits(decoder.read_byte()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
             sender_keyid: utils::std::u32::nonzero(decoder.read_int()?)
-                .ok_or_else(|| OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
+                .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
             receiver_keyid: utils::std::u32::nonzero(decoder.read_int()?)
-                .ok_or_else(|| OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
+                .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
             dh_y: decoder.read_mpi()?,
             ctr: decoder.read_ctr()?,
             encrypted: decoder.read_data()?,
@@ -497,7 +499,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// read_byte reads a single byte from buffer.
     pub fn read_byte(&mut self) -> Result<u8, OTRError> {
-        if self.0.len() < 1 {
+        if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
         }
         let value = self.0[0];
@@ -510,7 +512,7 @@ impl<'a> OTRDecoder<'a> {
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = (self.0[0] as u16) << 8 + self.0[1] as u16;
+        let value = (self.0[0] as u16) << (8 + self.0[1] as u16);
         self.0 = &self.0[2..];
         Ok(value)
     }
@@ -599,8 +601,7 @@ impl<'a> OTRDecoder<'a> {
         let q = self.read_mpi()?;
         let g = self.read_mpi()?;
         let y = self.read_mpi()?;
-        DSA::PublicKey::from_components(p, q, g, y)
-            .or_else(|err| Err(OTRError::CryptographicViolation(err)))
+        DSA::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
     }
 
     /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
@@ -618,7 +619,7 @@ impl<'a> OTRDecoder<'a> {
 
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
         let mut tlvs = Vec::new();
-        while self.0.len() > 0 {
+        while !self.0.is_empty() {
             tlvs.push(self.read_tlv()?);
         }
         Ok(tlvs)
@@ -663,7 +664,7 @@ pub struct OTREncoder {
 
 impl OTREncoder {
     pub fn new() -> Self {
-        return Self { buffer: Vec::new() };
+        Self { buffer: Vec::new() }
     }
 
     pub fn write(&mut self, raw_bytes: &[u8]) -> &mut Self {
@@ -733,10 +734,10 @@ impl OTREncoder {
 
     pub fn write_public_key(&mut self, key: &DSA::PublicKey) -> &mut Self {
         self.write_short(0)
-            .write_mpi(&key.p())
-            .write_mpi(&key.q())
-            .write_mpi(&key.g())
-            .write_mpi(&key.y())
+            .write_mpi(key.p())
+            .write_mpi(key.q())
+            .write_mpi(key.g())
+            .write_mpi(key.y())
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {

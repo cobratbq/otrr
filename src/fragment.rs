@@ -23,9 +23,8 @@ const FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
 
 // TODO match matches OTRv2 prefix but parsing does not handling OTRv2 fragments, so somewhere we need to handle.
 pub fn match_fragment(content: &[u8]) -> bool {
-    return (content.starts_with(OTR_FRAGMENT_V2_PREFIX)
-        || content.starts_with(OTR_FRAGMENT_V3_PREFIX))
-        && content.ends_with(OTR_FRAGMENT_SUFFIX);
+    (content.starts_with(OTR_FRAGMENT_V2_PREFIX) || content.starts_with(OTR_FRAGMENT_V3_PREFIX))
+        && content.ends_with(OTR_FRAGMENT_SUFFIX)
 }
 
 pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
@@ -44,16 +43,14 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
             .or(Err(FragmentError::InvalidData))?,
         receiver: verify_instance_tag(utils::std::u32::from_4byte_be(&receiver_bytes))
             .or(Err(FragmentError::InvalidData))?,
-        part: u16::from_str_radix(
-            std::str::from_utf8(captures.get(3).unwrap().as_bytes()).unwrap(),
-            10,
-        )
-        .unwrap(),
-        total: u16::from_str_radix(
-            std::str::from_utf8(captures.get(4).unwrap().as_bytes()).unwrap(),
-            10,
-        )
-        .unwrap(),
+        part: std::str::from_utf8(captures.get(3).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap(),
+        total: std::str::from_utf8(captures.get(4).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap(),
         payload: Vec::from(captures.get(5).unwrap().as_bytes()),
     });
 }

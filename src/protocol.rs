@@ -49,7 +49,7 @@ pub trait ProtocolState {
 }
 
 pub fn new_state() -> Box<dyn ProtocolState> {
-    return Box::new(PlaintextState {});
+    Box::new(PlaintextState {})
 }
 
 // TODO review public access for various state structs
@@ -86,7 +86,7 @@ impl ProtocolState for PlaintextState {
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
         let their_fingerprint = OTR::fingerprint(&their_dsa);
-        return Box::new(EncryptedState::new(
+        Box::new(EncryptedState::new(
             host,
             version,
             our_instance,
@@ -95,7 +95,7 @@ impl ProtocolState for PlaintextState {
             our_dh,
             their_dh,
             their_fingerprint,
-        ));
+        ))
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
@@ -150,7 +150,7 @@ impl ProtocolState for EncryptedState {
     ) {
         // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
         assert_eq!(msg.revealed.len() % 20, 0);
-        assert!(msg.revealed.len() == 0 || bytes::any_nonzero(&msg.revealed));
+        assert!(msg.revealed.is_empty() || bytes::any_nonzero(&msg.revealed));
         // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         match self.decrypt_message(msg) {
             // TODO carefully inspect possible state transitions, now assumes None.
@@ -246,7 +246,7 @@ impl EncryptedState {
         let shared_secret = self.keys.take_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
         assert!(bytes::any_nonzero(&secbytes));
-        let secrets = OTR::DataSecrets::derive(&our_dh.public, &receiver_key, &secbytes);
+        let secrets = OTR::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &ctr);
         assert!(bytes::any_nonzero(&nonce));
@@ -304,13 +304,13 @@ impl EncryptedState {
                 &self.version,
                 self.their_instance,
                 self.our_instance,
-                &message,
+                message,
             ),
         );
         // TODO do we need to verify dh key against local key cache?
         // "Uses mk to verify MACmk(TA)."
         constant::verify(&message.authenticator, &authenticator)
-            .or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+            .map_err(OTRError::CryptographicViolation)?;
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         self.keys.verify_counter(&message.ctr)?;
         let mut nonce = [0u8; 16];

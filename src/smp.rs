@@ -13,7 +13,7 @@ use crate::{
 use DH::MODULUS;
 
 pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
-    tlvs.iter().any(|tlv| is_smp_tlv(tlv))
+    tlvs.iter().any(is_smp_tlv)
 }
 
 pub fn is_smp_tlv(tlv: &TLV) -> bool {
@@ -38,7 +38,7 @@ const TLV_TYPE_SMP_ABORT: TLVType = 6u16;
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
 const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
-const RAND: Lazy<SystemRandom> = Lazy::new(|| SystemRandom::new());
+const RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 pub struct SMPContext {
     status: SMPStatus,
@@ -230,8 +230,8 @@ impl SMPContext {
 
         // "Verify Alice's zero-knowledge proofs for g2a and g3a:"
         // "1. Check that both g2a and g3a are >= 2 and <= modulus-2."
-        DH::verify_public_key(&g2a).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&g3a).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&g2a).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&g3a).map_err(OTRError::CryptographicViolation)?;
 
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*DH::Q;
@@ -242,14 +242,14 @@ impl SMPContext {
             1,
             &(g1.modpow(&D2, MOD) * g2a.modpow(&c2, MOD)).mod_floor(MOD),
         );
-        DH::verify(&expected_c2, &c2).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&expected_c2, &c2).map_err(OTRError::CryptographicViolation)?;
 
         // "3. Check that c3 = SHA256(2, g1D3 g3ac3)."
         let expected_c3 = hash_1_mpi(
             2,
             &(g1.modpow(&D3, MOD) * g3a.modpow(&c3, MOD)).mod_floor(MOD),
         );
-        DH::verify(&expected_c3, &c3).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&expected_c3, &c3).map_err(OTRError::CryptographicViolation)?;
 
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
         // "1. Determine Bob's secret input y, which is to be compared to Alice's secret x."
@@ -370,10 +370,10 @@ impl SMPContext {
         assert_eq!(mpis.len(), 0);
 
         // "Check that `g2b`, `g3b`, `Pb` and `Qb` are `>= 2 and <= modulus-2`."
-        DH::verify_public_key(&g2b).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&g3b).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&Pb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&Qb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&g2b).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&g3b).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&Pb).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&Qb).map_err(OTRError::CryptographicViolation)?;
 
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*DH::Q;
@@ -384,14 +384,14 @@ impl SMPContext {
             3,
             &(&g1.modpow(&D2, MOD) * &g2b.modpow(&c2, MOD)).mod_floor(MOD),
         );
-        DH::verify(&c2_expected, &c2).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&c2_expected, &c2).map_err(OTRError::CryptographicViolation)?;
 
         // "Check that `c3 = SHA256(4, g1D3 g3bc3)`."
         let c3_expected = hash_1_mpi(
             4,
             &(&g1.modpow(&D3, MOD) * &g3b.modpow(&c3, MOD)).mod_floor(MOD),
         );
-        DH::verify(&c3_expected, &c3).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&c3_expected, &c3).map_err(OTRError::CryptographicViolation)?;
 
         // "Compute `g2 = g2ba2` and `g3 = g3ba3`"
         let g2 = g2b.modpow(&a2, MOD);
@@ -403,7 +403,7 @@ impl SMPContext {
             &(&g3.modpow(&D5, MOD) * &Pb.modpow(&cP, MOD)).mod_floor(MOD),
             &(&g1.modpow(&D5, MOD) * &g2.modpow(&D6, MOD) * &Qb.modpow(&cP, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cP_expected, &cP).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&cP_expected, &cP).map_err(OTRError::CryptographicViolation)?;
 
         // "Create a type 4 TLV (SMP message 3) and send it to Bob:
         //  Pick random exponents `r4`, `r5`, `r6` and `r7`. These will be used to add a blinding
@@ -511,9 +511,9 @@ impl SMPContext {
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
         // Check that Pa, Qa and Ra are >= 2 and <= modulus-2.
-        DH::verify_public_key(&Pa).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&Qa).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
-        DH::verify_public_key(&Ra).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&Pa).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&Qa).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_public_key(&Ra).map_err(OTRError::CryptographicViolation)?;
 
         let MOD: &BigUint = &*MODULUS;
         let q: &BigUint = &*DH::Q;
@@ -525,7 +525,7 @@ impl SMPContext {
             &(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD),
             &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cP, &expected_cP).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&cP, &expected_cP).map_err(OTRError::CryptographicViolation)?;
 
         let QadivQb = (&Qa * &OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
         // Check that cR = SHA256(7, g1**D7 g3a**cR, (Qa / Qb)**D7 Ra**cR).
@@ -534,7 +534,7 @@ impl SMPContext {
             &(&g1.modpow(&D7, MOD) * &g3a.modpow(&cR, MOD)).mod_floor(MOD),
             &(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cR, &expected_cR).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&cR, &expected_cR).map_err(OTRError::CryptographicViolation)?;
 
         // Pick a random exponent r7. This will be used to generate Bob's final zero-knowledge proof
         // that this message was created honestly.
@@ -554,11 +554,11 @@ impl SMPContext {
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
         // FIXME use DH::verify for other expected_xx comparisons.
-        DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
         // TODO need to signal successful finishing protocol with positive/negative result. Also, always send TLV to Alice, even if failure?
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
         let tlv = OTREncoder::new()
-            .write_mpi_sequence(&[&Rb, &cR, &D7])
+            .write_mpi_sequence(&[Rb, &cR, &D7])
             .to_vec();
         // Set smpstate to SMPSTATE_EXPECT1, as no more messages are expected from Alice.
         self.state = SMPState::Expect1;
@@ -614,7 +614,7 @@ impl SMPContext {
 
         // Verify Bob's zero-knowledge proof for Rb:
         // Check that Rb is >= 2 and <= modulus-2.
-        DH::verify_public_key(&Rb).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify_public_key(&Rb).map_err(OTRError::CryptographicViolation)?;
 
         // Check that cR = SHA256(8, g1D7 g3bcR, (Qa / Qb)D7 RbcR).
         let expected_cR = hash_2_mpi(
@@ -622,12 +622,12 @@ impl SMPContext {
             &(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)).mod_floor(MOD),
             &(&QadivQb.modpow(&D7, MOD) * (&Rb.modpow(&cR, MOD))).mod_floor(MOD),
         );
-        DH::verify(&expected_cR, &cR).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&expected_cR, &cR).map_err(OTRError::CryptographicViolation)?;
 
         // Compute Rab = Rba3.
         let Rab = Rb.modpow(&a3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
-        DH::verify(&PadivPb, &Rab).or_else(|err| Err(OTRError::CryptographicViolation(err)))?;
+        DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
         self.state = SMPState::Expect1;
         Err(OTRError::SMPSuccess(None))
     }

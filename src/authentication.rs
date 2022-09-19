@@ -21,7 +21,7 @@ pub struct AKEContext {
 impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
-            host: host,
+            host,
             state: AKEState::None,
         }
     }
@@ -174,8 +174,7 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingDHKey(state) => {
-                DH::verify_public_key(&msg.gy)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                DH::verify_public_key(&msg.gy).map_err(AKEError::CryptographicViolation)?;
                 // Reply with a Reveal Signature Message and transition authstate to
                 // AUTHSTATE_AWAITING_SIG.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
@@ -199,7 +198,7 @@ impl AKEContext {
                 //  hashed again)."
                 let sig_b = dsa_keypair
                     .sign(&m_b)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
@@ -217,9 +216,9 @@ impl AKEContext {
                     })),
                     Some(AKEState::AwaitingSignature(AwaitingSignature {
                         our_dh_keypair: Rc::clone(&state.our_dh_keypair),
-                        gy: msg.gy.clone(),
+                        gy: msg.gy,
                         key: state.r.clone(),
-                        s: s,
+                        s,
                     })),
                 )
             }
@@ -250,7 +249,7 @@ impl AKEContext {
                 );
                 let sig_b = dsa_keypair
                     .sign(&m_b)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
@@ -306,13 +305,12 @@ impl AKEContext {
                 let gxmpi = msg.key.decrypt(&[0u8; 16], &state.gx_encrypted);
                 let gxmpihash = SHA256::digest(&gxmpi);
                 constant::verify(&gxmpihash, &state.gx_hashed)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 // Verify acquired g^x value.
                 let gx = OTRDecoder::new(&gxmpi)
                     .read_mpi()
                     .or(Err(AKEError::MessageIncomplete))?;
-                DH::verify_public_key(&gx)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                DH::verify_public_key(&gx).map_err(AKEError::CryptographicViolation)?;
 
                 // Validate encrypted signature using MAC based on m2, ensuring signature content is unchanged.
                 let s = state.our_dh_keypair.generate_shared_secret(&gx);
@@ -324,7 +322,7 @@ impl AKEContext {
                         .to_vec(),
                 );
                 constant::verify(&expected_signature_mac, &msg.signature_mac)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
 
                 // Acquire Bob's identity material from the encrypted x_b.
                 let x_b = secrets.c.decrypt(&[0u8; 16], &msg.signature_encrypted);
@@ -347,7 +345,7 @@ impl AKEContext {
                 let m_b = SHA256::hmac(&secrets.m1, &m_b_bytes);
                 pub_b
                     .verify(&sig_b, &m_b)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
 
                 let keyid_a = 1u32;
                 let keypair = self.host.keypair();
@@ -362,7 +360,7 @@ impl AKEContext {
                 );
                 let sig_m_a = keypair
                     .sign(&m_a)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
                     .write_int(keyid_a)
@@ -425,7 +423,7 @@ impl AKEContext {
                         .to_vec(),
                 );
                 constant::verify(&msg.signature_mac, &mac)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 let x_a = secrets.cp.decrypt(
                     &[0u8; 16],
                     &OTRDecoder::new(&msg.signature_encrypted)
@@ -452,7 +450,7 @@ impl AKEContext {
                 );
                 pub_a
                     .verify(&sig_m_a, &m_a)
-                    .or_else(|err| Err(AKEError::CryptographicViolation(err)))?;
+                    .map_err(AKEError::CryptographicViolation)?;
                 (
                     Ok(CryptographicMaterial {
                         version: Version::V3,
