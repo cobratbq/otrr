@@ -73,7 +73,9 @@ impl Account {
                 "Illegal or unsupported fragment.",
             )))?;
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
-            if fragment.receiver != self.details.tag && fragment.receiver != INSTANCE_ZERO {
+            if fragment.receiver != self.details.tag {
+                // NOTE: ignore instance tag ZERO as this is only relevant for OTRv2 and we do not
+                // support this.
                 return Err(OTRError::MessageForOtherInstance);
             }
             let details = Rc::clone(&self.details);
@@ -82,8 +84,7 @@ impl Account {
                 .entry(fragment.sender)
                 .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
             return match instance.assembler.assemble(fragment) {
-                // FIXME check whether fragment sender tag corresponds to message sender tag?
-                // FIXME do something after parsing? Immediately delegate to particular instance? Immediately assume EncodedMessage content?
+                // TODO in theory, we could be recursing on a (nested) fragment, which is disallowed by the spec.
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
                 Err(FragmentError::IncompleteResult) => Ok(UserMessage::None),
@@ -98,22 +99,21 @@ impl Account {
         }
         // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
         // TODO consider returning empty vector or error code when message is only intended for OTR internally.
-        // FIXME we need to route non-OTR-encoded message through the session too, so that the session instance can act on plaintext message such as warning user for unencrypted messages in encrypted sessions.
         match parse(payload)? {
-            MessageType::ErrorMessage(error) => {
+            MessageType::Error(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
                     self.query(vec![Version::V3]);
                 }
                 Ok(UserMessage::Error(error))
             }
-            MessageType::PlaintextMessage(content) => {
+            MessageType::Plaintext(content) => {
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else {
                     Ok(UserMessage::Plaintext(content))
                 }
             }
-            MessageType::TaggedMessage(versions, content) => {
+            MessageType::Tagged(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = self.select_version(&versions) {
                         self.initiate(selected, None)?;
@@ -125,13 +125,13 @@ impl Account {
                     Ok(UserMessage::Plaintext(content))
                 }
             }
-            MessageType::QueryMessage(versions) => {
+            MessageType::Query(versions) => {
                 if let Some(selected) = self.select_version(&versions) {
                     self.initiate(selected, None)?;
                 }
                 Ok(UserMessage::None)
             }
-            MessageType::EncodedMessage(
+            MessageType::Encoded(
                 msg @ EncodedMessage {
                     version: _,
                     sender: _,
@@ -167,7 +167,7 @@ impl Account {
                 }
                 instance.handle(msg)
             }
-            MessageType::EncodedMessage(msg) => {
+            MessageType::Encoded(msg) => {
                 self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
@@ -272,7 +272,7 @@ impl Account {
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
         // TODO verify possible versions against supported (non-blocked) versions.
         // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
-        let msg = MessageType::QueryMessage(accepted_versions);
+        let msg = MessageType::Query(accepted_versions);
         self.host.inject(&encode_message(&msg));
     }
 
@@ -461,14 +461,14 @@ impl Instance {
                     msg @ Ok(_) => msg,
                     Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
                         // TODO check which error message is relevant.
-                        self.host.inject(&encode_message(&MessageType::ErrorMessage(
+                        self.host.inject(&encode_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Ok(UserMessage::None)
                     }
                     Err(OTRError::UnreadableMessage(_)) => {
                         // FIXME now only responding with error for Unreadable Message, but which other errors need response with error message?
-                        self.host.inject(&encode_message(&MessageType::ErrorMessage(
+                        self.host.inject(&encode_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Err(OTRError::UnreadableMessage(self.receiver))
@@ -517,7 +517,7 @@ impl Instance {
                         self.state.status()
                     )
                 }
-                Ok(encode_message(&MessageType::PlaintextMessage(message)))
+                Ok(encode_message(&MessageType::Plaintext(message)))
             }
             message @ OTRMessageType::DHCommit(_)
             | message @ OTRMessageType::DHKey(_)

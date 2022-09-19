@@ -171,7 +171,7 @@ impl KeypairRotation {
     }
 }
 
-const ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
+static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
 
 /// Public key rotation, for the other party's public keys.
 struct PublicKeyRotation {

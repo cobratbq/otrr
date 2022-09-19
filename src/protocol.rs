@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::rc::Rc;
 
 use num_bigint::BigUint;
@@ -106,7 +108,7 @@ impl ProtocolState for PlaintextState {
     fn prepare(&mut self, _: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state, therefore we return
         // the content as-is to the caller.
-        // FIXME not sure if this is the best solution
+        // TODO not sure if this is the best solution
         Ok(OTRMessageType::Undefined(Vec::from(content)))
     }
 
@@ -230,8 +232,6 @@ impl EncryptedState {
             version,
             our_instance,
             their_instance,
-            // FIXME spec describes some possible deviations for key-ids/public keys(???)
-            // FIXME verify key-ids
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
             smp: SMPContext::new(Rc::clone(&host), ssid, our_fingerprint, their_fingerprint),
         }

@@ -14,7 +14,7 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
 // TODO for now assuming that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
-const FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
     )
@@ -158,42 +158,42 @@ mod tests {
 
     #[test]
     fn test_is_fragment_empty_string() {
-        assert_eq!(false, match_fragment(b""));
+        assert!(!match_fragment(b""));
     }
 
     #[test]
     fn test_is_fragment_arbitrary_string() {
-        assert_eq!(false, match_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
+        assert!(!match_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
     }
 
     #[test]
     fn test_is_fragment_otrv2_fragment() {
-        assert_eq!(true, match_fragment(b"?OTR,"));
+        assert!(match_fragment(b"?OTR,"));
     }
 
     #[test]
     fn test_is_fragment_otrv3_fragment_incomplete() {
-        assert_eq!(false, match_fragment(b"?OTR|"));
+        assert!(!match_fragment(b"?OTR|"));
     }
 
     #[test]
     fn test_is_fragment_otrv3_fragment() {
-        assert_eq!(true, match_fragment(b"?OTR|,"));
+        assert!(match_fragment(b"?OTR|,"));
     }
 
     #[test]
     fn test_is_fragment_otr_partly_arbitrary() {
-        assert_eq!(false, match_fragment(b"?OTRsomethingrandom,"));
+        assert!(!match_fragment(b"?OTRsomethingrandom,"));
     }
 
     #[test]
     fn test_is_fragment_otr_encoded() {
-        assert_eq!(false, match_fragment(b"?OTR:."));
+        assert!(!match_fragment(b"?OTR:."));
     }
 
     #[test]
     fn test_is_fragment_otr_encoded_mixed() {
-        assert_eq!(false, match_fragment(b"?OTR:,"));
+        assert!(!match_fragment(b"?OTR:,"));
     }
 
     #[test]

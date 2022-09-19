@@ -1,3 +1,7 @@
+#![allow(clippy::unnecessary_unwrap)]
+//#![warn(clippy::something)]
+//#![deny(clippy::something)]
+
 use authentication::AKEError;
 use bitflags::bitflags;
 use crypto::{CryptoError, DSA};
@@ -42,6 +46,7 @@ pub mod session;
 // TODO support messages in backlog for sending when confidential session established?
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
+// TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
 
 /// UserMessage represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.

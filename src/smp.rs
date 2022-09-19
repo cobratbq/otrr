@@ -10,7 +10,6 @@ use crate::{
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     Host, OTRError, TLVType, TLV,
 };
-use DH::MODULUS;
 
 pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
     tlvs.iter().any(is_smp_tlv)
@@ -38,7 +37,7 @@ const TLV_TYPE_SMP_ABORT: TLVType = 6u16;
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
 const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
 
-const RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
+static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 pub struct SMPContext {
     status: SMPStatus,
@@ -49,13 +48,10 @@ pub struct SMPContext {
     host: Rc<dyn Host>,
 }
 
-// TODO review proper use of `mod q` for D-values
-// TODO check values within boundaries (>2, <order)
+// TODO check values within boundaries, for `modulus` and `q` (>2, <order)
 // TODO review proper checking of public keys using verification functions
-// TODO review sufficient use of modulo
-// TODO review consistent naming
-// TODO currently, unexpected SMP messages, i.e. messages that do not match with current state, are handled as normal with: state-reset + OK(ABORT_TLV)
 // TODO log control flow change "abort"?
+// FIXME need to handle any of the values received from the TLV. (e.g. verification of D# values)
 #[allow(non_snake_case)]
 impl SMPContext {
     // TODO provide way to check outcome of SMP, positive (validated) or negative (failure/reset/abort)
@@ -99,9 +95,9 @@ impl SMPContext {
             secret,
         );
 
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
+        let MOD = DH::modulus();
+        let q = DH::q();
+        let g1 = DH::generator();
 
         let (a2, a3) = (random(), random());
         let g2a = g1.modpow(&a2, MOD);
@@ -135,8 +131,6 @@ impl SMPContext {
     ///     This essentially means that very little can go wrong under normal circumstances, even if
     ///     some message manipulation is taken into account.
     pub fn handle(&mut self, tlv: &TLV) -> Option<TLV> {
-        // FIXME on any error, send Abort TLV. (now just returns error)
-        // FIXME need to check return Ok(abort_tlv) vs Err(SMPAborted) vs Err(SMPProtocolViolation)
         // TODO add some assertions for state corresponding to status, for sanity-checking.
         match self.dispatch(tlv) {
             Ok(tlv) => Some(tlv),
@@ -175,6 +169,7 @@ impl SMPContext {
                 Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
             }
             Err(_) => {
+                // Unrecognized error case: this case should not occur.
                 self.state = SMPState::Expect1;
                 self.status = SMPStatus::Aborted(Vec::from(
                     "BUG: unexpected failure: reached default error case, used to mitigate for control flow.",
@@ -233,9 +228,9 @@ impl SMPContext {
         DH::verify_public_key(&g2a).map_err(OTRError::CryptographicViolation)?;
         DH::verify_public_key(&g3a).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
+        let MOD = DH::modulus();
+        let q = DH::q();
+        let g1 = DH::generator();
 
         // "2. Check that c2 = SHA256(1, g1D2 g2ac2)."
         let expected_c2 = hash_1_mpi(
@@ -375,9 +370,9 @@ impl SMPContext {
         DH::verify_public_key(&Pb).map_err(OTRError::CryptographicViolation)?;
         DH::verify_public_key(&Qb).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
+        let MOD = DH::modulus();
+        let q = DH::q();
+        let g1 = DH::generator();
 
         // "Check that `c2 = SHA256(3, g1D2 g2bc2)`."
         let c2_expected = hash_1_mpi(
@@ -515,9 +510,9 @@ impl SMPContext {
         DH::verify_public_key(&Qa).map_err(OTRError::CryptographicViolation)?;
         DH::verify_public_key(&Ra).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD: &BigUint = &*MODULUS;
-        let q: &BigUint = &*DH::Q;
-        let g1 = &*DH::GENERATOR;
+        let MOD = DH::modulus();
+        let q = DH::q();
+        let g1 = DH::generator();
 
         // Check that cP = SHA256(6, g3^D5 Pa^cP, g1^D5 g2^D6 Qa^cP).
         let expected_cP = hash_2_mpi(
@@ -609,8 +604,8 @@ impl SMPContext {
         let Rb = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        let MOD: &BigUint = &*MODULUS;
-        let g1 = &*DH::GENERATOR;
+        let MOD = DH::modulus();
+        let g1 = DH::generator();
 
         // Verify Bob's zero-knowledge proof for Rb:
         // Check that Rb is >= 2 and <= modulus-2.
@@ -664,7 +659,7 @@ enum SMPState {
     },
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum SMPStatus {
     /// Initial status: no SMP session, no activity.
     Initial,
@@ -698,7 +693,7 @@ fn random() -> BigUint {
     (&*RAND)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
-    BigUint::from_bytes_be(&v).mod_floor(&*MODULUS)
+    BigUint::from_bytes_be(&v).mod_floor(DH::modulus())
 }
 
 fn hash_1_mpi(version: u8, mpi1: &BigUint) -> BigUint {

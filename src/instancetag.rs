@@ -6,7 +6,7 @@ use crate::utils;
 pub const INSTANCE_ZERO: InstanceTag = 0;
 pub const INSTANCE_MIN_VALID: InstanceTag = 0x00000100;
 
-const RAND: Lazy<rand::SystemRandom> = Lazy::new(|| rand::SystemRandom::new());
+static RAND: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 
 pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
     if tag > INSTANCE_ZERO && tag < INSTANCE_MIN_VALID {
@@ -23,7 +23,8 @@ pub type InstanceTag = u32;
 pub fn random_tag() -> InstanceTag {
     let mut value = [0u8; 4];
     loop {
-        RAND.fill(&mut value)
+        (&*RAND)
+            .fill(&mut value)
             .expect("Failed to acquire random bytes");
         let num = utils::std::u32::from_4byte_be(&value);
         if num >= INSTANCE_MIN_VALID {

@@ -39,11 +39,11 @@ const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
 
-const QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
 });
 const QUERY_GROUP_VERSIONS: usize = 1;
-const WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*")
         .expect("BUG: failed to compile hard-coded regex-pattern.")
 });
@@ -79,7 +79,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let sender: InstanceTag = decoder.read_instance_tag()?;
     let receiver: InstanceTag = decoder.read_instance_tag()?;
     let encoded = parse_encoded_content(message_type, decoder)?;
-    Result::Ok(MessageType::EncodedMessage(EncodedMessage {
+    Result::Ok(MessageType::Encoded(EncodedMessage {
         version,
         sender,
         receiver,
@@ -112,7 +112,7 @@ fn parse_encoded_content(
 fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
     if data.starts_with(OTR_ERROR_PREFIX) {
         // `?OTR Error:` prefix must start at beginning of message to avoid people messing with OTR in normal plaintext messages.
-        return Ok(MessageType::ErrorMessage(Vec::from(
+        return Ok(MessageType::Error(Vec::from(
             &data[OTR_ERROR_PREFIX.len()..],
         )));
     }
@@ -120,7 +120,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         let versions = caps
             .get(QUERY_GROUP_VERSIONS)
             .expect("BUG: hard-coded regex should contain capture group for versions");
-        return Ok(MessageType::QueryMessage(
+        return Ok(MessageType::Query(
             versions
                 .as_bytes()
                 .iter()
@@ -151,12 +151,12 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         let cap = caps
             .get(WHITESPACE_GROUP_TAGS)
             .expect("BUG: hard-coded regex should include capture group");
-        return Ok(MessageType::TaggedMessage(
+        return Ok(MessageType::Tagged(
             parse_whitespace_tags(cap.as_bytes()),
             cleaned,
         ));
     }
-    Ok(MessageType::PlaintextMessage(data.to_vec()))
+    Ok(MessageType::Plaintext(data.to_vec()))
 }
 
 fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
@@ -175,11 +175,11 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
 
 // TODO it would probably make more sense for some of the types to accept '&[u8]'-style content
 pub enum MessageType {
-    ErrorMessage(Vec<u8>),
-    PlaintextMessage(Vec<u8>),
-    TaggedMessage(Vec<Version>, Vec<u8>),
-    QueryMessage(Vec<Version>),
-    EncodedMessage(EncodedMessage),
+    Error(Vec<u8>),
+    Plaintext(Vec<u8>),
+    Tagged(Vec<Version>, Vec<u8>),
+    Query(Vec<Version>),
+    Encoded(EncodedMessage),
 }
 
 pub struct EncodedMessage {
@@ -385,7 +385,7 @@ pub fn encode_otr_message(
     receiver: InstanceTag,
     message: OTRMessageType,
 ) -> Vec<u8> {
-    encode_message(&MessageType::EncodedMessage(EncodedMessage {
+    encode_message(&MessageType::Encoded(EncodedMessage {
         version,
         sender,
         receiver,
@@ -396,16 +396,16 @@ pub fn encode_otr_message(
 pub fn encode_message(msg: &MessageType) -> Vec<u8> {
     let mut buffer = Vec::<u8>::new();
     match msg {
-        MessageType::ErrorMessage(error) => {
+        MessageType::Error(error) => {
             buffer.extend_from_slice(OTR_ERROR_PREFIX);
             buffer.extend(error);
             buffer
         }
-        MessageType::PlaintextMessage(message) => {
+        MessageType::Plaintext(message) => {
             buffer.extend(message);
             buffer
         }
-        MessageType::TaggedMessage(versions, message) => {
+        MessageType::Tagged(versions, message) => {
             assert!(!versions.is_empty());
             // TODO test for valid versions before adding whitespace-prefix.
             // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
@@ -423,7 +423,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
             buffer.extend(message);
             buffer
         }
-        MessageType::QueryMessage(versions) => {
+        MessageType::Query(versions) => {
             assert!(!versions.is_empty());
             // NOTE: each version listed at most once, in arbitrary order.
             // (Version 1 has deviating syntax but is no longer supported.)
@@ -442,7 +442,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
             buffer.extend_from_slice(OTR_USE_INFORMATION_MESSAGE);
             buffer
         }
-        MessageType::EncodedMessage(encoded_message) => {
+        MessageType::Encoded(encoded_message) => {
             buffer.extend_from_slice(OTR_ENCODED_PREFIX);
             buffer.extend(encode_base64(
                 OTREncoder::new().write_encodable(encoded_message).to_vec(),
@@ -705,21 +705,21 @@ impl OTREncoder {
         self
     }
 
+    /// Write sequence of MPI values in format defined in SMP: num_mpis, mpi1, mpi2, ...
+    pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
+        self.write_int(mpis.len() as u32);
+        for mpi in mpis {
+            self.write_mpi(*mpi);
+        }
+        self
+    }
+
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
         // - 4-byte unsigned len, big-endian
         // - <len> byte unsigned value, big-endian
         // (MPIs must use the minimum-length encoding; i.e. no leading 0x00 bytes. This is important when calculating public key fingerprints.)
         // FIXME this is not guaranteed minimum-length encoding, as it is reversed little-endian(???)
         self.write_data(&v.to_bytes_be())
-    }
-
-    /// Write sequence of MPI values in format defined in SMP: num_mpis, mpi1, mpi2, ...
-    pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
-        self.write_int(mpis.len() as u32);
-        for i in 0..mpis.len() {
-            self.write_mpi(mpis[i]);
-        }
-        self
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {

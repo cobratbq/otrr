@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use once_cell::sync::Lazy;
 use ring::rand::SystemRandom;
 
-const RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
+static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
 // TODO verify implementation
@@ -22,10 +22,10 @@ pub mod DH {
 
     // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
-    pub const GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
     /// Modulus
-    pub const MODULUS: Lazy<BigUint> = Lazy::new(|| {
+    static MODULUS: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_bytes_be(&[
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68,
             0xC2, 0x34, 0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08,
@@ -45,11 +45,22 @@ pub mod DH {
     });
 
     /// Modulus - 2
-    const MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
+    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
 
     // "D values are calculated modulo `q = (p - 1) / 2`"
-    pub const Q: Lazy<BigUint> =
-        Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
+    static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
+
+    pub fn generator() -> &'static BigUint {
+        &*GENERATOR
+    }
+
+    pub fn modulus() -> &'static BigUint {
+        &*MODULUS
+    }
+
+    pub fn q() -> &'static BigUint {
+        &*Q
+    }
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
         if public_key >= &*GENERATOR && public_key <= &*MODULUS_MINUS_TWO {
@@ -69,13 +80,14 @@ pub mod DH {
 
     impl Keypair {
         pub fn generate() -> Self {
-            // FIXME check if generation is reliable, see requirement below.
             // OTR-spec: "When starting a private conversation with a correspondent, generate two DH
             //   key pairs for yourself, and set our_keyid = 2. Note that all DH key pairs should
             //   have a private part that is at least 320 bits long."
             let mut v = [0u8; 192];
-            RAND.fill(&mut v)
+            (&*RAND)
+                .fill(&mut v)
                 .expect("Failed to produce random bytes for random big unsigned integer value.");
+            assert!(utils::std::bytes::any_nonzero(&v));
             Self::new(BigUint::from_bytes_be(&v))
         }
 
@@ -239,7 +251,7 @@ pub mod AES128 {
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
     };
-    
+
     use ring::rand::SecureRandom;
     use std::ops::Drop;
 
@@ -307,7 +319,7 @@ pub mod DSA {
 
     use crate::utils;
 
-    use super::{CryptoError, DH::Q};
+    use super::{CryptoError, DH};
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
     pub const PARAM_Q_LENGTH: usize = 20;
@@ -476,7 +488,9 @@ pub mod DSA {
 
     impl ModQHash {
         fn finalize(&self) -> Vec<u8> {
-            BigUint::from_bytes_be(&self.0).mod_floor(&Q).to_bytes_be()
+            BigUint::from_bytes_be(&self.0)
+                .mod_floor(DH::q())
+                .to_bytes_be()
         }
     }
 }
