@@ -72,6 +72,16 @@ pub mod DH {
         }
     }
 
+    pub fn verify_proof_component(component: &BigUint) -> Result<(), CryptoError> {
+        if component >= &*GENERATOR && component < &*Q {
+            Ok(())
+        } else {
+            Err(CryptoError::VerificationFailure(
+                "DH component for zero-knowledge proof fails verification.",
+            ))
+        }
+    }
+
     #[derive(Clone)]
     pub struct Keypair {
         private: BigUint,
@@ -109,12 +119,52 @@ pub mod DH {
 
     // TODO needs constant-time?
     pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
+        assert!(
+            !std::ptr::eq(expected, actual),
+            "BUG: references provided for verification must be different."
+        );
         if expected == actual {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
                 "Provided values are not equal.",
             ))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use num_bigint::BigUint;
+
+        use super::verify;
+
+        #[test]
+        fn test_verify_homogenous() {
+            let v1 = BigUint::from(7u8);
+            let v2 = BigUint::from(7u8);
+            let v3 = BigUint::from(9u8);
+            assert!(verify(&v1, &v2).is_ok());
+            assert!(verify(&v2, &v1).is_ok());
+            assert!(verify(&v1, &v3).is_err());
+            assert!(verify(&v2, &v3).is_err());
+            assert!(verify(&v3, &v1).is_err());
+            assert!(verify(&v3, &v2).is_err());
+        }
+
+        #[test]
+        fn test_verify_heterogenous() {
+            let v1 = BigUint::from(7u8);
+            let v2 = BigUint::from(7u16);
+            assert!(verify(&v1, &v2).is_ok());
+            assert!(verify(&v2, &v1).is_ok());
+        }
+
+        #[test]
+        #[should_panic]
+        #[allow(unused_must_use)]
+        fn test_verify_panic_on_same() {
+            let v1 = BigUint::from(7u8);
+            verify(&v1, &v1);
         }
     }
 }
@@ -579,22 +629,4 @@ pub mod constant {
 #[derive(Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
-}
-
-#[cfg(test)]
-mod tests {
-    //use num_bigint::BigUint;
-
-    //use super::OTR;
-
-    //#[test]
-    //fn test_custom_mod_inv() {
-    //    let m = BigUint::from_u8(13).unwrap();
-    //    let g = BigUint::from_u8(2).unwrap();
-    //    for i in 1u8..13u8 {
-    //        let v = g.modpow(&BigUint::from_u8(i).unwrap(), &m);
-    //        let v_inv = OTR::mod_inv(&v, &m);
-    //        assert!((&v * &v_inv).mod_floor(&m).is_one());
-    //    }
-    //}
 }

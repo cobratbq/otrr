@@ -55,13 +55,8 @@ impl Drop for SMPContext {
     }
 }
 
-// TODO check values within boundaries, for `modulus` and `q` (>2, <order)
-// TODO review proper checking of public keys using verification functions
-// TODO log control flow change "abort"?
-// FIXME need to handle any of the values received from the TLV. (e.g. verification of D# values)
 #[allow(non_snake_case)]
 impl SMPContext {
-    // TODO provide way to check outcome of SMP, positive (validated) or negative (failure/reset/abort)
 
     pub fn new(
         host: Rc<dyn Host>,
@@ -80,7 +75,6 @@ impl SMPContext {
     }
 
     pub fn status(&self) -> SMPStatus {
-        // TODO is cloning the most efficient solution here? (it seems overkill)
         self.status.clone()
     }
 
@@ -138,7 +132,6 @@ impl SMPContext {
     ///     This essentially means that very little can go wrong under normal circumstances, even if
     ///     some message manipulation is taken into account.
     pub fn handle(&mut self, tlv: &TLV) -> Option<TLV> {
-        // TODO add some assertions for state corresponding to status, for sanity-checking.
         match self.dispatch(tlv) {
             Ok(tlv) => Some(tlv),
             Err(OTRError::SMPSuccess(response)) => {
@@ -229,6 +222,9 @@ impl SMPContext {
         let c2 = mpis.pop().unwrap();
         let g2a = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
+
+        DH::verify_proof_component(&D2).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D3).map_err(OTRError::CryptographicViolation)?;
 
         // "Verify Alice's zero-knowledge proofs for g2a and g3a:"
         // "1. Check that both g2a and g3a are >= 2 and <= modulus-2."
@@ -327,14 +323,14 @@ impl SMPContext {
         let a2: BigUint;
         let a3: BigUint;
         if let SMPState::Expect2 {
-            x: _x,
-            a2: _a2,
-            a3: _a3,
+            x: x_,
+            a2: a2_,
+            a3: a3_,
         } = &self.state
         {
-            x = _x.clone();
-            a2 = _a2.clone();
-            a3 = _a3.clone();
+            x = x_.clone();
+            a2 = a2_.clone();
+            a3 = a3_.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 2 was expected.",
@@ -370,6 +366,11 @@ impl SMPContext {
         // "`g2b`: Bob's half of the DH exchange to determine g2."
         let g2b = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
+
+        DH::verify_proof_component(&D2).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D3).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D5).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D6).map_err(OTRError::CryptographicViolation)?;
 
         // "Check that `g2b`, `g3b`, `Pb` and `Qb` are `>= 2 and <= modulus-2`."
         DH::verify_public_key(&g2b).map_err(OTRError::CryptographicViolation)?;
@@ -464,21 +465,21 @@ impl SMPContext {
         let Pb: BigUint;
         let Qb: BigUint;
         if let SMPState::Expect3 {
-            g3a: _g3a,
-            g2: _g2,
-            g3: _g3,
-            b3: _b3,
-            Pb: _pb,
-            Qb: _qb,
+            g3a: g3a_,
+            g2: g2_,
+            g3: g3_,
+            b3: b3_,
+            Pb: pb_,
+            Qb: qb_,
         } = &self.state
         {
             // "If smpstate is SMPSTATE_EXPECT3:"
-            g3a = _g3a.clone();
-            g2 = _g2.clone();
-            g3 = _g3.clone();
-            b3 = _b3.clone();
-            Pb = _pb.clone();
-            Qb = _qb.clone();
+            g3a = g3a_.clone();
+            g2 = g2_.clone();
+            g3 = g3_.clone();
+            b3 = b3_.clone();
+            Pb = pb_.clone();
+            Qb = qb_.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 3 was expected.",
@@ -509,6 +510,10 @@ impl SMPContext {
         let Qa = mpis.pop().unwrap();
         let Pa = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
+
+        DH::verify_proof_component(&D5).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D6).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_proof_component(&D7).map_err(OTRError::CryptographicViolation)?;
 
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
@@ -555,9 +560,8 @@ impl SMPContext {
         let Rab = Ra.modpow(&b3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
-        // FIXME use DH::verify for other expected_xx comparisons.
+        // TODO Always send TLV to Alice, even if failure? (Now bails because of error-escape on failed verification)
         DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
-        // TODO need to signal successful finishing protocol with positive/negative result. Also, always send TLV to Alice, even if failure?
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
         let tlv = OTREncoder::new()
             .write_mpi_sequence(&[Rb, &cR, &D7])
@@ -578,16 +582,16 @@ impl SMPContext {
         let QadivQb: BigUint;
         let a3: BigUint;
         if let SMPState::Expect4 {
-            g3b: _g3b,
-            PadivPb: _padivpb,
-            QadivQb: _qadivqb,
-            a3: _a3,
+            g3b: g3b_,
+            PadivPb: padivpb_,
+            QadivQb: qadivqb_,
+            a3: a3_,
         } = &self.state
         {
-            g3b = _g3b.clone();
-            PadivPb = _padivpb.clone();
-            QadivQb = _qadivqb.clone();
-            a3 = _a3.clone();
+            g3b = g3b_.clone();
+            PadivPb = padivpb_.clone();
+            QadivQb = qadivqb_.clone();
+            a3 = a3_.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 4 was expected.",
@@ -610,6 +614,8 @@ impl SMPContext {
         let cR = mpis.pop().unwrap();
         let Rb = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
+
+        DH::verify_proof_component(&D7).map_err(OTRError::CryptographicViolation)?;
 
         let MOD = DH::modulus();
         let g1 = DH::generator();

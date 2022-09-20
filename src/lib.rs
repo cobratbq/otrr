@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::module_name_repetitions)]
 //#![warn(clippy::something)]
 //#![deny(clippy::something)]
 
@@ -48,6 +49,7 @@ pub mod session;
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
 // TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
+// TODO consider introducing (genreally) logging to keep track of the internal process.
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
