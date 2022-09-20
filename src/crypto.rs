@@ -149,7 +149,7 @@ pub mod OTR {
     }
 
     impl AKESecrets {
-        /// Derive the shared secrets used by OTRv3 that are based on the shared secret from the DH key exchange.
+        /// Derive the shared secrets used by OTR version 3 that are based on the shared secret from the DH key exchange.
         pub fn derive(secbytes: &[u8]) -> AKESecrets {
             let h2secret0 = h2(0x00, secbytes);
             let h2secret1 = h2(0x01, secbytes);
@@ -232,7 +232,7 @@ pub mod OTR {
         SHA1::digest(&OTREncoder::new().write_public_key(pk).to_vec()[2..])
     }
 
-    /// mod_inv is a modular-inverse implementation.
+    /// `mod_inv` is a modular-inverse implementation.
     /// `value` and `modulus` are required to be relatively prime.
     pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
         value
@@ -344,12 +344,12 @@ pub mod DSA {
             PublicKey(Rc::clone(&self.pk))
         }
 
-        pub fn sign(&self, digest_bytes: &[u8; 32]) -> Result<Signature, CryptoError> {
+        pub fn sign(&self, digest_bytes: &[u8; 32]) -> Signature {
             // TODO ensure that digest_bytes themselves are signed, instead of first hashed!
-            let sig = self
-                .sk
-                .sign_digest(ModQHash::new().chain_update(digest_bytes));
-            Ok(Signature(sig))
+            Signature(
+                self.sk
+                    .sign_digest(ModQHash::new().chain_update(digest_bytes)),
+            )
         }
     }
 
@@ -439,7 +439,7 @@ pub mod DSA {
     }
 
     impl Update for ModQHash {
-        /// update updates the internal data for ModQHash. Subsequent calls to `update` will merely
+        /// update updates the internal data for `ModQHash`. Subsequent calls to `update` will merely
         /// replace the content from previous calls.
         fn update(&mut self, data: &[u8]) {
             assert_eq!(data.len(), MOD_Q_HASH_LENGTH);
@@ -543,7 +543,7 @@ pub mod SHA256 {
         result
     }
 
-    /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTRv3 spec.
+    /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTR version 3 spec.
     pub fn hmac(m1: &[u8], data: &[u8]) -> Digest {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m1);
         let digest = ring::hmac::sign(&key, data);
@@ -552,7 +552,7 @@ pub mod SHA256 {
         result
     }
 
-    /// hmac160 calculates the first 160 bits of the SHA256-HMAC value, using key 'm2' as documented in OTRv3 spec.
+    /// hmac160 calculates the first 160 bits of the SHA256-HMAC value, using key 'm2' as documented in OTR version 3 spec.
     pub fn hmac160(m2: &[u8], data: &[u8]) -> [u8; 20] {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m2);
         let digest = ring::hmac::sign(&key, data);

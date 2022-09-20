@@ -22,7 +22,7 @@ bitflags! {
         /// If set, no user-error is produced. This is typically used for control messages that have
         /// no value to the user, to indicate that there is no point in alerting the user of an
         /// inaccessible message.
-        const IGNORE_UNREADABLE = 0b00000001;
+        const IGNORE_UNREADABLE = 0b0000_0001;
     }
 }
 
@@ -64,7 +64,7 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
         let end = data.len() - OTR_ENCODED_SUFFIX.len();
         parse_encoded_message(&data[start..end])
     } else {
-        parse_plain_message(data)
+        Ok(parse_plain_message(data))
     }
 }
 
@@ -109,18 +109,16 @@ fn parse_encoded_content(
     }
 }
 
-fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
+fn parse_plain_message(data: &[u8]) -> MessageType {
     if data.starts_with(OTR_ERROR_PREFIX) {
         // `?OTR Error:` prefix must start at beginning of message to avoid people messing with OTR in normal plaintext messages.
-        return Ok(MessageType::Error(Vec::from(
-            &data[OTR_ERROR_PREFIX.len()..],
-        )));
+        return MessageType::Error(Vec::from(&data[OTR_ERROR_PREFIX.len()..]));
     }
     if let Some(caps) = (&*QUERY_PATTERN).captures(data) {
         let versions = caps
             .get(QUERY_GROUP_VERSIONS)
             .expect("BUG: hard-coded regex should contain capture group for versions");
-        return Ok(MessageType::Query(
+        return MessageType::Query(
             versions
                 .as_bytes()
                 .iter()
@@ -132,7 +130,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
                         b'2' => Version::Unsupported(2u16),
                         b'3' => Version::V3,
                         // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
-                        _ => Version::Unsupported(*v as u16),
+                        _ => Version::Unsupported(u16::from(*v)),
                     }
                 })
                 .filter(|v| match v {
@@ -141,7 +139,7 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
                     Version::Unsupported(_) => false,
                 })
                 .collect(),
-        ));
+        );
     }
     // TODO search for multiple occurrences?
     if let Some(caps) = (&*WHITESPACE_PATTERN).captures(data) {
@@ -151,12 +149,9 @@ fn parse_plain_message(data: &[u8]) -> Result<MessageType, OTRError> {
         let cap = caps
             .get(WHITESPACE_GROUP_TAGS)
             .expect("BUG: hard-coded regex should include capture group");
-        return Ok(MessageType::Tagged(
-            parse_whitespace_tags(cap.as_bytes()),
-            cleaned,
-        ));
+        return MessageType::Tagged(parse_whitespace_tags(cap.as_bytes()), cleaned);
     }
-    Ok(MessageType::Plaintext(data.to_vec()))
+    MessageType::Plaintext(data.to_vec())
 }
 
 fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
@@ -410,7 +405,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
             // TODO test for valid versions before adding whitespace-prefix.
             // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
             buffer.extend_from_slice(WHITESPACE_PREFIX);
-            for v in utils::std::alloc::vec_unique(versions.to_owned()) {
+            for v in utils::std::alloc::vec_unique(versions.clone()) {
                 // FIXME strictly speaking there must be at least one tag or we violate spec.
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for tagging"),
@@ -428,7 +423,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
             // NOTE: each version listed at most once, in arbitrary order.
             // (Version 1 has deviating syntax but is no longer supported.)
             buffer.extend_from_slice(OTR_QUERY_PREFIX);
-            for v in utils::std::alloc::vec_unique(versions.to_owned()) {
+            for v in utils::std::alloc::vec_unique(versions.clone()) {
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for query messages"),
                     Version::V3 => buffer.push(b'3'),
@@ -445,7 +440,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
         MessageType::Encoded(encoded_message) => {
             buffer.extend_from_slice(OTR_ENCODED_PREFIX);
             buffer.extend(encode_base64(
-                OTREncoder::new().write_encodable(encoded_message).to_vec(),
+                &OTREncoder::new().write_encodable(encoded_message).to_vec(),
             ));
             buffer.extend_from_slice(OTR_ENCODED_SUFFIX);
             buffer
@@ -487,9 +482,9 @@ const SIGNATURE_LEN: usize = 40;
 pub struct OTRDecoder<'a>(&'a [u8]);
 
 // FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
-/// OTRDecoder contains the logic for reading entries from byte-buffer.
+/// `OTRDecoder` contains the logic for reading entries from byte-buffer.
 ///
-/// The OTRDecoder is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
+/// The `OTRDecoder` is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
 ///  input cannot be trusted, so we try to handle everything as an Err-result.
 // TODO review every read-operation to ensure each access of the buffer has a corresponding shift to avoid reading same data twice.
 impl<'a> OTRDecoder<'a> {
@@ -497,7 +492,7 @@ impl<'a> OTRDecoder<'a> {
         Self(content)
     }
 
-    /// read_byte reads a single byte from buffer.
+    /// `read_byte` reads a single byte from buffer.
     pub fn read_byte(&mut self) -> Result<u8, OTRError> {
         if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
@@ -507,25 +502,25 @@ impl<'a> OTRDecoder<'a> {
         Ok(value)
     }
 
-    /// read_short reads a short value (2 bytes, big-endian) from buffer.
+    /// `read_short` reads a short value (2 bytes, big-endian) from buffer.
     pub fn read_short(&mut self) -> Result<u16, OTRError> {
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = (self.0[0] as u16) << (8 + self.0[1] as u16);
+        let value = (u16::from(self.0[0]) << 8) + u16::from(self.0[1]);
         self.0 = &self.0[2..];
         Ok(value)
     }
 
-    /// read_int reads an integer value (4 bytes, big-endian) from buffer.
+    /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_int(&mut self) -> Result<u32, OTRError> {
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
-        let value = ((self.0[0] as u32) << 24)
-            + ((self.0[1] as u32) << 16)
-            + ((self.0[2] as u32) << 8)
-            + (self.0[3] as u32);
+        let value = (u32::from(self.0[0]) << 24)
+            + (u32::from(self.0[1]) << 16)
+            + (u32::from(self.0[2]) << 8)
+            + u32::from(self.0[3]);
         self.0 = &self.0[4..];
         Ok(value)
     }
@@ -535,7 +530,7 @@ impl<'a> OTRDecoder<'a> {
             .or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
-    /// read_data reads variable-length data from buffer.
+    /// `read_data` reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
         let len = self.read_int()? as usize;
         if self.0.len() < len {
@@ -546,7 +541,7 @@ impl<'a> OTRDecoder<'a> {
         Ok(data)
     }
 
-    /// read_mpi reads MPI from buffer.
+    /// `read_mpi` reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
         let len = self.read_int()? as usize;
         if self.0.len() < len {
@@ -567,7 +562,7 @@ impl<'a> OTRDecoder<'a> {
         Ok(mpis)
     }
 
-    /// read_ctr reads CTR value from buffer.
+    /// `read_ctr` reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
         if self.0.len() < CTR_LEN {
             return Err(OTRError::IncompleteMessage);
@@ -578,7 +573,7 @@ impl<'a> OTRDecoder<'a> {
         Ok(ctr)
     }
 
-    /// read_mac reads a MAC value from buffer.
+    /// `read_mac` reads a MAC value from buffer.
     pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
         if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
@@ -589,7 +584,7 @@ impl<'a> OTRDecoder<'a> {
         Ok(mac)
     }
 
-    /// read_public_key reads a DSA public key from the buffer.
+    /// `read_public_key` reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
         let pktype = self.read_short()?;
         if pktype != 0u16 {
@@ -604,7 +599,7 @@ impl<'a> OTRDecoder<'a> {
         DSA::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
     }
 
-    /// read_signature reads a DSA signature (IEEE-P1393 format) from buffer.
+    /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
     pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
         if self.0.len() < SIGNATURE_LEN {
             return Err(OTRError::IncompleteMessage);
@@ -625,7 +620,7 @@ impl<'a> OTRDecoder<'a> {
         Ok(tlvs)
     }
 
-    /// read_tlv reads a type-length-value record from the content.
+    /// `read_tlv` reads a type-length-value record from the content.
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
         let typ = self.read_short()?;
         let len = self.read_short()? as usize;
@@ -636,7 +631,7 @@ impl<'a> OTRDecoder<'a> {
         self.0 = &self.0[len..];
         Ok(TLV(typ, data))
     }
-    /// read_bytes_null_terminated reads bytes until a NULL-byte is found or the buffer is empty.
+    /// `read_bytes_null_terminated` reads bytes until a NULL-byte is found or the buffer is empty.
     /// The NULL-byte is consumed, but will not be returned in the result. If no NULL-byte is
     /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
     /// if present.
@@ -699,13 +694,13 @@ impl OTREncoder {
     }
 
     pub fn write_data(&mut self, v: &[u8]) -> &mut Self {
-        assert!(v.len() <= (u32::MAX as usize));
+        assert!(u32::try_from(v.len()).is_ok());
         self.write_int(v.len() as u32);
         self.buffer.extend_from_slice(v);
         self
     }
 
-    /// Write sequence of MPI values in format defined in SMP: num_mpis, mpi1, mpi2, ...
+    /// Write sequence of MPI values in format defined in SMP: `num_mpis`, `mpi1`, `mpi2`, `...`
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
         self.write_int(mpis.len() as u32);
         for mpi in mpis {
@@ -750,7 +745,7 @@ impl OTREncoder {
     }
 
     pub fn write_tlv(&mut self, tlv: TLV) -> &mut Self {
-        assert!(tlv.1.len() <= (u16::MAX as usize));
+        assert!(u16::try_from(tlv.1.len()).is_ok());
         self.write_short(tlv.0).write_short(tlv.1.len() as u16);
         self.buffer.extend(tlv.1);
         self
@@ -767,7 +762,7 @@ impl OTREncoder {
     }
 }
 
-fn encode_base64(content: Vec<u8>) -> Vec<u8> {
+fn encode_base64(content: &[u8]) -> Vec<u8> {
     base64::encode(&content).into_bytes()
 }
 

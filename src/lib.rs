@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_unwrap)]
 //#![warn(clippy::something)]
 //#![deny(clippy::something)]
@@ -47,8 +48,9 @@ pub mod session;
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
 // TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
+// REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 
-/// UserMessage represents the resulting Message intended for the messaging client, possibly
+/// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
 #[derive(Debug)]
 pub enum UserMessage {
@@ -78,7 +80,7 @@ pub enum UserMessage {
     SMPFailed(InstanceTag),
 }
 
-/// OTRError is the enum containing the various errors that can occur.
+/// `OTRError` is the enum containing the various errors that can occur.
 // TODO consider implementing `std::fmt::Display` trait for passing on error messages.
 #[derive(Debug)]
 pub enum OTRError {
@@ -122,7 +124,7 @@ pub enum ProtocolStatus {
     Finished,
 }
 
-/// Version contains the various supported OTR protocol versions.
+/// `Version` contains the various supported OTR protocol versions.
 // TODO version preference may be hard-coded in places
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
@@ -135,7 +137,7 @@ pub enum Version {
 
 // TODO implement use of policy flags!
 bitflags! {
-    /// Policy bit-flags can be set to indicate how OTR should respond to certain events related to messaging and the OTR protocol.
+    /// `Policy` bit-flags can be set to indicate how OTR should respond to certain events related to messaging and the OTR protocol.
     pub struct Policy: u32 {
     // TODO disabled all ALLOW_Vx flags, because it doesn't make much sense to disable the only version option.
     // ALLOW_V1
@@ -146,30 +148,30 @@ bitflags! {
     //const ALLOW_V2 = 0b00000010;
     // ALLOW_V3
     //     Allow version 3 of the OTR protocol to be used.
-    const ALLOW_V3 = 0b00000100;
+    const ALLOW_V3 = 0b0000_0100;
     // REQUIRE_ENCRYPTION
     //     Refuse to send unencrypted messages.
-    const REQUIRE_ENCRYPTION = 0b00001000;
+    const REQUIRE_ENCRYPTION = 0b0000_1000;
     // SEND_WHITESPACE_TAG
     //     Advertise your support of OTR using the whitespace tag.
-    const SEND_WHITESPACE_TAG = 0b00010000;
+    const SEND_WHITESPACE_TAG = 0b0001_0000;
     // WHITESPACE_START_AKE
     //     Start the OTR AKE when you receive a whitespace tag.
-    const WHITESPACE_START_AKE = 0b00100000;
+    const WHITESPACE_START_AKE = 0b0010_0000;
     // ERROR_START_AKE
     //     Start the OTR AKE when you receive an OTR Error Message.
-    const ERROR_START_AKE = 0b01000000;
+    const ERROR_START_AKE = 0b0100_0000;
     }
 }
 
-/// TLV_TYPE_0_PADDING is the TLV that can be used to introduce arbitrary-length padding to an
+/// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
 /// encrypted message.
 pub const TLV_TYPE_0_PADDING: TLVType = 0;
 
-/// TLV_TYPE_1_DISCONNECT is the TLV that signals a disconnect.
+/// `TLV_TYPE_1_DISCONNECT` is the TLV that signals a disconnect.
 pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
-/// TLV_TYPE is an alias for an u16 value. The values are not restricted. Therefore define the type.
+/// `TLV_TYPE` is an alias for an u16 value. The values are not restricted. Therefore define the type.
 pub type TLVType = u16;
 
 /// Host represents the Host implementation for calling back into the messaging client.
@@ -181,7 +183,7 @@ pub trait Host {
     /// Acquire the long-term DSA keypair from the host application.
     fn keypair(&self) -> DSA::Keypair;
 
-    /// smp_query_secret triggers a query in the client to ask for the secret answer that is
+    /// `query_smp_secret` triggers a query in the client to ask for the secret answer that is
     /// necessary to continue the SMP.
     /// TODO NOTE: for now considering empty question same as asking for secret without question.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;

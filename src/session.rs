@@ -56,9 +56,7 @@ impl Account {
 
     /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
     pub fn status(&self, instance: InstanceTag) -> Option<ProtocolStatus> {
-        self.instances
-            .get(&instance)
-            .map(|instance| instance.status())
+        self.instances.get(&instance).map(Instance::status)
     }
 
     // TODO fuzzing target
@@ -116,7 +114,7 @@ impl Account {
             MessageType::Tagged(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = self.select_version(&versions) {
-                        self.initiate(selected, None)?;
+                        self.initiate(selected, None);
                     }
                 }
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -127,7 +125,7 @@ impl Account {
             }
             MessageType::Query(versions) => {
                 if let Some(selected) = self.select_version(&versions) {
-                    self.initiate(selected, None)?;
+                    self.initiate(selected, None);
                 }
                 Ok(UserMessage::None)
             }
@@ -250,11 +248,7 @@ impl Account {
 
     /// `initiate` initiates the OTR protocol for designated receiver.
     // FIXME this is an issue: we always start with instance receiver 0, so how can we distinguish instances?
-    pub fn initiate(
-        &mut self,
-        version: Version,
-        receiver: Option<InstanceTag>,
-    ) -> Result<UserMessage, OTRError> {
+    pub fn initiate(&mut self, version: Version, receiver: Option<InstanceTag>) -> UserMessage {
         let receiver = receiver.unwrap_or(INSTANCE_ZERO);
         self.instances
             .entry(receiver)
@@ -345,16 +339,16 @@ impl Instance {
         self.state.status()
     }
 
-    fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
+    fn initiate(&mut self, version: Version) -> UserMessage {
         assert_eq!(version, Version::V3);
-        let msg = self.ake.initiate().map_err(OTRError::AuthenticationError)?;
+        let msg = self.ake.initiate();
         self.host.inject(&encode_otr_message(
             self.ake.version(),
             self.details.tag,
             self.receiver,
             msg,
         ));
-        Ok(UserMessage::None)
+        UserMessage::None
     }
 
     fn transfer_akecontext(&self) -> Result<AKEContext, OTRError> {
@@ -511,19 +505,18 @@ impl Instance {
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             OTRMessageType::Undefined(message) => {
-                if self.state.status() == ProtocolStatus::Plaintext {
-                    panic!(
-                        "BUG: received undefined message type in state {:?}",
-                        self.state.status()
-                    )
-                }
+                assert!(
+                    self.state.status() != ProtocolStatus::Plaintext,
+                    "BUG: received undefined message type in state {:?}",
+                    self.state.status()
+                );
                 Ok(encode_message(&MessageType::Plaintext(message)))
             }
-            message @ OTRMessageType::DHCommit(_)
-            | message @ OTRMessageType::DHKey(_)
-            | message @ OTRMessageType::RevealSignature(_)
-            | message @ OTRMessageType::Signature(_)
-            | message @ OTRMessageType::Data(_) => Ok(encode_otr_message(
+            message @ (OTRMessageType::DHCommit(_)
+            | OTRMessageType::DHKey(_)
+            | OTRMessageType::RevealSignature(_)
+            | OTRMessageType::Signature(_)
+            | OTRMessageType::Data(_)) => Ok(encode_otr_message(
                 self.state.version(),
                 self.details.tag,
                 self.receiver,

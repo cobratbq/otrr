@@ -127,13 +127,6 @@ pub struct EncryptedState {
     smp: SMPContext,
 }
 
-impl Drop for EncryptedState {
-    fn drop(&mut self) {
-        // FIXME ensure thorough clean-up of sensitive material
-        todo!()
-    }
-}
-
 impl ProtocolState for EncryptedState {
     fn status(&self) -> ProtocolStatus {
         ProtocolStatus::Encrypted
@@ -157,7 +150,7 @@ impl ProtocolState for EncryptedState {
         match self.decrypt_message(msg) {
             // TODO carefully inspect possible state transitions, now assumes None.
             // TODO check if just plaintext or contains OTR protocol directions, ...
-            Ok(plaintext) => match self.parse_message(&plaintext) {
+            Ok(plaintext) => match parse_message(&plaintext) {
                 msg @ Ok(UserMessage::ConfidentialSessionFinished(_)) => {
                     (msg, Some(Box::new(FinishedState {})))
                 }
@@ -326,20 +319,20 @@ impl EncryptedState {
             .receiver_crypt_key()
             .decrypt(&nonce, &message.encrypted))
     }
+}
 
-    fn parse_message(&self, raw_content: &[u8]) -> Result<UserMessage, OTRError> {
-        let mut decoder = OTRDecoder::new(raw_content);
-        let content = decoder.read_bytes_null_terminated()?;
-        let tlvs = decoder.read_tlvs()?;
-        // TODO drop TLV-0-PADDING as it is only padding?
-        // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
-        // TODO add logic for handling SMP
-        if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
-            // TODO strictly speaking there may be a user-readable message that we do to return to the client. (Spec does not strictly say this is a use case to consider.)
-            Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO))
-        } else {
-            Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs))
-        }
+fn parse_message(raw_content: &[u8]) -> Result<UserMessage, OTRError> {
+    let mut decoder = OTRDecoder::new(raw_content);
+    let content = decoder.read_bytes_null_terminated()?;
+    let tlvs = decoder.read_tlvs()?;
+    // TODO drop TLV-0-PADDING as it is only padding?
+    // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
+    // TODO add logic for handling SMP
+    if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+        // TODO strictly speaking there may be a user-readable message that we do to return to the client. (Spec does not strictly say this is a use case to consider.)
+        Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO))
+    } else {
+        Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs))
     }
 }
 

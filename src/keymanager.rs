@@ -15,6 +15,13 @@ pub struct KeyManager {
     oldmacs: Vec<u8>,
 }
 
+impl Drop for KeyManager {
+    fn drop(&mut self) {
+        // FIXME implement clean-up of sensitive material
+        todo!("Implement clean-up of sensitive material")
+    }
+}
+
 impl KeyManager {
     pub fn new(ours: (KeyID, DH::Keypair), theirs: (KeyID, BigUint)) -> Self {
         assert_ne!(0, ours.0);

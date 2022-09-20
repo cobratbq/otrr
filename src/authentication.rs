@@ -29,7 +29,7 @@ impl AKEContext {
         Version::V3
     }
 
-    pub fn initiate(&mut self) -> Result<OTRMessageType, AKEError> {
+    pub fn initiate(&mut self) -> OTRMessageType {
         let keypair = DH::Keypair::generate();
         let r = AES128::Key::generate();
         let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
@@ -42,10 +42,10 @@ impl AKEContext {
             our_dh_keypair: Rc::new(keypair),
             r,
         });
-        Ok(OTRMessageType::DHCommit(DHCommitMessage {
+        OTRMessageType::DHCommit(DHCommitMessage {
             gx_encrypted,
             gx_hashed,
-        }))
+        })
     }
 
     pub fn transfer(&self) -> Result<AKEContext, AKEError> {
@@ -168,7 +168,7 @@ impl AKEContext {
 
     pub fn handle_dhkey(&mut self, msg: DHKeyMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
+            AKEState::None | AKEState::AwaitingRevealSignature(_) => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -195,9 +195,7 @@ impl AKEContext {
                 // "This is the signature, using the private part of the key pubB, of the 32-byte MB
                 //  (taken modulo q instead of being truncated (as described in FIPS-186), and not
                 //  hashed again)."
-                let sig_b = dsa_keypair
-                    .sign(&m_b)
-                    .map_err(AKEError::CryptographicViolation)?;
+                let sig_b = dsa_keypair.sign(&m_b);
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
@@ -221,10 +219,6 @@ impl AKEContext {
                     })),
                 )
             }
-            AKEState::AwaitingRevealSignature(_) => {
-                // Ignore the message.
-                return Err(AKEError::MessageIgnored);
-            }
             AKEState::AwaitingSignature(state) => {
                 if state.gy != msg.gy {
                     // Ignore the message.
@@ -246,9 +240,7 @@ impl AKEContext {
                         .write_int(keyid_b)
                         .to_vec(),
                 );
-                let sig_b = dsa_keypair
-                    .sign(&m_b)
-                    .map_err(AKEError::CryptographicViolation)?;
+                let sig_b = dsa_keypair.sign(&m_b);
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_int(keyid_b)
@@ -279,15 +271,7 @@ impl AKEContext {
         msg: RevealSignatureMessage,
     ) -> Result<(CryptographicMaterial, OTRMessageType), AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
-                // Ignore the message.
-                return Err(AKEError::MessageIgnored);
-            }
-            AKEState::AwaitingDHKey(_) => {
-                // Ignore the message.
-                return Err(AKEError::MessageIgnored);
-            }
-            AKEState::AwaitingSignature(_) => {
+            AKEState::None | AKEState::AwaitingDHKey(_) | AKEState::AwaitingSignature(_) => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -357,9 +341,7 @@ impl AKEContext {
                         .write_int(keyid_a)
                         .to_vec(),
                 );
-                let sig_m_a = keypair
-                    .sign(&m_a)
-                    .map_err(AKEError::CryptographicViolation)?;
+                let sig_m_a = keypair.sign(&m_a);
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
                     .write_int(keyid_a)
@@ -397,15 +379,7 @@ impl AKEContext {
         msg: SignatureMessage,
     ) -> Result<CryptographicMaterial, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => {
-                // Ignore the message.
-                return Err(AKEError::MessageIgnored);
-            }
-            AKEState::AwaitingDHKey(_) => {
-                // Ignore the message.
-                return Err(AKEError::MessageIgnored);
-            }
-            AKEState::AwaitingRevealSignature(_) => {
+            AKEState::None | AKEState::AwaitingDHKey(_) | AKEState::AwaitingRevealSignature(_) => {
                 // Ignore the message.
                 return Err(AKEError::MessageIgnored);
             }
@@ -467,7 +441,7 @@ impl AKEContext {
     }
 }
 
-/// CryptographicMaterial contains the cryptographic material acquired during the AKE.
+/// `CryptographicMaterial` contains the cryptographic material acquired during the AKE.
 ///
 /// The AKE always uses keyid 1 for both parties, so no point in including these.
 // TODO something about highlighting certain part of ssid if comparing values, so need to double-check.
@@ -480,7 +454,7 @@ pub struct CryptographicMaterial {
     pub their_dsa: DSA::PublicKey,
 }
 
-/// AKEState represents available/recognized AKE states.
+/// `AKEState` represents available/recognized AKE states.
 enum AKEState {
     /// None indicates no AKE is in progress. Tuple contains predominant verification status for most recent previous execution.
     None,
@@ -511,7 +485,7 @@ struct AwaitingSignature {
     s: DH::SharedSecret,
 }
 
-/// AKEError contains the variants of errors produced during AKE.
+/// `AKEError` contains the variants of errors produced during AKE.
 #[derive(std::fmt::Debug)]
 pub enum AKEError {
     /// AKE message processing produced an error due to a cryptographic violation.

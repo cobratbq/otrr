@@ -16,7 +16,7 @@ pub fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
     }
 }
 
-/// InstanceTag represents a client instance tag. The instance tag is used to distinguish between
+/// `InstanceTag` represents a client instance tag. The instance tag is used to distinguish between
 /// multiple clients using the same account.
 pub type InstanceTag = u32;
 

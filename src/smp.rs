@@ -48,6 +48,13 @@ pub struct SMPContext {
     host: Rc<dyn Host>,
 }
 
+impl Drop for SMPContext {
+    fn drop(&mut self) {
+        // FIXME implement clean-up of sensitive material
+        todo!("Implement clean-up of sensitive material")
+    }
+}
+
 // TODO check values within boundaries, for `modulus` and `q` (>2, <order)
 // TODO review proper checking of public keys using verification functions
 // TODO log control flow change "abort"?
@@ -77,7 +84,7 @@ impl SMPContext {
         self.status.clone()
     }
 
-    /// Initiate SMP. Produces SMPError::AlreadyInProgress if SMP is in progress.
+    /// Initiate SMP. Produces `SMPError::AlreadyInProgress` if SMP is in progress.
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         if let SMPState::Expect1 = self.state {
             // SMP in initial state, initiation can proceed without interrupting in-progress SMP.
@@ -181,7 +188,7 @@ impl SMPContext {
 
     fn dispatch(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1, _) | tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1Q, _) => {
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1 | TLV_TYPE_SMP_MESSAGE_1Q, _) => {
                 self.handleMessage1(tlv)
             }
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
@@ -325,9 +332,9 @@ impl SMPContext {
             a3: _a3,
         } = &self.state
         {
-            x = _x.to_owned();
-            a2 = _a2.to_owned();
-            a3 = _a3.to_owned();
+            x = _x.clone();
+            a2 = _a2.clone();
+            a3 = _a3.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 2 was expected.",
@@ -466,12 +473,12 @@ impl SMPContext {
         } = &self.state
         {
             // "If smpstate is SMPSTATE_EXPECT3:"
-            g3a = _g3a.to_owned();
-            g2 = _g2.to_owned();
-            g3 = _g3.to_owned();
-            b3 = _b3.to_owned();
-            Pb = _pb.to_owned();
-            Qb = _qb.to_owned();
+            g3a = _g3a.clone();
+            g2 = _g2.clone();
+            g3 = _g3.clone();
+            b3 = _b3.clone();
+            Pb = _pb.clone();
+            Qb = _qb.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 3 was expected.",
@@ -577,10 +584,10 @@ impl SMPContext {
             a3: _a3,
         } = &self.state
         {
-            g3b = _g3b.to_owned();
-            PadivPb = _padivpb.to_owned();
-            QadivQb = _qadivqb.to_owned();
-            a3 = _a3.to_owned();
+            g3b = _g3b.clone();
+            PadivPb = _padivpb.clone();
+            QadivQb = _qadivqb.clone();
+            a3 = _a3.clone();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "SMP message type 4 was expected.",
@@ -627,7 +634,7 @@ impl SMPContext {
         Err(OTRError::SMPSuccess(None))
     }
 
-    /// Indiscriminately reset SMP state to StateExpect1. Returns TLV with SMP Abort-payload.
+    /// Indiscriminately reset SMP state to `StateExpect1`. Returns TLV with SMP Abort-payload.
     pub fn abort(&mut self) -> TLV {
         self.state = SMPState::Expect1;
         self.status = SMPStatus::Aborted(Vec::from("Aborted by user"));
