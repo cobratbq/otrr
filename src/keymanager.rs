@@ -8,7 +8,6 @@ use once_cell::sync::Lazy;
 use crate::{crypto::DH, encoding::KeyID, OTRError};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
-// TODO need to implement Drop for secure clean-up?
 pub struct KeyManager {
     ours: KeypairRotation,
     theirs: PublicKeyRotation,
@@ -125,7 +124,6 @@ impl Drop for KeypairRotation {
 /// The next key ID is keyID+1 -- deterministic -- so no need to be stored
 /// explicitly. Messaging is required to be in-order for OTR, so as soon as
 /// a new public key is acknowledged, we can forget the old keypair.
-// FIXME need to check that illegal values (keypair, keyid) cannot happen. (assertions?)
 impl KeypairRotation {
     /// New instance of `KeyRotation` struct.
     fn new(initial_keyid: KeyID, initial_key: DH::Keypair) -> Self {

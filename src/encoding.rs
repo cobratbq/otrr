@@ -9,10 +9,7 @@ use regex::bytes::Regex;
 
 use crate::{
     crypto::DSA,
-    crypto::{
-        AES128,
-        DSA::{Signature, PARAM_Q_LENGTH},
-    },
+    crypto::{AES128, DSA::Signature},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
 };
@@ -33,7 +30,6 @@ const OTR_QUERY_PREFIX: &[u8] = b"?OTRv";
 const OTR_ENCODED_PREFIX: &[u8] = b"?OTR:";
 const OTR_ENCODED_SUFFIX: &[u8] = b".";
 
-// TODO tweak / make accompanying message changeable
 const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";
 
 const WHITESPACE_PREFIX: &[u8] = b" \t  \t\t\t\t \t \t \t  ";
@@ -56,9 +52,6 @@ const OTR_DH_KEY_TYPE_CODE: u8 = 0x0a;
 const OTR_REVEAL_SIGNATURE_TYPE_CODE: u8 = 0x11;
 const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
 const OTR_DATA_TYPE_CODE: u8 = 0x03;
-
-// TODO over all necessary writes, do usize size-of assertions. (or use type-aliasing to ensure appropriate size)
-// TODO over all I/O parsing/interpreting do explicit message length checking and fail if fewer bytes available than expected.
 
 pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
     if data.starts_with(OTR_ENCODED_PREFIX) && data.ends_with(OTR_ENCODED_SUFFIX) {
@@ -131,7 +124,7 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                         b'1' => Version::Unsupported(1u16),
                         b'2' => Version::Unsupported(2u16),
                         b'3' => Version::V3,
-                        // TODO Use u16::MAX here as placeholder for unparsed textual value representation.
+                        // TODO Use u16::MAX here as placeholder for unparsed textual value representation? Current approach gives unexpected values as it is a char to ord conversion.
                         _ => Version::Unsupported(u16::from(*v)),
                     }
                 })
@@ -159,9 +152,8 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     let mut result = Vec::new();
     for i in (0..data.len()).step_by(8) {
         match &data[i..i + 8] {
-            WHITESPACE_TAG_OTRV1 | WHITESPACE_TAG_OTRV2 => {
-                // ignore OTRv1, OTRv2 tags as we do not support these versions
-            }
+            WHITESPACE_TAG_OTRV1 => result.push(Version::Unsupported(1)),
+            WHITESPACE_TAG_OTRV2 => result.push(Version::Unsupported(2)),
             WHITESPACE_TAG_OTRV3 => result.push(Version::V3),
             _ => { /* ignore unknown tags */ }
         }
@@ -216,7 +208,7 @@ impl OTREncodable for EncodedMessage {
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
 pub enum OTRMessageType {
-    // FIXME this seems like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
+    // FIXME this feels like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
     /// Undefined message type. This is used as an indicator that the content is not any one of the standard OTR-encoded message-types. Possibly a Plaintext message or a (partial) body in a Query message.
     Undefined(Vec<u8>),
     /// DH-Commit-message in the AKE-process.
@@ -325,7 +317,6 @@ pub struct DataMessage {
     pub sender_keyid: KeyID,
     pub receiver_keyid: KeyID,
     pub dh_y: BigUint,
-    // FIXME make sure right counter value used in all cases.
     // OTR-spec:
     //   "The initial counter is a 16-byte value whose first 8 bytes
     //    are the above "top half of counter init" value, and whose last 8
@@ -344,7 +335,6 @@ pub type KeyID = u32;
 
 impl DataMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<DataMessage, OTRError> {
-        // TODO should we handle unknown message flags differently? (ignore what we don't know?)
         Ok(DataMessage {
             flags: MessageFlags::from_bits(decoder.read_byte()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
@@ -403,11 +393,8 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
         }
         MessageType::Tagged(versions, message) => {
             assert!(!versions.is_empty());
-            // TODO test for valid versions before adding whitespace-prefix.
-            // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
             buffer.extend_from_slice(WHITESPACE_PREFIX);
             for v in utils::std::alloc::vec_unique(versions.clone()) {
-                // FIXME strictly speaking there must be at least one tag or we violate spec.
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for tagging"),
                     Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
@@ -416,6 +403,11 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
                     }
                 }
             }
+            assert!(
+                buffer.len() >= 24,
+                "OTR requires at least one protocol version tag."
+            );
+            // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
             buffer.extend(message);
             buffer
         }
@@ -477,17 +469,12 @@ fn encode_version(version: &Version) -> u16 {
     }
 }
 
-// FIXME continue here: restructure encoding of signature into byte-based R and S components.
-const SIGNATURE_LEN: usize = 40;
-
 pub struct OTRDecoder<'a>(&'a [u8]);
 
-// FIXME use decoder for initial message metadata (protocol, message type, sender instance, receiver instance)
 /// `OTRDecoder` contains the logic for reading entries from byte-buffer.
 ///
 /// The `OTRDecoder` is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
 ///  input cannot be trusted, so we try to handle everything as an Err-result.
-// TODO review every read-operation to ensure each access of the buffer has a corresponding shift to avoid reading same data twice.
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
         Self(content)
@@ -602,12 +589,14 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
     pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
-        if self.0.len() < SIGNATURE_LEN {
+        const SIGNATURE_LEN: usize = Signature::size();
+        const PARAM_LEN: usize = Signature::parameter_size();
+        if self.0.len() < Signature::size() {
             return Err(OTRError::IncompleteMessage);
         }
         let sig = Signature::from_components(
-            BigUint::from_bytes_be(&self.0[..PARAM_Q_LENGTH]),
-            BigUint::from_bytes_be(&self.0[PARAM_Q_LENGTH..SIGNATURE_LEN]),
+            BigUint::from_bytes_be(&self.0[..PARAM_LEN]),
+            BigUint::from_bytes_be(&self.0[PARAM_LEN..SIGNATURE_LEN]),
         );
         self.0 = &self.0[SIGNATURE_LEN..];
         Ok(sig)
@@ -640,7 +629,7 @@ impl<'a> OTRDecoder<'a> {
         let mut bytes = Vec::new();
         loop {
             let b = self.read_byte()?;
-            if b == b'\0' {
+            if b == 0 {
                 break;
             }
             bytes.push(b);
@@ -649,7 +638,6 @@ impl<'a> OTRDecoder<'a> {
     }
 }
 
-// TODO consider moving `OTREncodable` to API, then implementing OTREncodable for crypto::dsa::Signature to further separate dependency on encoding.
 pub trait OTREncodable {
     fn encode(&self, encoder: &mut OTREncoder);
 }
@@ -714,8 +702,12 @@ impl OTREncoder {
         // - 4-byte unsigned len, big-endian
         // - <len> byte unsigned value, big-endian
         // (MPIs must use the minimum-length encoding; i.e. no leading 0x00 bytes. This is important when calculating public key fingerprints.)
-        // FIXME this is not guaranteed minimum-length encoding, as it is reversed little-endian(???)
-        self.write_data(&v.to_bytes_be())
+        let encoded = v.to_bytes_be();
+        assert_ne!(
+            0, encoded[0],
+            "Assertion checking for minimum-length encoding has failed."
+        );
+        self.write_data(&encoded)
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
@@ -737,11 +729,12 @@ impl OTREncoder {
     }
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
-        // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_Q_LEN
+        const PARAM_LEN: usize = Signature::parameter_size();
+        // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
         self.buffer.extend_from_slice(&sig.r().to_bytes_be());
         self.buffer.extend_from_slice(&sig.s().to_bytes_be());
         // TODO ensure {r(),s()}.to_bytes_be() always produce 20 bytes.
-        assert_eq!(self.buffer.len(), 2 * PARAM_Q_LENGTH);
+        assert_eq!(self.buffer.len(), 2 * PARAM_LEN);
         self
     }
 
@@ -773,7 +766,6 @@ fn decode_base64(content: &[u8]) -> Result<Vec<u8>, OTRError> {
     )))
 }
 
-// TODO how can I initialize arrays using their type aliases, such that I don't have to repeat the size?
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 pub const CTR_LEN: usize = 8;
 pub type CTR = [u8; CTR_LEN];

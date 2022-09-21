@@ -187,7 +187,6 @@ impl Account {
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
-                // FIXME ensure correct instance is found even if above case for DH-Key message is true.
                 self.get_instance(msg.sender)?.handle(msg)
             }
         }
@@ -421,8 +420,6 @@ impl Instance {
         self.ake = context;
     }
 
-    // TODO can we use top-level std::panic::catch_unwind for catching/diagnosing unexpected failures?
-    // FIXME should we also receive error message, plaintext message, tagged message etc. to warn about receiving unencrypted message during confidential session?
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         assert_eq!(encoded_message.version, Version::V3);
         // TODO need to inspect error handling to appropriately respond with OTR message to indicate that an error has occurred. This has not yet been considered.
@@ -458,7 +455,6 @@ impl Instance {
                 let (CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa}, response) = self
                     .ake
                     .handle_reveal_signature(msg).map_err(OTRError::AuthenticationError)?;
-                // FIXME handle errors and inject response.
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 self.host.inject(&encode_otr_message(
@@ -468,7 +464,6 @@ impl Instance {
                     response,
                 ));
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
-                // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             OTRMessageType::Signature(msg) => {
                 let CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa} = self

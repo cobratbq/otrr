@@ -371,7 +371,7 @@ pub mod DSA {
     use super::{CryptoError, DH};
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
-    pub const PARAM_Q_LENGTH: usize = 20;
+    const PARAM_Q_LENGTH: usize = 20;
 
     pub struct Keypair {
         sk: SigningKey,
@@ -453,6 +453,14 @@ pub mod DSA {
     pub struct Signature(dsa::Signature);
 
     impl Signature {
+        pub const fn size() -> usize {
+            2 * PARAM_Q_LENGTH
+        }
+
+        pub const fn parameter_size() -> usize {
+            PARAM_Q_LENGTH
+        }
+
         pub fn from_components(r: BigUint, s: BigUint) -> Self {
             Self(dsa::Signature::from_components(r, s))
         }

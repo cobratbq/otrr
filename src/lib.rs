@@ -43,6 +43,8 @@ pub mod session;
 //      - usize >= u32 for array-indexing in OTR-encoding.
 //      - usize >= u32 for array-indexing using KeyID. (protocol.rs)
 
+// TODO can we use top-level std::panic::catch_unwind for catching/diagnosing unexpected failures? (isolate panics within single session/instance)
+// TODO `encoding#OTR_USE_INFORMATION_MESSAGE`: make accompanying message changeable, consider length for fragmenting.
 // TODO add periodic heartbeat message
 // TODO support messages in backlog for sending when confidential session established?
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
