@@ -66,7 +66,7 @@ impl AKEContext {
 
     pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<OTRMessageType, AKEError> {
         let (result, transition) = match &self.state {
-            AKEState::None => self.handle_dhcommit_from_initial(msg),
+            AKEState::None => Self::handle_dhcommit_from_initial(msg),
             AKEState::AwaitingDHKey(state) => {
                 // This is the trickiest transition in the whole protocol. It indicates that you
                 // have already sent a D-H Commit message to your correspondent, but that he either
@@ -92,7 +92,7 @@ impl AKEContext {
                     // Forget your old gx value that you sent (encrypted) earlier, and pretend you
                     // are in AUTHSTATE_NONE; i.e. reply with a D-H Key Message, and transition
                     // authstate to AUTHSTATE_AWAITING_REVEALSIG.
-                    self.handle_dhcommit_from_initial(msg)
+                    Self::handle_dhcommit_from_initial(msg)
                 }
             }
             AKEState::AwaitingRevealSignature(state) => {
@@ -146,7 +146,6 @@ impl AKEContext {
     }
 
     fn handle_dhcommit_from_initial(
-        &self,
         msg: DHCommitMessage,
     ) -> (Result<OTRMessageType, AKEError>, Option<AKEState>) {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.

@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use std::convert::TryInto;
 
 use bitflags::bitflags;
@@ -134,9 +136,8 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                     }
                 })
                 .filter(|v| match v {
-                    Version::None => false,
                     Version::V3 => true,
-                    Version::Unsupported(_) => false,
+                    Version::Unsupported(_) | Version::None => false,
                 })
                 .collect(),
         );
@@ -159,7 +160,7 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     for i in (0..data.len()).step_by(8) {
         match &data[i..i + 8] {
             WHITESPACE_TAG_OTRV1 | WHITESPACE_TAG_OTRV2 => {
-                /* ignore OTRv2 tag, unsupported version */
+                // ignore OTRv1, OTRv2 tags as we do not support these versions
             }
             WHITESPACE_TAG_OTRV3 => result.push(Version::V3),
             _ => { /* ignore unknown tags */ }

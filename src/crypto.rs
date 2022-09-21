@@ -6,9 +6,7 @@ use ring::rand::SystemRandom;
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 // TODO add safety assertions that prevent working with all-zero byte-arrays.
-// TODO verify implementation
 // TODO what constant-time implementations needed?
-// TODO currently two different RNG types in use. (See DSA for OsRng)
 
 #[allow(non_snake_case)]
 pub mod DH {
@@ -20,7 +18,6 @@ pub mod DH {
 
     use super::{CryptoError, RAND};
 
-    // FIXME generator: should we expose through function only the reference to this?
     /// GENERATOR (g): 2
     static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
@@ -72,12 +69,14 @@ pub mod DH {
         }
     }
 
-    pub fn verify_proof_component(component: &BigUint) -> Result<(), CryptoError> {
-        if component >= &*GENERATOR && component < &*Q {
+    static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
+
+    pub fn verify_exponent(component: &BigUint) -> Result<(), CryptoError> {
+        if component >= &*ONE && component < &*Q {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
-                "DH component for zero-knowledge proof fails verification.",
+                "DH exponent for zero-knowledge proof fails verification.",
             ))
         }
     }

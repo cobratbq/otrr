@@ -1,3 +1,6 @@
+#![allow(clippy::similar_names)]
+#![allow(clippy::trivially_copy_pass_by_ref)]
+
 use std::rc::Rc;
 
 use num_bigint::BigUint;
@@ -50,8 +53,7 @@ pub struct SMPContext {
 
 impl Drop for SMPContext {
     fn drop(&mut self) {
-        // FIXME implement clean-up of sensitive material
-        todo!("Implement clean-up of sensitive material")
+        self.ssid.fill(0);
     }
 }
 
@@ -223,8 +225,8 @@ impl SMPContext {
         let g2a = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        DH::verify_proof_component(&D2).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D3).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
 
         // "Verify Alice's zero-knowledge proofs for g2a and g3a:"
         // "1. Check that both g2a and g3a are >= 2 and <= modulus-2."
@@ -367,10 +369,10 @@ impl SMPContext {
         let g2b = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        DH::verify_proof_component(&D2).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D3).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D5).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D6).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
 
         // "Check that `g2b`, `g3b`, `Pb` and `Qb` are `>= 2 and <= modulus-2`."
         DH::verify_public_key(&g2b).map_err(OTRError::CryptographicViolation)?;
@@ -511,9 +513,9 @@ impl SMPContext {
         let Pa = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        DH::verify_proof_component(&D5).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D6).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_proof_component(&D7).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
 
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
@@ -560,7 +562,6 @@ impl SMPContext {
         let Rab = Ra.modpow(&b3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
-        // TODO Always send TLV to Alice, even if failure? (Now bails because of error-escape on failed verification)
         DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
         let tlv = OTREncoder::new()
@@ -615,7 +616,7 @@ impl SMPContext {
         let Rb = mpis.pop().unwrap();
         assert_eq!(mpis.len(), 0);
 
-        DH::verify_proof_component(&D7).map_err(OTRError::CryptographicViolation)?;
+        DH::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
 
         let MOD = DH::modulus();
         let g1 = DH::generator();

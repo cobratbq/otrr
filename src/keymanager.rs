@@ -1,3 +1,5 @@
+#![allow(clippy::trivially_copy_pass_by_ref)]
+
 use std::cmp::Ordering;
 
 use num_bigint::BigUint;
@@ -5,7 +7,7 @@ use once_cell::sync::Lazy;
 
 use crate::{crypto::DH, encoding::KeyID, OTRError};
 
-/// KeyManager maintains both our keypairs and received public keys from the other party.
+/// `KeyManager` maintains both our keypairs and received public keys from the other party.
 // TODO need to implement Drop for secure clean-up?
 pub struct KeyManager {
     ours: KeypairRotation,
@@ -17,8 +19,7 @@ pub struct KeyManager {
 
 impl Drop for KeyManager {
     fn drop(&mut self) {
-        // FIXME implement clean-up of sensitive material
-        todo!("Implement clean-up of sensitive material")
+        self.oldmacs.fill(0);
     }
 }
 
@@ -103,16 +104,22 @@ impl KeyManager {
     }
 }
 
-/// NUM_KEYS is the number of keys that are maintained beforing rotating away and forgetting them forever.
+/// `NUM_KEYS` is the number of keys that are maintained beforing rotating away and forgetting them forever.
 const NUM_KEYS: usize = 2;
 
-/// KeyRotation manages the rotation of DH-keypairs used by our own client during OTR (single instance) sessions.
+/// `KeyRotation` manages the rotation of DH-keypairs used by our own client during OTR (single instance) sessions.
 struct KeypairRotation {
     keys: [DH::Keypair; NUM_KEYS],
     acknowledged: KeyID,
 }
 
-/// KeypairRotation manages the rotation of our own user's DH keypairs.
+impl Drop for KeypairRotation {
+    fn drop(&mut self) {
+        self.acknowledged = 0;
+    }
+}
+
+/// `KeypairRotation` manages the rotation of our own user's DH keypairs.
 ///
 /// The rotation mechanism works by keeping track of the last confirmed key ID.
 /// The next key ID is keyID+1 -- deterministic -- so no need to be stored
@@ -120,11 +127,10 @@ struct KeypairRotation {
 /// a new public key is acknowledged, we can forget the old keypair.
 // FIXME need to check that illegal values (keypair, keyid) cannot happen. (assertions?)
 impl KeypairRotation {
-    /// New instance of KeyRotation struct.
-    // TODO neither generated keypair is actually used. Create a dummy "zero"-type (risk?) or ignore as insignificant?
+    /// New instance of `KeyRotation` struct.
     fn new(initial_keyid: KeyID, initial_key: DH::Keypair) -> Self {
         assert_ne!(0, initial_keyid);
-        assert_ne!(*ZERO, initial_key.public);
+        DH::verify_public_key(&initial_key.public).expect("BUG: public key must be valid.");
         let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
         keys[initial_keyid as usize % NUM_KEYS] = initial_key;
         Self {
@@ -159,17 +165,16 @@ impl KeypairRotation {
         }
     }
 
-    /// Acknowledge that a keyID was encountered in a return message from other
-    /// party. This allows rotating to the next DH-key. KeyIDs may be
-    /// acknowledged multiple times, as long as the protocol is followed and
-    /// only the current or next key is acknowledged.
+    /// Acknowledge that `key_id` was encountered in a return message from other party. This allows
+    /// rotating to the next DH-key. `KeyID`s may be acknowledged multiple times, as long as the
+    /// protocol is followed and only the current or next key is acknowledged.
     fn acknowledge(&mut self, key_id: KeyID) -> Result<bool, OTRError> {
         if key_id == self.acknowledged {
             // this keyID was already acknowledged
             Ok(false)
         } else if key_id == self.acknowledged + 1 {
+            // this key is indeed new, so updating state
             self.acknowledged = key_id;
-            // TODO currently no explicit zeroing/cleaning
             self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = DH::Keypair::generate();
             Ok(true)
         } else {
@@ -184,6 +189,13 @@ static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
 struct PublicKeyRotation {
     keys: [BigUint; NUM_KEYS],
     id: KeyID,
+}
+
+impl Drop for PublicKeyRotation {
+    fn drop(&mut self) {
+        self.id = 0;
+        self.keys = [BigUint::from(0u8), BigUint::from(0u8)];
+    }
 }
 
 impl PublicKeyRotation {
@@ -249,7 +261,12 @@ impl PublicKeyRotation {
 /// - take: increments internal state before providing value as result
 struct Counter([u8; COUNTER_HALF_LEN]);
 
-// TODO confirm correct type and sizes
+impl Drop for Counter {
+    fn drop(&mut self) {
+        self.0.fill(0);
+    }
+}
+
 impl Counter {
     fn new() -> Counter {
         Counter(COUNTER_INITIAL_VALUE)
@@ -270,9 +287,9 @@ impl Counter {
                 self.0 = *ctr;
                 Ok(())
             }
-            Ordering::Less | Ordering::Equal => {
-                Err(OTRError::ProtocolViolation("Counter value must be strictly larger than previous value."))
-            }
+            Ordering::Less | Ordering::Equal => Err(OTRError::ProtocolViolation(
+                "Counter value must be strictly larger than previous value.",
+            )),
         }
     }
 

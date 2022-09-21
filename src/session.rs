@@ -27,6 +27,8 @@ pub struct Account {
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 // TODO check if policy allows version 3 before sending query/whitespace-tag with version 3.
+// TODO how to manipulate policy bitflags?
+// TODO how to access SSID for display in UI?
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
         Self {
@@ -39,8 +41,8 @@ impl Account {
         }
     }
 
-    /// sessions returns a list of known instance tags (i.e. sessions). The session may be in any
-    /// state of the protocol, i.e. MSGSTATE_PLAINTEXT, MSGSTATE_ENCRYPTED, MSGSTATE_FINISHED.
+    /// `sessions` returns a list of known instance tags (i.e. sessions). The session may be in any
+    /// state of the protocol, i.e. `MSGSTATE_PLAINTEXT`, `MSGSTATE_ENCRYPTED`, `MSGSTATE_FINISHED`.
     /// However, the fact that a session (known by instance tag) exists, means that this instance
     /// tag was once revealed.
     pub fn sessions(&self) -> Vec<InstanceTag> {
@@ -59,6 +61,20 @@ impl Account {
         self.instances.get(&instance).map(Instance::status)
     }
 
+    /// `receive` processes a raw-bytes payload for possible OTR content. Receive should be called
+    /// for any received messages such that the protocol may transparently handle any OTR protocol
+    /// message, as well as warn the client about plaintext message received at unexpected times.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` on any deviating circumstances of the protocol, such as failed AKE
+    /// negotiations, failed SMP negotiations, incorrectly formatted messages, protocol violations,
+    /// etc. Most errors will contain an instance tag when an established OTR session is involved.
+    ///
+    /// # Panics
+    ///
+    /// Will panic on incorrect internal state or uses. It should not panic on any user input, as
+    /// these are typically the chat network messages therefore out of the clients control.
     // TODO fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
@@ -81,12 +97,13 @@ impl Account {
                 .instances
                 .entry(fragment.sender)
                 .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
-            return match instance.assembler.assemble(fragment) {
+            return match instance.assembler.assemble(&fragment) {
                 // TODO in theory, we could be recursing on a (nested) fragment, which is disallowed by the spec.
                 Ok(assembled) => self.receive(assembled.as_slice()),
                 // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(FragmentError::IncompleteResult) => Ok(UserMessage::None),
-                Err(FragmentError::UnexpectedFragment) => Ok(UserMessage::None),
+                Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
+                    Ok(UserMessage::None)
+                }
                 Err(FragmentError::InvalidFormat) => {
                     Err(OTRError::ProtocolViolation("Fragment with invalid format."))
                 }
@@ -216,6 +233,20 @@ impl Account {
         Ok(())
     }
 
+    /// `send` processes plaintext message content (user input) through the current state of OTR to
+    /// ready them for sending. This involves possibly encrypting the plaintext message, possibly
+    /// triggering other protocol interactions, and so forth. Additionally, depending on set
+    /// policies, `send` may issue warnings or refuse to operate to ensure that the client operates
+    /// according to set policies.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` on any kind of special-case situations involving the OTR protocol,
+    /// such as protocol violations, inproper state, incorrect internal state (data), etc.
+    ///
+    /// # Panics
+    ///
+    /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
     pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         // TODO need to add policy ALLOW_V3 check here too?
         // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
@@ -255,14 +286,24 @@ impl Account {
             .or_insert_with(|| {
                 Instance::new(Rc::clone(&self.details), receiver, Rc::clone(&self.host))
             })
-            .initiate(version)
+            .initiate(&version)
     }
 
+    /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
+    /// confidential communication has ended and any subsequent message will be sent as plain text,
+    /// i.e. unencrypted. This function should only be called as a result of _direct user
+    /// interaction_.
+    ///
+    /// # Errors
+    ///
+    /// Will return an error in case the specified instance does not exist.
+    #[inline(always)]
     pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        // TODO same as `reset`, should we merge and somehow make clear in api that `reset`/`end` has two functions?
-        self.get_instance(instance)?.reset()
+        self.reset(instance)
     }
 
+    /// `query` sends a OTR query-message over the host's communication network in order to probe
+    /// for other parties that are willing to initiate an OTR session.
     pub fn query(&mut self, accepted_versions: Vec<Version>) {
         // TODO verify possible versions against supported (non-blocked) versions.
         // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
@@ -270,10 +311,25 @@ impl Account {
         self.host.inject(&encode_message(&msg));
     }
 
+    /// `reset` resets the OTR session, as specified by the instance, to plaintext state. This means
+    /// that any message sent afterwards will be in plaintext unless other actions are taken to
+    /// (re)initialize an OTR session (initiate AKE).
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` in case the instance does not exist.
     pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        self.get_instance(instance)?.reset()
+        Ok(self.get_instance(instance)?.reset())
     }
 
+    /// `start_smp` initiates the Socialist Millionaires' Protocol for the specified instance. The
+    /// initiator immediately supplies a question (`question`, which is optional so may be
+    /// zero-length) and a `secret` which is the secret value that tested for in the SMP execution.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` in case the instance does not exist, or the protocol is in an
+    /// incorrect state. An established encrypted OTR session is necessary to start SMP.
     pub fn start_smp(
         &mut self,
         instance: InstanceTag,
@@ -285,6 +341,12 @@ impl Account {
         Ok(())
     }
 
+    /// `abort_smp` aborts an (in-progress) SMP session.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` in case the specified instance is not a confidential session, i.e.
+    /// encrypted OTR session, and on any violations of the OTR protocol.
     pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
         let message = self.get_instance(instance)?.abort_smp()?;
         self.host.inject(&message);
@@ -298,7 +360,8 @@ impl Account {
             .ok_or(OTRError::UnknownInstance(instance))
     }
 
-    /// has_encrypted_sessions checks if any instances have established or finished an OTR session.
+    /// `has_encrypted_sessions` checks if any instances are established or finished OTR
+    /// sessions.
     fn has_sessions(&self) -> bool {
         self.instances.iter().any(|i| {
             i.1.status() == ProtocolStatus::Encrypted || i.1.status() == ProtocolStatus::Finished
@@ -322,7 +385,6 @@ struct Instance {
 /// chat account.
 /// `Instance` expects to receive (as much as possible) preselected values to be used: selection,
 /// validation to be performed in `Session` if possible.
-// TODO check rest of code for design-goal to have choices made in `Session` as much as possible.
 impl Instance {
     fn new(details: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
         Self {
@@ -339,8 +401,8 @@ impl Instance {
         self.state.status()
     }
 
-    fn initiate(&mut self, version: Version) -> UserMessage {
-        assert_eq!(version, Version::V3);
+    fn initiate(&mut self, version: &Version) -> UserMessage {
+        assert_eq!(*version, Version::V3);
         let msg = self.ake.initiate();
         self.host.inject(&encode_otr_message(
             self.ake.version(),
@@ -477,7 +539,7 @@ impl Instance {
         }
     }
 
-    fn reset(&mut self) -> Result<UserMessage, OTRError> {
+    fn reset(&mut self) -> UserMessage {
         let previous = self.state.status();
         let version = self.state.version();
         // TODO what happens with verification status when we force-reset? Should be preserved? (prefer always reset for safety)
@@ -485,7 +547,7 @@ impl Instance {
         self.state = newstate;
         if previous == self.state.status() {
             assert!(abortmsg.is_none());
-            return Ok(UserMessage::None);
+            return UserMessage::None;
         }
         if let Some(msg) = abortmsg {
             self.host.inject(&encode_otr_message(
@@ -496,7 +558,7 @@ impl Instance {
                 msg,
             ));
         }
-        Ok(UserMessage::Reset(self.receiver))
+        UserMessage::Reset(self.receiver)
     }
 
     // TODO double-check if I use this function correctly, don't encode_otr_message twice!

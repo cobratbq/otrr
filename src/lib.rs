@@ -1,8 +1,7 @@
+#![deny(unused_must_use)]
+
 #![warn(clippy::pedantic)]
-#![allow(clippy::unnecessary_unwrap)]
-#![allow(clippy::module_name_repetitions)]
-//#![warn(clippy::something)]
-//#![deny(clippy::something)]
+#![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions)]
 
 use authentication::AKEError;
 use bitflags::bitflags;
@@ -50,6 +49,9 @@ pub mod session;
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
 // TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
 // TODO consider introducing (genreally) logging to keep track of the internal process.
+// TODO currently two different RNG types in use. (See DSA for OsRng)
+// TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
+// TODO review allow/warn/deny settings per file for clippy et al.
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
@@ -176,17 +178,20 @@ pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 /// `TLV_TYPE` is an alias for an u16 value. The values are not restricted. Therefore define the type.
 pub type TLVType = u16;
 
-/// Host represents the Host implementation for calling back into the messaging client.
+/// Host represents the interface to the host application, for calling back into the messaging
+/// client.
 pub trait Host {
     /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not
     /// relevant to return to the client.)
+    /// NOTE: `otrr` assumes that injection of the provided message into the transport succeeds.
     fn inject(&self, message: &[u8]);
 
-    /// Acquire the long-term DSA keypair from the host application.
+    /// Acquire the long-term DSA keypair from the host application. The long-term keypair, that is
+    /// used for authentication purposes, is requested from the host application. This allows the
+    /// host control over which keypair to provide for which account.
     fn keypair(&self) -> DSA::Keypair;
 
-    /// `query_smp_secret` triggers a query in the client to ask for the secret answer that is
-    /// necessary to continue the SMP.
-    /// TODO NOTE: for now considering empty question same as asking for secret without question.
+    /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
+    /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 }
