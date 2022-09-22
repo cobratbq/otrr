@@ -101,7 +101,6 @@ impl ProtocolState for PlaintextState {
     }
 
     fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
-        // FIXME is it desireable/harmful to have to construct a new instance?
         (None, Box::new(PlaintextState {}))
     }
 

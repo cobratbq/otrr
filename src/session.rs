@@ -117,7 +117,7 @@ impl Account {
         match parse(payload)? {
             MessageType::Error(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
-                    self.query(vec![Version::V3]);
+                    self.query(&[Version::V3])?;
                 }
                 Ok(UserMessage::Error(error))
             }
@@ -131,7 +131,7 @@ impl Account {
             MessageType::Tagged(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = self.select_version(&versions) {
-                        self.initiate(selected, None);
+                        self.initiate(&selected, None);
                     }
                 }
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -142,7 +142,7 @@ impl Account {
             }
             MessageType::Query(versions) => {
                 if let Some(selected) = self.select_version(&versions) {
-                    self.initiate(selected, None);
+                    self.initiate(&selected, None);
                 }
                 Ok(UserMessage::None)
             }
@@ -197,6 +197,14 @@ impl Account {
             Some(Version::V3)
         } else {
             None
+        }
+    }
+
+    fn filter_versions(&self, versions: &[Version]) -> Vec<Version> {
+        if versions.contains(&Version::V3) && self.details.policy.contains(Policy::ALLOW_V3) {
+            vec![Version::V3]
+        } else {
+            Vec::new()
         }
     }
 
@@ -255,18 +263,18 @@ impl Account {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(Vec::from(content));
         }
-        let tag = instance.unwrap_or(INSTANCE_ZERO);
+        let receiver = instance.unwrap_or(INSTANCE_ZERO);
         let instance = self
             .instances
-            .get_mut(&tag)
-            .ok_or(OTRError::UnknownInstance(tag))?;
+            .get_mut(&receiver)
+            .ok_or(OTRError::UnknownInstance(receiver))?;
         // "If msgstate is MSGSTATE_PLAINTEXT:"
         if instance.status() == ProtocolStatus::Plaintext {
             if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                 // "   If REQUIRE_ENCRYPTION is set:"
                 // "     Store the plaintext message for possible retransmission, and send a Query
                 //       Message."
-                self.query(vec![Version::V3]);
+                self.query(&[Version::V3])?;
                 // TODO OTR: store message for possible retransmission after OTR session is established.
                 return Err(OTRError::PolicyRestriction(
                     "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
@@ -286,15 +294,14 @@ impl Account {
     }
 
     /// `initiate` initiates the OTR protocol for designated receiver.
-    // FIXME this is an issue: we always start with instance receiver 0, so how can we distinguish instances?
-    pub fn initiate(&mut self, version: Version, receiver: Option<InstanceTag>) -> UserMessage {
+    pub fn initiate(&mut self, version: &Version, receiver: Option<InstanceTag>) -> UserMessage {
         let receiver = receiver.unwrap_or(INSTANCE_ZERO);
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
                 Instance::new(Rc::clone(&self.details), receiver, Rc::clone(&self.host))
             })
-            .initiate(&version)
+            .initiate(version)
     }
 
     /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
@@ -312,11 +319,19 @@ impl Account {
 
     /// `query` sends a OTR query-message over the host's communication network in order to probe
     /// for other parties that are willing to initiate an OTR session.
-    pub fn query(&mut self, accepted_versions: Vec<Version>) {
-        // TODO verify possible versions against supported (non-blocked) versions.
+    ///
+    /// # Errors
+    ///
+    /// Will return an error in case of no compatible errors.
+    pub fn query(&mut self, versions: &[Version]) -> Result<(), OTRError> {
+        let accepted_versions = self.filter_versions(versions);
+        if accepted_versions.is_empty() {
+            return Err(OTRError::UserError("No supported versions available."));
+        }
         // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
         let msg = MessageType::Query(accepted_versions);
         self.host.inject(&encode_message(&msg));
+        Ok(())
     }
 
     /// `reset` resets the OTR session, as specified by the instance, to plaintext state. This means

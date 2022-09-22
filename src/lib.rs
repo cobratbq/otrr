@@ -120,6 +120,7 @@ pub enum OTRError {
     /// abort-action needs to be communicated, that is: true to require sending abort-TLV, false if
     /// no further action needed.
     SMPAborted(bool),
+    UserError(&'static str),
 }
 
 #[derive(PartialEq, Eq, Debug)]
