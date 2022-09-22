@@ -240,7 +240,6 @@ impl PublicKeyRotation {
             }
         } else if self.id + 1 == next_id {
             let idx = (self.id as usize + 1) % NUM_KEYS;
-            // FIXME is this overwriting sufficiently effective or should we clean/zero the memory first?
             self.keys[idx] = next_key;
             self.id = next_id;
             Ok(true)

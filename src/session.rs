@@ -26,7 +26,6 @@ pub struct Account {
 }
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
-// TODO check if policy allows version 3 before sending query/whitespace-tag with version 3.
 // TODO how to manipulate policy bitflags?
 // TODO how to access SSID for display in UI?
 impl Account {
@@ -56,7 +55,8 @@ impl Account {
         sessions
     }
 
-    /// Query status (protocol status) for a particular instance. Returns status if the instance is known.
+    /// Query status (protocol status) for a particular instance. Returns status if the instance is
+    /// known.
     pub fn status(&self, instance: InstanceTag) -> Option<ProtocolStatus> {
         self.instances.get(&instance).map(Instance::status)
     }
@@ -82,10 +82,15 @@ impl Account {
             return Ok(UserMessage::Plaintext(Vec::from(payload)));
         }
         if fragment::match_fragment(payload) {
-            // FIXME handle OTRv2 fragments not being supported(?)
-            let fragment = fragment::parse(payload).or(Err(OTRError::ProtocolViolation(
-                "Illegal or unsupported fragment.",
-            )))?;
+            let fragment = match fragment::parse(payload) {
+                Ok(f) => f,
+                Err(FragmentError::UnsupportedFormat) => return Ok(UserMessage::None),
+                Err(
+                    FragmentError::UnexpectedFragment
+                    | FragmentError::IncompleteResult
+                    | FragmentError::InvalidData,
+                ) => panic!("BUG: this should only happen during assembly"),
+            };
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
             if fragment.receiver != self.details.tag {
                 // NOTE: ignore instance tag ZERO as this is only relevant for OTRv2 and we do not
@@ -98,16 +103,18 @@ impl Account {
                 .entry(fragment.sender)
                 .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
             return match instance.assembler.assemble(&fragment) {
-                // TODO in theory, we could be recursing on a (nested) fragment, which is disallowed by the spec.
+                // TODO theoretically, we could be recursing on a (nested) fragment, which is disallowed by the spec.
                 Ok(assembled) => self.receive(assembled.as_slice()),
-                // We've received a message fragment, but not enough to reassemble a message, so return early with no actual result and tell the client to wait for more fragments to arrive.
-                Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
-                    Ok(UserMessage::None)
-                }
-                Err(FragmentError::InvalidFormat) => {
-                    Err(OTRError::ProtocolViolation("Fragment with invalid format."))
-                }
+                // We've received a message fragment, but not enough to reassemble a message, so
+                // return early with no actual result and tell the client to wait for more fragments
+                // to arrive.
+                Err(
+                    FragmentError::IncompleteResult
+                    | FragmentError::UnexpectedFragment
+                    | FragmentError::UnsupportedFormat,
+                ) => Ok(UserMessage::None),
                 Err(FragmentError::InvalidData) => {
+                    // TODO consider responding with OTR Error message to inform client, assuming we do have a valid sender instance tag.
                     Err(OTRError::ProtocolViolation("Fragment with invalid data."))
                 }
             };
@@ -246,33 +253,42 @@ impl Account {
     /// # Panics
     ///
     /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
-    pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
-        // TODO need to add policy ALLOW_V3 check here too?
-        // FIXME figure out recipient, figure out messaging state, optionally encrypt, optionally tag, prepare byte-stream ready for sending.
-        // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
-        // FIXME figure out what the "default" instance is, if session is established, then send query message if in plaintext or whatever is otherwise necessary.
+    pub fn send(
+        &mut self,
+        instance: Option<InstanceTag>,
+        content: &[u8],
+    ) -> Result<Vec<u8>, OTRError> {
+        if !self.details.policy.contains(Policy::ALLOW_V3) {
+            // OTR: if no version is allowed according to policy, do not do any handling at all.
+            return Ok(Vec::from(content));
+        }
+        let tag = instance.unwrap_or(INSTANCE_ZERO);
         let instance = self
             .instances
-            .get_mut(&instance)
-            .ok_or(OTRError::UnknownInstance(instance))?;
+            .get_mut(&tag)
+            .ok_or(OTRError::UnknownInstance(tag))?;
         // "If msgstate is MSGSTATE_PLAINTEXT:"
         if instance.status() == ProtocolStatus::Plaintext {
             if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                 // "   If REQUIRE_ENCRYPTION is set:"
-                // "     Store the plaintext message for possible retransmission, and send a Query Message."
+                // "     Store the plaintext message for possible retransmission, and send a Query
+                //       Message."
                 self.query(vec![Version::V3]);
                 // TODO OTR: store message for possible retransmission after OTR session is established.
                 return Err(OTRError::PolicyRestriction(
                     "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
                 ));
             } else if self.details.policy.contains(Policy::SEND_WHITESPACE_TAG) {
+                // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
                 // TODO add logic for sending whitespace-tagged message to probe for OTR capabilities. (Send until receiving a follow-up plaintext message, then assume Alice is either not capable or not interested.)
             }
         }
         // "If msgstate is MSGSTATE_ENCRYPTED:
-        //    Encrypt the message, and send it as a Data Message. Store the plaintext message for possible retransmission.
+        //    Encrypt the message, and send it as a Data Message. Store the plaintext message for
+        //    possible retransmission.
         //  If msgstate is MSGSTATE_FINISHED:
-        //    Inform the user that the message cannot be sent at this time. Store the plaintext message for possible retransmission."
+        //    Inform the user that the message cannot be sent at this time. Store the plaintext
+        //    message for possible retransmission."
         instance.send(content)
     }
 

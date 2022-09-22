@@ -98,29 +98,28 @@ pub enum OTRError {
     UnreadableMessage(InstanceTag),
     /// An OTR message was received that is intended for a different instance (client).
     MessageForOtherInstance,
-    /// Message to be sent to an unknown instance. (FIXME need to check with spec on details)
+    /// Message to be sent to an unknown instance.
     UnknownInstance(InstanceTag),
-    // FIXME not sure if this is the way to go...
-    /// No acceptable version available in proposed protocol versions.
-    NoAcceptableVersion,
+    /// Unsupported version encountered.
     UnsupportedVersion(u16),
     /// Messaging is blocked in OTR protocol "Finished" state to ensure no accidental disclosure occurs.
     IncorrectState(&'static str),
     /// Violation of cryptographic or mathematical requirement for correct/secure operation.
     CryptographicViolation(CryptoError),
-    /// (AKE) AuthenticationError indicates that there was an error during AKE.
+    /// `PolicyRestriction` indicates an error caused by the active policy.
+    PolicyRestriction(&'static str),
+    /// (AKE) `AuthenticationError` indicates that there was an error during AKE.
     AuthenticationError(AKEError),
-    // TODO it would be sensible to define a SMPError(SMPError) type to encapsulate that whole process, like we did for AKE.
-    /// (SMP) SMPInProgress indicates that an SMP exchange is in progress, so to initiate a new SMP,
+    /// `SMPInProgress` indicates that an SMP exchange is in progress, so to initiate a new SMP,
     /// the previous one needs to be aborted first.
     SMPInProgress,
-    /// SMPSuccess indicates successful finishing SMP without a follow-up TLV needing to be sent.
+    /// `SMPSuccess` indicates successful finishing SMP without a follow-up TLV needing to be sent.
     SMPSuccess(Option<TLV>),
-    /// SMP process aborted, most likely by user request. Provided TLV can be sent to other party to
-    /// signal SMP abort. The boolean value indicates whether the abort-action needs to be
-    /// communicated, that is: true to require sending abort-TLV, false if no further action needed.
+    /// `SMPAborted` indicates SMP process was aborted, most likely by user request. Provided TLV
+    /// can be sent to other party to signal SMP abort. The boolean value indicates whether the
+    /// abort-action needs to be communicated, that is: true to require sending abort-TLV, false if
+    /// no further action needed.
     SMPAborted(bool),
-    PolicyRestriction(&'static str),
 }
 
 #[derive(PartialEq, Eq, Debug)]

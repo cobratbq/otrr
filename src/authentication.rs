@@ -11,22 +11,23 @@ use crate::{
 use num_bigint::BigUint;
 
 pub struct AKEContext {
+    version: Version,
     host: Rc<dyn Host>,
     state: AKEState,
 }
 
-// FIXME check verification of public keys everywhere.
 // FIXME check updating of state everywhere where necessary.
 impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
+            version: Version::V3,
             host,
             state: AKEState::None,
         }
     }
 
     pub fn version(&self) -> Version {
-        Version::V3
+        self.version.clone()
     }
 
     pub fn initiate(&mut self) -> OTRMessageType {
@@ -52,6 +53,7 @@ impl AKEContext {
         // FIXME verify that transfer-destination state is correct
         match &self.state {
             AKEState::AwaitingDHKey(state) => Ok(Self {
+                version: Version::V3,
                 host: Rc::clone(&self.host),
                 state: AKEState::AwaitingDHKey(AwaitingDHKey {
                     our_dh_keypair: state.our_dh_keypair.clone(),
@@ -447,7 +449,6 @@ impl AKEContext {
 pub struct CryptographicMaterial {
     pub version: Version,
     pub ssid: SSID,
-    // FIXME can we do without the reference-counting so that we know absolutely sure that this is the only instance?
     pub our_dh: DH::Keypair,
     pub their_dh: BigUint,
     pub their_dsa: DSA::PublicKey,

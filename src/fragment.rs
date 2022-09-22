@@ -31,7 +31,7 @@ pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
     let fragment_caps = FRAGMENT_PATTERN.captures(content);
     if fragment_caps.is_none() {
         // TODO this currently includes OTRv2 fragments, which we will not support but maybe should handle gracefully.
-        return Err(FragmentError::InvalidFormat);
+        return Err(FragmentError::UnsupportedFormat);
     }
     let captures = fragment_caps.unwrap();
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
@@ -140,8 +140,9 @@ impl Assembler {
 
 #[derive(std::fmt::Debug)]
 pub enum FragmentError {
-    /// Fragment has invalid format and cannot be parsed.
-    InvalidFormat,
+    /// Fragment has invalid format and cannot be parsed. This is most likely an OTRv2 fragment,
+    /// which does not include sender and receiver tags. This protocol version is not supported.
+    UnsupportedFormat,
     /// Fragment contains invalid part information that would result in an invalid partitioning of
     /// the content.
     InvalidData,
