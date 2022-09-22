@@ -27,22 +27,15 @@ pub fn match_fragment(content: &[u8]) -> bool {
         && content.ends_with(OTR_FRAGMENT_SUFFIX)
 }
 
-pub fn parse(content: &[u8]) -> Result<Fragment, FragmentError> {
-    let fragment_caps = FRAGMENT_PATTERN.captures(content);
-    if fragment_caps.is_none() {
-        // TODO this currently includes OTRv2 fragments, which we will not support but maybe should handle gracefully.
-        return Err(FragmentError::UnsupportedFormat);
-    }
-    let captures = fragment_caps.unwrap();
+pub fn parse(content: &[u8]) -> Option<Fragment> {
+    let captures = FRAGMENT_PATTERN.captures(content)?;
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
     let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
-    return Ok(Fragment {
-        sender: verify_instance_tag(utils::std::u32::from_4byte_be(&sender_bytes))
-            .or(Err(FragmentError::InvalidData))?,
-        receiver: verify_instance_tag(utils::std::u32::from_4byte_be(&receiver_bytes))
-            .or(Err(FragmentError::InvalidData))?,
+    return Some(Fragment {
+        sender: verify_instance_tag(utils::std::u32::from_4byte_be(&sender_bytes)).ok()?,
+        receiver: verify_instance_tag(utils::std::u32::from_4byte_be(&receiver_bytes)).ok()?,
         part: std::str::from_utf8(captures.get(3).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
@@ -140,9 +133,6 @@ impl Assembler {
 
 #[derive(std::fmt::Debug)]
 pub enum FragmentError {
-    /// Fragment has invalid format and cannot be parsed. This is most likely an OTRv2 fragment,
-    /// which does not include sender and receiver tags. This protocol version is not supported.
-    UnsupportedFormat,
     /// Fragment contains invalid part information that would result in an invalid partitioning of
     /// the content.
     InvalidData,
@@ -283,13 +273,13 @@ mod tests {
     #[test]
     fn test_parse_fragment_empty() {
         let result = parse(b"");
-        assert!(result.is_err());
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_parse_fragment_arbitrary() {
         let result = parse(b"fds7ag56sdaf67sd8a5f6se7895f6asd");
-        assert!(result.is_err());
+        assert!(result.is_none());
     }
 
     #[test]

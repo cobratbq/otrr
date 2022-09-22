@@ -83,13 +83,8 @@ impl Account {
         }
         if fragment::match_fragment(payload) {
             let fragment = match fragment::parse(payload) {
-                Ok(f) => f,
-                Err(FragmentError::UnsupportedFormat) => return Ok(UserMessage::None),
-                Err(
-                    FragmentError::UnexpectedFragment
-                    | FragmentError::IncompleteResult
-                    | FragmentError::InvalidData,
-                ) => panic!("BUG: this should only happen during assembly"),
+                Some(fragment) => fragment,
+                None => return Ok(UserMessage::None),
             };
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
             if fragment.receiver != self.details.tag {
@@ -108,11 +103,9 @@ impl Account {
                 // We've received a message fragment, but not enough to reassemble a message, so
                 // return early with no actual result and tell the client to wait for more fragments
                 // to arrive.
-                Err(
-                    FragmentError::IncompleteResult
-                    | FragmentError::UnexpectedFragment
-                    | FragmentError::UnsupportedFormat,
-                ) => Ok(UserMessage::None),
+                Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
+                    Ok(UserMessage::None)
+                }
                 Err(FragmentError::InvalidData) => {
                     // TODO consider responding with OTR Error message to inform client, assuming we do have a valid sender instance tag.
                     Err(OTRError::ProtocolViolation("Fragment with invalid data."))
