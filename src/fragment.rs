@@ -60,6 +60,47 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
     }
 }
 
+/// `fragment` partitions given content into fragments of a specified maximum size.
+///
+/// To fragment content, a maximum fragment size must be specified. The fragmentation overhead is
+/// part of this maximum size. What is left will be used for partial (fragmented) content. The
+/// function expects to be called when applicable, and panics otherwise.
+///
+/// # Panics
+///
+/// Panics if illegal user input is provided.
+pub fn fragment(max_size: usize, content: &[u8]) -> Vec<Fragment> {
+    const OTRV3_HEADER_SIZE: usize = 36;
+    assert!(
+        max_size > OTRV3_HEADER_SIZE,
+        "Maximum allowed fragment size must be larger than overhead necessary for fragmentation."
+    );
+    assert!(
+        content.len() > max_size,
+        "Content must be larger than fragment size."
+    );
+    let content_size: usize = max_size - OTRV3_HEADER_SIZE;
+    let mut fragments = Vec::<Fragment>::new();
+    for i in (0..content.len()).step_by(content_size) {
+        let payload = &content[i..usize::min(i + content_size, content.len())];
+        fragments.push(Fragment {
+            sender: 0,
+            receiver: 0,
+            part: 0,
+            total: 0,
+            payload: Vec::from(payload),
+        });
+    }
+    let total = fragments.len() as u16;
+    for (i, f) in fragments.iter_mut().enumerate() {
+        f.part = i as u16;
+        f.total = total;
+    }
+    // TODO note that sender/receiver are still zero in this result
+    fragments
+}
+
+// TODO move sender, receiver out of the Fragment structure. These are concerns for other logic.
 pub struct Fragment {
     pub sender: InstanceTag,
     pub receiver: InstanceTag,
