@@ -496,5 +496,6 @@ pub enum AKEError {
     MessageIncomplete,
     /// AKE completed and no response message is produced/necessary.
     Completed,
+    // Incorrect AKE state for message to be handled.
     IncorrectState,
 }

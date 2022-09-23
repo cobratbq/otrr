@@ -6,11 +6,11 @@ __warning__ this is a work-in-progress with current focus being on the functiona
 
 ## Warning
 
-- crate `dsa` disclaimer states that there has not been thorough verification: functionality only
+- crate `dsa`: disclaimer states it is not thoroughly verified
 
 ## Architecture
 
-- OTRv3 only (OTRv2 and earlier not supported)
+- OTRv3 only (OTRv2 and earlier are not supported)
 - Structured for security:
   - security-sensitive primitives in separate module
   - strictly separated states resulting in strictly separated secrets
