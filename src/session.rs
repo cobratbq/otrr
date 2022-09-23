@@ -27,7 +27,6 @@ pub struct Account {
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 // TODO how to manipulate policy bitflags?
-// TODO how to access SSID for display in UI?
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
         Self {
@@ -159,7 +158,6 @@ impl Account {
                 // client of the account that receives the DH-Commit message. (Potentially even
                 // after the fact if client OTR plug-in incorrectly responds to history (replay)
                 // of chat.
-                // FIXME in case of unreadable message, also send OTR Error message to other party
                 self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
@@ -545,14 +543,15 @@ impl Instance {
                     Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
                     msg @ Ok(_) => msg,
                     Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
-                        // TODO check which error message is relevant.
+                        // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
+                        // need to send an OTR Error response, to indicate to the other user that
+                        // we no longer have a correctly established OTR session.
                         self.host.inject(&encode_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Ok(UserMessage::None)
                     }
                     Err(OTRError::UnreadableMessage(_)) => {
-                        // FIXME now only responding with error for Unreadable Message, but which other errors need response with error message?
                         self.host.inject(&encode_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
@@ -582,7 +581,6 @@ impl Instance {
             self.host.inject(&encode_otr_message(
                 version,
                 self.details.tag,
-                // FIXME replace with receiver tag of other party once accessible/available.
                 self.receiver,
                 msg,
             ));

@@ -16,7 +16,6 @@ pub struct AKEContext {
     state: AKEState,
 }
 
-// FIXME check updating of state everywhere where necessary.
 impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
@@ -179,8 +178,6 @@ impl AKEContext {
                 // AUTHSTATE_AWAITING_SIG.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
-                // TODO consider random starting key-id for initial key-id. (Spec: keyid > 0)
-                // FIXME ensure keypair is only acquired once per AKE conversation (sequence).
                 let dsa_keypair = self.host.keypair();
                 let pub_b = dsa_keypair.public_key();
                 let keyid_b = 1u32;

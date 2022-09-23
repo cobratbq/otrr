@@ -23,7 +23,7 @@ pub(crate) fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagEr
 pub(crate) fn random_tag() -> InstanceTag {
     let mut value = [0u8; 4];
     loop {
-        (&*RAND)
+        (*RAND)
             .fill(&mut value)
             .expect("Failed to acquire random bytes");
         let num = utils::std::u32::from_4byte_be(&value);

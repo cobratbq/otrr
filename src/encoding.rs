@@ -106,10 +106,11 @@ fn parse_encoded_content(
 
 fn parse_plain_message(data: &[u8]) -> MessageType {
     if data.starts_with(OTR_ERROR_PREFIX) {
-        // `?OTR Error:` prefix must start at beginning of message to avoid people messing with OTR in normal plaintext messages.
+        // `?OTR Error:` prefix must start at beginning of message to avoid people messing with OTR
+        // in normal plaintext messages.
         return MessageType::Error(Vec::from(&data[OTR_ERROR_PREFIX.len()..]));
     }
-    if let Some(caps) = (&*QUERY_PATTERN).captures(data) {
+    if let Some(caps) = (*QUERY_PATTERN).captures(data) {
         let versions = caps
             .get(QUERY_GROUP_VERSIONS)
             .expect("BUG: hard-coded regex should contain capture group for versions");
@@ -136,8 +137,8 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
         );
     }
     // TODO search for multiple occurrences?
-    if let Some(caps) = (&*WHITESPACE_PATTERN).captures(data) {
-        let cleaned = (&*WHITESPACE_PATTERN)
+    if let Some(caps) = (*WHITESPACE_PATTERN).captures(data) {
+        let cleaned = (*WHITESPACE_PATTERN)
             .replace_all(data, b"".as_ref())
             .to_vec();
         let cap = caps
@@ -473,8 +474,8 @@ pub struct OTRDecoder<'a>(&'a [u8]);
 
 /// `OTRDecoder` contains the logic for reading entries from byte-buffer.
 ///
-/// The `OTRDecoder` is construct to assume that any read can fail due to unexpected EOL or unexpected data. The
-///  input cannot be trusted, so we try to handle everything as an Err-result.
+/// The `OTRDecoder` is construct to assume that any read can fail due to unexpected EOL or
+/// unexpected data. The input cannot be trusted, so we try to handle everything as an Err-result.
 impl<'a> OTRDecoder<'a> {
     pub fn new(content: &'a [u8]) -> Self {
         Self(content)

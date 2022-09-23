@@ -59,7 +59,6 @@ impl Drop for SMPContext {
 
 #[allow(non_snake_case)]
 impl SMPContext {
-
     pub fn new(
         host: Rc<dyn Host>,
         ssid: SSID,
@@ -708,7 +707,7 @@ fn compute_secret(
 
 fn random() -> BigUint {
     let mut v = [0u8; 192];
-    (&*RAND)
+    (*RAND)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
     BigUint::from_bytes_be(&v).mod_floor(DH::modulus())
