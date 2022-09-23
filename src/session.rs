@@ -7,7 +7,7 @@ use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
         encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
-        OTREncoder, OTRMessageType,
+        OTREncoder, OTRMessageType, SSID,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -376,6 +376,16 @@ impl Account {
         Ok(())
     }
 
+    /// `smp_ssid` returns the SSID used for verification in case of an established (encrypted) OTR
+    /// session.
+    /// 
+    /// # Errors
+    /// 
+    /// Will give an `OTRError::UnknownInstance` error in case of non-existing instance.
+    pub fn smp_ssid(&self, instance: InstanceTag) -> Result<SSID, OTRError> {
+        self.instances.get(&instance).ok_or(OTRError::UnknownInstance(instance))?.smp_ssid()
+    }
+
     // TODO this function has nasty detail that borrow checker sees these calls as a persistent mutable borrow. This unnecessarily limits flexibility. Can we do something with lifetimes to avoid this?
     fn get_instance(&mut self, instance: InstanceTag) -> Result<&mut Instance, OTRError> {
         self.instances
@@ -512,7 +522,7 @@ impl Instance {
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                         let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(t)).unwrap();
                         // Socialist Millionaire Protocol (SMP) handling.
-                        if let Some(reply_tlv) = self.state.smp().unwrap().handle(tlv) {
+                        if let Some(reply_tlv) = self.state.smp_mut().unwrap().handle(tlv) {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
@@ -611,7 +621,7 @@ impl Instance {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
         // TODO consider what to do if SMP in progress: immediately reset and initiate, or do nothing, or ...?
-        let tlv = self.state.smp()?.initiate(secret, question)?;
+        let tlv = self.state.smp_mut()?.initiate(secret, question)?;
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
@@ -624,9 +634,13 @@ impl Instance {
         ))
     }
 
+    fn smp_ssid(&self) -> Result<SSID, OTRError> {
+        Ok(self.state.smp()?.ssid())
+    }
+
     // TODO delegate to here from Account instance.
     fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
-        let smp = self.state.smp();
+        let smp = self.state.smp_mut();
         if smp.is_err() {
             return Err(OTRError::IncorrectState(
                 "SMP is unavailable in the current state",

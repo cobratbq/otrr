@@ -47,7 +47,8 @@ pub trait ProtocolState {
     // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
     // TODO integrate SMP use in session handling logic
-    fn smp(&mut self) -> Result<&mut SMPContext, OTRError>;
+    fn smp(&self) -> Result<&SMPContext, OTRError>;
+    fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
 
 pub fn new_state() -> Box<dyn ProtocolState> {
@@ -111,7 +112,13 @@ impl ProtocolState for PlaintextState {
         Ok(OTRMessageType::Undefined(Vec::from(content)))
     }
 
-    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+    fn smp(&self) -> Result<&SMPContext, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP is not available when protocol is in Plaintext state.",
+        ))
+    }
+
+    fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
         Err(OTRError::IncorrectState(
             "SMP is not available when protocol is in Plaintext state.",
         ))
@@ -203,7 +210,11 @@ impl ProtocolState for EncryptedState {
         Ok(OTRMessageType::Data(self.encrypt_message(flags, content)))
     }
 
-    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+    fn smp(&self) -> Result<&SMPContext, OTRError> {
+        Ok(&self.smp)
+    }
+
+    fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
         Ok(&mut self.smp)
     }
 }
@@ -389,7 +400,13 @@ impl ProtocolState for FinishedState {
         Err(OTRError::IncorrectState("Sending messages is prohibited in 'Finished' state to prevent races that result in sensitive message being transmitted insecurely."))
     }
 
-    fn smp(&mut self) -> Result<&mut SMPContext, OTRError> {
+    fn smp(&self) -> Result<&SMPContext, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP is not available when protocol is in Finished state.",
+        ))
+    }
+
+    fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
         Err(OTRError::IncorrectState(
             "SMP is not available when protocol is in Finished state.",
         ))

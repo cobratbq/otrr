@@ -80,6 +80,10 @@ impl SMPContext {
         self.status.clone()
     }
 
+    pub fn ssid(&self) -> SSID {
+        self.ssid
+    }
+
     /// Initiate SMP. Produces `SMPError::AlreadyInProgress` if SMP is in progress.
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         if let SMPState::Expect1 = self.state {
