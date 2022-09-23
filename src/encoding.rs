@@ -731,11 +731,12 @@ impl OTREncoder {
 
     pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
         const PARAM_LEN: usize = Signature::parameter_size();
+        const SIGNATURE_LEN: usize = Signature::size();
         // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
         self.buffer.extend_from_slice(&sig.r().to_bytes_be());
+        assert_eq!(PARAM_LEN, self.buffer.len());
         self.buffer.extend_from_slice(&sig.s().to_bytes_be());
-        // TODO ensure {r(),s()}.to_bytes_be() always produce 20 bytes.
-        assert_eq!(self.buffer.len(), 2 * PARAM_LEN);
+        assert_eq!(SIGNATURE_LEN, self.buffer.len());
         self
     }
 
