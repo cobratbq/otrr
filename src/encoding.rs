@@ -125,8 +125,11 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                         b'1' => Version::Unsupported(1u16),
                         b'2' => Version::Unsupported(2u16),
                         b'3' => Version::V3,
-                        // TODO Use u16::MAX here as placeholder for unparsed textual value representation? Current approach gives unexpected values as it is a char to ord conversion.
-                        _ => Version::Unsupported(u16::from(*v)),
+                        // NOTE to use `u16::MAX` is a bit arbitrary. I wanted to choose a value
+                        // that would clearly stand out and not accidentally match on anything
+                        // significant. I did not want to copy the original byte, as there are bytes
+                        // that would accidentally map on a valid value.
+                        _ => Version::Unsupported(u16::MAX),
                     }
                 })
                 .filter(|v| match v {
@@ -162,7 +165,6 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
     result
 }
 
-// TODO it would probably make more sense for some of the types to accept '&[u8]'-style content
 pub enum MessageType {
     Error(Vec<u8>),
     Plaintext(Vec<u8>),

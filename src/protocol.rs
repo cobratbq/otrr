@@ -182,7 +182,9 @@ impl ProtocolState for EncryptedState {
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
         let their_fingerprint = OTR::fingerprint(&their_dsa);
-        // FIXME check if allowed to transition from Encrypted to Encrypted.
+        // There is no indication in the OTRv3 spec that there are issues with re-transitioning into
+        // `MSGSTATE_ENCRYPTED`. There does not seem to be an issue, and it also means that AKEs
+        // during `MSGSTATE_ENCRYPTED` are possible as well.
         Box::new(EncryptedState::new(
             host,
             version,
@@ -379,7 +381,6 @@ impl ProtocolState for FinishedState {
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState> {
         let their_fingerprint = OTR::fingerprint(&their_dsa);
-        // FIXME check if allowed to transition to Encrypted from here.
         Box::new(EncryptedState::new(
             host,
             version,

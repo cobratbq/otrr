@@ -26,7 +26,7 @@ pub struct Account {
 }
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
-// TODO how to manipulate policy bitflags?
+// TODO how to modify policy bitflags?
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
         Self {
@@ -149,7 +149,7 @@ impl Account {
                 msg @ EncodedMessage {
                     version: _,
                     sender: _,
-                    receiver: INSTANCE_ZERO,
+                    receiver: _,
                     message: OTRMessageType::DHKey(_),
                 },
             ) => {
@@ -162,20 +162,19 @@ impl Account {
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
-                // TODO allowing replies from multiple instances (different instances, repeats/replays) on single DH-Commit message: reuse of CTR value for same symmetric key r, opens up avenue to single (malicious) client responding multiple times (either with same instance tag, or with different instance tags). This means that they can respond, knowing the `r` value and therefore the DH public key. Opens up possibility for brute-forcing by spamming DH-Key messages from single malicious instance? Probably need to reinitiate with targeted message to DH-Key sender instance tag(?) to prevent multiple responses.
-                // TODO DH-Key may be received multiple times. (reuse of `r`, dh-key)
+                // TODO DH-Key (responses) may be received multiple times (multiple instances, multiple repeats). Do we need to take these cases into account when handling? (temporary dh keypair and `r` value are same/reused for all cases, same CTR value used for all cases)
                 let result_context = self
                     .instances
                     .get(&INSTANCE_ZERO)
                     .unwrap()
                     .transfer_akecontext();
-                // TODO do we transfer in all cases?
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
                     Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
                 });
                 if let Ok(context) = result_context {
-                    // TODO how to respond if AKE is already initiated (i.e. in-progress)?
-                    // TODO how to respond if instance already is confidential session (or finished)?
+                    // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
+                    // indicates whether transfer is possible.
+                    // TODO how to respond if: AKE already initialized (i.e. in progress), if instance is MSGSTATE_ENCRYPTED or MSGSTATE_FINISHED?
                     instance.adopt_akecontext(context);
                 }
                 instance.handle(msg)
@@ -269,8 +268,8 @@ impl Account {
         // "If msgstate is MSGSTATE_PLAINTEXT:"
         if instance.status() == ProtocolStatus::Plaintext {
             if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
-                // "   If REQUIRE_ENCRYPTION is set:"
-                // "     Store the plaintext message for possible retransmission, and send a Query
+                // "   If REQUIRE_ENCRYPTION is set:
+                //       Store the plaintext message for possible retransmission, and send a Query
                 //       Message."
                 self.query(&[Version::V3])?;
                 // TODO OTR: store message for possible retransmission after OTR session is established.
@@ -376,12 +375,15 @@ impl Account {
 
     /// `smp_ssid` returns the SSID used for verification in case of an established (encrypted) OTR
     /// session.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Will give an `OTRError::UnknownInstance` error in case of non-existing instance.
     pub fn smp_ssid(&self, instance: InstanceTag) -> Result<SSID, OTRError> {
-        self.instances.get(&instance).ok_or(OTRError::UnknownInstance(instance))?.smp_ssid()
+        self.instances
+            .get(&instance)
+            .ok_or(OTRError::UnknownInstance(instance))?
+            .smp_ssid()
     }
 
     // TODO this function has nasty detail that borrow checker sees these calls as a persistent mutable borrow. This unnecessarily limits flexibility. Can we do something with lifetimes to avoid this?

@@ -14,7 +14,7 @@ __warning__ this is a work-in-progress with current focus being the functional i
 
 - OTRv3 only (OTRv2 and earlier are not supported)
 - Structured for security:
-  - security-sensitive primitives in separate module
+  - security-sensitive primitives in separate module (`crypto`)
   - strictly separated states resulting in strictly separated secrets
 - __not__ multi-threaded
 
@@ -56,7 +56,7 @@ __Functionality__:
   - ☐ Fragment outgoing messages.
 - ☐ Optional: (only fleetingly described)
   - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
-- ☐ Extra Symmetric Key (TLV type `8`)
+- ☐ Expose the Extra Symmetric Key (TLV type `8`)
 
 __Operational__:
 

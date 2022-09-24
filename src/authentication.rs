@@ -48,11 +48,14 @@ impl AKEContext {
         })
     }
 
+    /// `transfer` transfers our `AKEContext` specifically for the case that a DH-Key response
+    /// arrives and the DH-Commit message was sent with reciever-tag ZERO. (An edge case that is
+    /// allowed as we do not yet know the receiver instance tag of the other client.) Therefore, we
+    /// only allow transferring the state if the state corresponds: `AKEState::AwaitingDHKey`.
     pub fn transfer(&self) -> Result<AKEContext, AKEError> {
-        // FIXME verify that transfer-destination state is correct
         match &self.state {
             AKEState::AwaitingDHKey(state) => Ok(Self {
-                version: Version::V3,
+                version: self.version.clone(),
                 host: Rc::clone(&self.host),
                 state: AKEState::AwaitingDHKey(AwaitingDHKey {
                     our_dh_keypair: state.our_dh_keypair.clone(),
@@ -353,7 +356,7 @@ impl AKEContext {
                 (
                     Ok((
                         CryptographicMaterial {
-                            version: Version::V3,
+                            version: self.version.clone(),
                             ssid: secrets.ssid,
                             our_dh: (*state.our_dh_keypair).clone(),
                             their_dh: gx,
@@ -424,7 +427,7 @@ impl AKEContext {
                     .map_err(AKEError::CryptographicViolation)?;
                 (
                     Ok(CryptographicMaterial {
-                        version: Version::V3,
+                        version: self.version.clone(),
                         ssid: secrets.ssid,
                         our_dh: (*state.our_dh_keypair).clone(),
                         their_dh: state.gy.clone(),
