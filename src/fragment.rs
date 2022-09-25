@@ -69,6 +69,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
 /// # Panics
 ///
 /// Panics if illegal user input is provided.
+#[allow(clippy::cast_possible_truncation)]
 pub fn fragment(max_size: usize, content: &[u8]) -> Vec<Fragment> {
     const OTRV3_HEADER_SIZE: usize = 36;
     assert!(

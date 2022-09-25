@@ -82,12 +82,10 @@ pub enum UserMessage {
     /// SMP process succeeded, signaling the client that authenticity is verified.
     SMPSucceeded(InstanceTag),
     /// SMP process failed, signaling the client that some final concluion was reached.
-    // TODO consider carrying the reason for the failure, but may contain technical details, so may be better queried at `smp`.
     SMPFailed(InstanceTag),
 }
 
 /// `OTRError` is the enum containing the various errors that can occur.
-// TODO consider implementing `std::fmt::Display` trait for passing on error messages.
 #[derive(Debug)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
@@ -130,6 +128,8 @@ pub enum ProtocolStatus {
     Finished,
 }
 
+const SUPPORTED_VERSIONS: [Version; 1] = [Version::V3];
+
 /// `Version` contains the various supported OTR protocol versions.
 // TODO version preference may be hard-coded in places
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
@@ -141,11 +141,9 @@ pub enum Version {
     Unsupported(u16),
 }
 
-// TODO implement use of policy flags!
 bitflags! {
     /// `Policy` bit-flags can be set to indicate how OTR should respond to certain events related to messaging and the OTR protocol.
     pub struct Policy: u32 {
-    // TODO disabled all ALLOW_Vx flags, because it doesn't make much sense to disable the only version option.
     // ALLOW_V1
     //     Allow version 1 of the OTR protocol to be used (in general this document will not address OTR protocol version 1; see previous protocol documents for these details).
     //const ALLOW_V1 = 0b00000001;

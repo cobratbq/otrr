@@ -214,7 +214,6 @@ pub mod OTR {
         }
     }
 
-    // TODO from what I understand, given AES128::Key implements Drop, there is nothing further to clean up.
     pub struct DataSecrets {
         sendkey: AES128::Key,
         recvkey: AES128::Key,
@@ -277,7 +276,6 @@ pub mod OTR {
         //  hashed. The encoding assures that, assuming the hash function itself has no useful
         //  collisions, and DSA keys have length less than 524281 bits (500 times larger than most
         //  DSA keys), no two public keys will have the same fingerprint."
-        // TODO using 20-byte representation in memory, but spec documents 40-byte hex-string.
         SHA1::digest(&OTREncoder::new().write_public_key(pk).to_vec()[2..])
     }
 

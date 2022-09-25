@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_arguments)]
-
 use std::rc::Rc;
 
 use num_bigint::BigUint;
@@ -22,7 +20,7 @@ pub trait ProtocolState {
     fn version(&self) -> Version;
     /// handle processes a received message in accordance with the active protocol state.
     // TODO check but I believe we should also handle plaintext message for state correction purposes.
-    // FIXME consider not returning a UserMessage here, but some convenient intermediate format.
+    // TODO consider not returning a UserMessage here, but some convenient intermediate format.
     fn handle(
         &mut self,
         msg: &DataMessage,
@@ -30,7 +28,7 @@ pub trait ProtocolState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     );
-    // TODO review to check that `secure` functions all have same quality of implementation/delegation
+    #[allow(clippy::too_many_arguments)]
     fn secure(
         &self,
         host: Rc<dyn Host>,
@@ -46,7 +44,6 @@ pub trait ProtocolState {
     /// prepare prepares a message for sending in accordance with the active protocol state.
     // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
     fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
-    // TODO integrate SMP use in session handling logic
     fn smp(&self) -> Result<&SMPContext, OTRError>;
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
@@ -222,6 +219,7 @@ impl ProtocolState for EncryptedState {
 }
 
 impl EncryptedState {
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     fn new(
         host: Rc<dyn Host>,
         version: Version,

@@ -13,7 +13,7 @@ use crate::{
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol,
     smp::{self, SMPStatus},
-    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version,
+    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS,
 };
 
 pub struct Account {
@@ -43,6 +43,7 @@ impl Account {
     /// state of the protocol, i.e. `MSGSTATE_PLAINTEXT`, `MSGSTATE_ENCRYPTED`, `MSGSTATE_FINISHED`.
     /// However, the fact that a session (known by instance tag) exists, means that this instance
     /// tag was once revealed.
+    #[must_use]
     pub fn sessions(&self) -> Vec<InstanceTag> {
         let mut sessions = Vec::<InstanceTag>::new();
         for k in self.instances.keys() {
@@ -116,7 +117,7 @@ impl Account {
         match parse(payload)? {
             MessageType::Error(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
-                    self.query(&[Version::V3])?;
+                    self.query()?;
                 }
                 Ok(UserMessage::Error(error))
             }
@@ -271,7 +272,7 @@ impl Account {
                 // "   If REQUIRE_ENCRYPTION is set:
                 //       Store the plaintext message for possible retransmission, and send a Query
                 //       Message."
-                self.query(&[Version::V3])?;
+                self.query()?;
                 // TODO OTR: store message for possible retransmission after OTR session is established.
                 return Err(OTRError::PolicyRestriction(
                     "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
@@ -302,16 +303,18 @@ impl Account {
     }
 
     /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
-    /// confidential communication has ended and any subsequent message will be sent as plain text,
-    /// i.e. unencrypted. This function should only be called as a result of _direct user
-    /// interaction_.
+    /// confidential communication ends and any subsequent message will be sent as plain text, i.e.
+    /// unencrypted. This function should only be called as a result of _direct user interaction_.
+    /// 
+    /// In the case the other party ended/aborted the session, the session would transition to
+    /// `MSGSTATE_FINISHED`. In that case, too, `end` resets the session back to
+    /// `MSGSTATE_PLAINTEXT`
     ///
     /// # Errors
     ///
     /// Will return an error in case the specified instance does not exist.
-    #[inline(always)]
     pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        self.reset(instance)
+        Ok(self.get_instance(instance)?.reset())
     }
 
     /// `query` sends a OTR query-message over the host's communication network in order to probe
@@ -320,8 +323,8 @@ impl Account {
     /// # Errors
     ///
     /// Will return an error in case of no compatible errors.
-    pub fn query(&mut self, versions: &[Version]) -> Result<(), OTRError> {
-        let accepted_versions = self.filter_versions(versions);
+    pub fn query(&mut self) -> Result<(), OTRError> {
+        let accepted_versions = self.filter_versions(&SUPPORTED_VERSIONS);
         if accepted_versions.is_empty() {
             return Err(OTRError::UserError("No supported versions available."));
         }
@@ -329,17 +332,6 @@ impl Account {
         let msg = MessageType::Query(accepted_versions);
         self.host.inject(&encode_message(&msg));
         Ok(())
-    }
-
-    /// `reset` resets the OTR session, as specified by the instance, to plaintext state. This means
-    /// that any message sent afterwards will be in plaintext unless other actions are taken to
-    /// (re)initialize an OTR session (initiate AKE).
-    ///
-    /// # Errors
-    ///
-    /// Will return `OTRError` in case the instance does not exist.
-    pub fn reset(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        Ok(self.get_instance(instance)?.reset())
     }
 
     /// `start_smp` initiates the Socialist Millionaires' Protocol for the specified instance. The
@@ -466,7 +458,7 @@ impl Instance {
                     .ake
                     .handle_dhcommit(msg).map_err(OTRError::AuthenticationError)?;
                 self.host.inject(&encode_otr_message(
-                    Version::V3,
+                    self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
                     response,
@@ -478,7 +470,7 @@ impl Instance {
                     .ake
                     .handle_dhkey(msg).map_err(OTRError::AuthenticationError)?;
                 self.host.inject(&encode_otr_message(
-                    Version::V3,
+                    self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
                     response,
@@ -492,7 +484,7 @@ impl Instance {
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 self.host.inject(&encode_otr_message(
-                    Version::V3,
+                    self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
                     response,

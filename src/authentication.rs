@@ -267,6 +267,7 @@ impl AKEContext {
         result
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
@@ -375,6 +376,7 @@ impl AKEContext {
         result
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn handle_signature(
         &mut self,
         msg: SignatureMessage,

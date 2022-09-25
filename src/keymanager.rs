@@ -1,5 +1,3 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-
 use std::cmp::Ordering;
 
 use num_bigint::BigUint;
@@ -79,10 +77,12 @@ impl KeyManager {
         Ok(())
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn verify_counter(&mut self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
         self.their_ctr.verify(ctr)
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn take_counter(&mut self) -> [u8; COUNTER_HALF_LEN] {
         self.our_ctr.take()
     }
@@ -229,8 +229,6 @@ impl PublicKeyRotation {
         assert_ne!(0, next_id);
         assert_ne!(*ZERO, next_key);
         if self.id == next_id {
-            // TODO probably needs constant-time comparison
-            // TODO sanity-check if key is same as we already know?
             if self.keys[(self.id as usize) % NUM_KEYS] == next_key {
                 Ok(false)
             } else {
@@ -273,6 +271,7 @@ impl Counter {
         self.0 = COUNTER_INITIAL_VALUE;
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn verify(&mut self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
         if utils::std::bytes::all_zero(ctr) {
             return Err(OTRError::ProtocolViolation(
@@ -301,7 +300,7 @@ impl Counter {
             assert!(utils::std::bytes::any_nonzero(&result));
             return result;
         }
-        // TODO This is very unlikely to happen, so just panic and make this a problem for the future.
+        // TODO ctr (8-byte part) overflowing is very unlikely to happen, so just panic and make this a problem for the future.
         panic!("BUG: wrapped around counter value completely.")
     }
 }

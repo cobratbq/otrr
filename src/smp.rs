@@ -1,6 +1,3 @@
-#![allow(clippy::similar_names)]
-#![allow(clippy::trivially_copy_pass_by_ref)]
-
 use std::rc::Rc;
 
 use num_bigint::BigUint;
@@ -197,6 +194,7 @@ impl SMPContext {
         }
     }
 
+    #[allow(clippy::similar_names)]
     fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);
         if let SMPState::Expect1 = &self.state {
@@ -690,6 +688,7 @@ pub enum SMPStatus {
 
 const SMP_VERSION: u8 = 1;
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn compute_secret(
     initiator: &Fingerprint,
     responder: &Fingerprint,

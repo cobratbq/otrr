@@ -1,4 +1,4 @@
-#![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::trivially_copy_pass_by_ref)]
 
 use std::convert::TryInto;
 
@@ -685,6 +685,7 @@ impl OTREncoder {
         self
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn write_data(&mut self, v: &[u8]) -> &mut Self {
         assert!(u32::try_from(v.len()).is_ok());
         self.write_int(v.len() as u32);
@@ -693,6 +694,7 @@ impl OTREncoder {
     }
 
     /// Write sequence of MPI values in format defined in SMP: `num_mpis`, `mpi1`, `mpi2`, `...`
+    #[allow(clippy::cast_possible_truncation)]
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
         self.write_int(mpis.len() as u32);
         for mpi in mpis {
@@ -742,6 +744,7 @@ impl OTREncoder {
         self
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn write_tlv(&mut self, tlv: TLV) -> &mut Self {
         assert!(u16::try_from(tlv.1.len()).is_ok());
         self.write_short(tlv.0).write_short(tlv.1.len() as u16);
@@ -772,17 +775,21 @@ fn decode_base64(content: &[u8]) -> Result<Vec<u8>, OTRError> {
 
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 pub const CTR_LEN: usize = 8;
+#[allow(clippy::upper_case_acronyms)]
 pub type CTR = [u8; CTR_LEN];
 
 /// MAC type represents the 20-byte MAC value.
 pub const MAC_LEN: usize = 20;
+#[allow(clippy::upper_case_acronyms)]
 pub type MAC = [u8; MAC_LEN];
 
 pub const FINGERPRINT_LEN: usize = 20;
 pub type Fingerprint = [u8; FINGERPRINT_LEN];
 
 const SSID_LEN: usize = 8;
+#[allow(clippy::upper_case_acronyms)]
 pub type SSID = [u8; SSID_LEN];
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct TLV(pub TLVType, pub Vec<u8>);
