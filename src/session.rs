@@ -131,7 +131,7 @@ impl Account {
             MessageType::Tagged(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = self.select_version(&versions) {
-                        self.initiate(&selected, None);
+                        self.initiate(&selected, INSTANCE_ZERO);
                     }
                 }
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -142,7 +142,7 @@ impl Account {
             }
             MessageType::Query(versions) => {
                 if let Some(selected) = self.select_version(&versions) {
-                    self.initiate(&selected, None);
+                    self.initiate(&selected, INSTANCE_ZERO);
                 }
                 Ok(UserMessage::None)
             }
@@ -254,18 +254,17 @@ impl Account {
     /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
     pub fn send(
         &mut self,
-        instance: Option<InstanceTag>,
+        instance: InstanceTag,
         content: &[u8],
     ) -> Result<Vec<u8>, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(Vec::from(content));
         }
-        let receiver = instance.unwrap_or(INSTANCE_ZERO);
         let instance = self
             .instances
-            .get_mut(&receiver)
-            .ok_or(OTRError::UnknownInstance(receiver))?;
+            .get_mut(&instance)
+            .ok_or(OTRError::UnknownInstance(instance))?;
         // "If msgstate is MSGSTATE_PLAINTEXT:"
         if instance.status() == ProtocolStatus::Plaintext {
             if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -292,8 +291,7 @@ impl Account {
     }
 
     /// `initiate` initiates the OTR protocol for designated receiver.
-    pub fn initiate(&mut self, version: &Version, receiver: Option<InstanceTag>) -> UserMessage {
-        let receiver = receiver.unwrap_or(INSTANCE_ZERO);
+    pub fn initiate(&mut self, version: &Version, receiver: InstanceTag) -> UserMessage {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
