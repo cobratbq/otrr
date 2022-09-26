@@ -305,7 +305,7 @@ impl Account {
     /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
     /// confidential communication ends and any subsequent message will be sent as plain text, i.e.
     /// unencrypted. This function should only be called as a result of _direct user interaction_.
-    /// 
+    ///
     /// In the case the other party ended/aborted the session, the session would transition to
     /// `MSGSTATE_FINISHED`. In that case, too, `end` resets the session back to
     /// `MSGSTATE_PLAINTEXT`
@@ -448,10 +448,8 @@ impl Instance {
 
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         assert_eq!(encoded_message.version, Version::V3);
-        // TODO need to inspect error handling to appropriately respond with OTR message to indicate that an error has occurred. This has not yet been considered.
         assert_eq!(self.receiver, encoded_message.sender);
         assert_eq!(self.details.tag, encoded_message.receiver);
-        // FIXME how to handle AKE errors in each case?
         match encoded_message.message {
             OTRMessageType::DHCommit(msg) => {
                 let response = self
@@ -531,7 +529,7 @@ impl Instance {
                             SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
                     }
-                    // TODO following three patterns are there only to replace 0 instance tag value with actual receiver value.
+                    // TODO following three patterns exist only to replace 0 instance tag value with actual receiver value.
                     Ok(UserMessage::ConfidentialSessionStarted(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionStarted(self.receiver)),
                     Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
                     Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),

@@ -211,7 +211,7 @@ impl OTREncodable for EncodedMessage {
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
 pub enum OTRMessageType {
-    // FIXME this feels like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
+    // TODO this feels like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
     /// Undefined message type. This is used as an indicator that the content is not any one of the standard OTR-encoded message-types. Possibly a Plaintext message or a (partial) body in a Query message.
     Undefined(Vec<u8>),
     /// DH-Commit-message in the AKE-process.

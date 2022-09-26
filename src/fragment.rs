@@ -112,6 +112,13 @@ pub struct Fragment {
 
 impl OTREncodable for Fragment {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        // ensure that the fragments we send are valid. (used to capture internal logic errors)
+        assert_ne!(self.sender, 0);
+        assert_ne!(self.receiver, 0);
+        assert_ne!(self.part, 0);
+        assert_ne!(self.total, 0);
+        assert!(self.part <= self.total);
+        assert!(!self.payload.is_empty());
         encoder
             .write(OTR_FRAGMENT_V3_PREFIX)
             // NOTE not very explicit in the specification, but examples seem to indicate that

@@ -149,7 +149,6 @@ impl ProtocolState for EncryptedState {
         // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
         assert_eq!(msg.revealed.len() % 20, 0);
         assert!(msg.revealed.is_empty() || bytes::any_nonzero(&msg.revealed));
-        // FIXME allow handling of AKE messages in 'Encrypted' state or transition to Plaintext? (Immediate transition to plaintext may be dangerous due to unanticipated move disclosing information)
         match self.decrypt_message(msg) {
             // TODO carefully inspect possible state transitions, now assumes None.
             // TODO check if just plaintext or contains OTR protocol directions, ...
