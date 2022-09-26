@@ -6,7 +6,7 @@ use crate::{
     crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
         encode_authenticator_data, DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder,
-        OTRMessageType, MAC_LEN, SSID, TLV,
+        EncodedMessageType, MAC_LEN, SSID, TLV,
     },
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
@@ -40,10 +40,10 @@ pub trait ProtocolState {
         their_dh: BigUint,
         their_dsa: DSA::PublicKey,
     ) -> Box<EncryptedState>;
-    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>);
+    fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
     // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError>;
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError>;
     fn smp(&self) -> Result<&SMPContext, OTRError>;
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
@@ -98,15 +98,14 @@ impl ProtocolState for PlaintextState {
         ))
     }
 
-    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+    fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, _: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, _: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state, therefore we return
         // the content as-is to the caller.
-        // TODO not sure if this is the best solution
-        Ok(OTRMessageType::Undefined(Vec::from(content)))
+        Ok(EncodedMessageType::Unencoded(Vec::from(content)))
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {
@@ -193,19 +192,19 @@ impl ProtocolState for EncryptedState {
         ))
     }
 
-    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+    fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         let plaintext = OTREncoder::new()
             .write_byte(0)
             .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
-        let optabort = Some(OTRMessageType::Data(
+        let optabort = Some(EncodedMessageType::Data(
             self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
         ));
         (optabort, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<OTRMessageType, OTRError> {
-        Ok(OTRMessageType::Data(self.encrypt_message(flags, content)))
+    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError> {
+        Ok(EncodedMessageType::Data(self.encrypt_message(flags, content)))
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {
@@ -390,11 +389,11 @@ impl ProtocolState for FinishedState {
         ))
     }
 
-    fn finish(&mut self) -> (Option<OTRMessageType>, Box<PlaintextState>) {
+    fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         (None, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, _: MessageFlags, _: &[u8]) -> Result<OTRMessageType, OTRError> {
+    fn prepare(&mut self, _: MessageFlags, _: &[u8]) -> Result<EncodedMessageType, OTRError> {
         Err(OTRError::IncorrectState("Sending messages is prohibited in 'Finished' state to prevent races that result in sensitive message being transmitted insecurely."))
     }
 

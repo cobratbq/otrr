@@ -64,7 +64,7 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let data = decode_base64(data)?;
+    let data = base64_decode(data)?;
     let mut decoder = OTRDecoder(&data);
     let version: Version = match decoder.read_short()? {
         3u16 => Version::V3,
@@ -85,19 +85,19 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
 fn parse_encoded_content(
     message_type: u8,
     mut decoder: OTRDecoder,
-) -> Result<OTRMessageType, OTRError> {
+) -> Result<EncodedMessageType, OTRError> {
     match message_type {
-        OTR_DH_COMMIT_TYPE_CODE => Ok(OTRMessageType::DHCommit(DHCommitMessage::decode(
+        OTR_DH_COMMIT_TYPE_CODE => Ok(EncodedMessageType::DHCommit(DHCommitMessage::decode(
             &mut decoder,
         )?)),
-        OTR_DH_KEY_TYPE_CODE => Ok(OTRMessageType::DHKey(DHKeyMessage::decode(&mut decoder)?)),
-        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(OTRMessageType::RevealSignature(
+        OTR_DH_KEY_TYPE_CODE => Ok(EncodedMessageType::DHKey(DHKeyMessage::decode(&mut decoder)?)),
+        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(EncodedMessageType::RevealSignature(
             RevealSignatureMessage::decode(&mut decoder)?,
         )),
-        OTR_SIGNATURE_TYPE_CODE => Ok(OTRMessageType::Signature(SignatureMessage::decode(
+        OTR_SIGNATURE_TYPE_CODE => Ok(EncodedMessageType::Signature(SignatureMessage::decode(
             &mut decoder,
         )?)),
-        OTR_DATA_TYPE_CODE => Ok(OTRMessageType::Data(DataMessage::decode(&mut decoder)?)),
+        OTR_DATA_TYPE_CODE => Ok(EncodedMessageType::Data(DataMessage::decode(&mut decoder)?)),
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type.",
         )),
@@ -177,7 +177,7 @@ pub struct EncodedMessage {
     pub version: Version,
     pub sender: InstanceTag,
     pub receiver: InstanceTag,
-    pub message: OTRMessageType,
+    pub message: EncodedMessageType,
 }
 
 impl OTREncodable for EncodedMessage {
@@ -185,35 +185,35 @@ impl OTREncodable for EncodedMessage {
         encoder
             .write_short(encode_version(&self.version))
             .write_byte(match self.message {
-                OTRMessageType::Undefined(_) => panic!(
-                    "BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."
+                EncodedMessageType::Unencoded(_) => panic!(
+                    "BUG: 'Unencoded' message-type must be reprocessed. It cannot be sent as-is."
                 ),
-                OTRMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
-                OTRMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
-                OTRMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
-                OTRMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
-                OTRMessageType::Data(_) => OTR_DATA_TYPE_CODE,
+                EncodedMessageType::DHCommit(_) => OTR_DH_COMMIT_TYPE_CODE,
+                EncodedMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
+                EncodedMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
+                EncodedMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
+                EncodedMessageType::Data(_) => OTR_DATA_TYPE_CODE,
             })
             .write_int(self.sender)
             .write_int(self.receiver)
             .write_encodable(match &self.message {
-                OTRMessageType::Undefined(_) => panic!(
-                    "BUG: 'Undefined' message-type must be reprocessed. It cannot be sent as-is."
+                EncodedMessageType::Unencoded(_) => panic!(
+                    "BUG: 'Unencoded' message-type must be reprocessed. It cannot be sent as-is."
                 ),
-                OTRMessageType::DHCommit(msg) => msg,
-                OTRMessageType::DHKey(msg) => msg,
-                OTRMessageType::RevealSignature(msg) => msg,
-                OTRMessageType::Signature(msg) => msg,
-                OTRMessageType::Data(msg) => msg,
+                EncodedMessageType::DHCommit(msg) => msg,
+                EncodedMessageType::DHKey(msg) => msg,
+                EncodedMessageType::RevealSignature(msg) => msg,
+                EncodedMessageType::Signature(msg) => msg,
+                EncodedMessageType::Data(msg) => msg,
             });
     }
 }
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
-pub enum OTRMessageType {
+pub enum EncodedMessageType {
     // TODO this feels like a workaround because the separation of concerns between 'session' and 'authentication' isn't clear.
     /// Undefined message type. This is used as an indicator that the content is not any one of the standard OTR-encoded message-types. Possibly a Plaintext message or a (partial) body in a Query message.
-    Undefined(Vec<u8>),
+    Unencoded(Vec<u8>),
     /// DH-Commit-message in the AKE-process.
     DHCommit(DHCommitMessage),
     /// DH-Key-message in the AKE-process.
@@ -368,13 +368,13 @@ impl OTREncodable for DataMessage {
     }
 }
 
-pub fn encode_otr_message(
+pub fn encode_message(
     version: Version,
     sender: InstanceTag,
     receiver: InstanceTag,
-    message: OTRMessageType,
+    message: EncodedMessageType,
 ) -> Vec<u8> {
-    encode_message(&MessageType::Encoded(EncodedMessage {
+    serialize_message(&MessageType::Encoded(EncodedMessage {
         version,
         sender,
         receiver,
@@ -382,7 +382,8 @@ pub fn encode_otr_message(
     }))
 }
 
-pub fn encode_message(msg: &MessageType) -> Vec<u8> {
+/// `serialize_message` (straight-forwardly) serializes provided message into a byte-sequence.
+pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
     let mut buffer = Vec::<u8>::new();
     match msg {
         MessageType::Error(error) => {
@@ -435,7 +436,7 @@ pub fn encode_message(msg: &MessageType) -> Vec<u8> {
         }
         MessageType::Encoded(encoded_message) => {
             buffer.extend_from_slice(OTR_ENCODED_PREFIX);
-            buffer.extend(encode_base64(
+            buffer.extend(base64_encode(
                 &OTREncoder::new().write_encodable(encoded_message).to_vec(),
             ));
             buffer.extend_from_slice(OTR_ENCODED_SUFFIX);
@@ -763,11 +764,11 @@ impl OTREncoder {
     }
 }
 
-fn encode_base64(content: &[u8]) -> Vec<u8> {
+fn base64_encode(content: &[u8]) -> Vec<u8> {
     base64::encode(&content).into_bytes()
 }
 
-fn decode_base64(content: &[u8]) -> Result<Vec<u8>, OTRError> {
+fn base64_decode(content: &[u8]) -> Result<Vec<u8>, OTRError> {
     base64::decode(content).or(Err(OTRError::ProtocolViolation(
         "Invalid message content: content cannot be decoded from base64.",
     )))

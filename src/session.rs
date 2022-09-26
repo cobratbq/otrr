@@ -6,8 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode_message, encode_otr_message, parse, EncodedMessage, MessageFlags, MessageType,
-        OTREncoder, OTRMessageType, SSID,
+        serialize_message, encode_message, parse, EncodedMessage, MessageFlags, MessageType,
+        OTREncoder, EncodedMessageType, SSID,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -151,7 +151,7 @@ impl Account {
                     version: _,
                     sender: _,
                     receiver: _,
-                    message: OTRMessageType::DHKey(_),
+                    message: EncodedMessageType::DHKey(_),
                 },
             ) => {
                 // When a DH-Commit message was sent with receiver tag ZERO, then we may receive
@@ -225,7 +225,7 @@ impl Account {
         instancetag::verify_instance_tag(msg.receiver).or(Err(OTRError::ProtocolViolation(
             "Receiver instance tag is illegal value",
         )))?;
-        if let OTRMessageType::DHCommit(_) = msg.message {
+        if let EncodedMessageType::DHCommit(_) = msg.message {
             // allow receiver tag zero for DH-Commit message
         } else if msg.receiver == INSTANCE_ZERO {
             return Err(OTRError::ProtocolViolation(
@@ -252,11 +252,7 @@ impl Account {
     /// # Panics
     ///
     /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
-    pub fn send(
-        &mut self,
-        instance: InstanceTag,
-        content: &[u8],
-    ) -> Result<Vec<u8>, OTRError> {
+    pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(Vec::from(content));
@@ -266,20 +262,17 @@ impl Account {
             .get_mut(&instance)
             .ok_or(OTRError::UnknownInstance(instance))?;
         // "If msgstate is MSGSTATE_PLAINTEXT:"
-        if instance.status() == ProtocolStatus::Plaintext {
-            if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
-                // "   If REQUIRE_ENCRYPTION is set:
-                //       Store the plaintext message for possible retransmission, and send a Query
-                //       Message."
-                self.query()?;
-                // TODO OTR: store message for possible retransmission after OTR session is established.
-                return Err(OTRError::PolicyRestriction(
-                    "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
-                ));
-            } else if self.details.policy.contains(Policy::SEND_WHITESPACE_TAG) {
-                // FIXME send whitespace tag as first try if policy allows, after receiving a plaintext message, take as sign that OTR is not supported/recipient is not interested in engaging in OTR session.
-                // TODO add logic for sending whitespace-tagged message to probe for OTR capabilities. (Send until receiving a follow-up plaintext message, then assume Alice is either not capable or not interested.)
-            }
+        if self.details.policy.contains(Policy::REQUIRE_ENCRYPTION)
+            && instance.status() == ProtocolStatus::Plaintext
+        {
+            // "   If REQUIRE_ENCRYPTION is set:
+            //       Store the plaintext message for possible retransmission, and send a Query
+            //       Message."
+            self.query()?;
+            // TODO OTR: store message for possible retransmission after OTR session is established.
+            return Err(OTRError::PolicyRestriction(
+                "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
+            ));
         }
         // "If msgstate is MSGSTATE_ENCRYPTED:
         //    Encrypt the message, and send it as a Data Message. Store the plaintext message for
@@ -287,6 +280,9 @@ impl Account {
         //  If msgstate is MSGSTATE_FINISHED:
         //    Inform the user that the message cannot be sent at this time. Store the plaintext
         //    message for possible retransmission."
+        // TODO introduce message fragmentation (fragmentation logic is already available)
+        // TODO there is an issue where, once tags are known, one can have a MSGSTATE_PLAINTEXT session for a specific receiver tag. However, plaintext operations are not tagged, so state maintenance/bookkeeping changes from 1 to n (instances) and may deviate. For example, whitespace tags sent multiple times.
+        // FIXME add logic for sending whitespace tags.
         instance.send(content)
     }
 
@@ -328,7 +324,7 @@ impl Account {
         }
         // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
         let msg = MessageType::Query(accepted_versions);
-        self.host.inject(&encode_message(&msg));
+        self.host.inject(&serialize_message(&msg));
         Ok(())
     }
 
@@ -427,7 +423,7 @@ impl Instance {
     fn initiate(&mut self, version: &Version) -> UserMessage {
         assert_eq!(*version, Version::V3);
         let msg = self.ake.initiate();
-        self.host.inject(&encode_otr_message(
+        self.host.inject(&encode_message(
             self.ake.version(),
             self.details.tag,
             self.receiver,
@@ -449,11 +445,11 @@ impl Instance {
         assert_eq!(self.receiver, encoded_message.sender);
         assert_eq!(self.details.tag, encoded_message.receiver);
         match encoded_message.message {
-            OTRMessageType::DHCommit(msg) => {
+            EncodedMessageType::DHCommit(msg) => {
                 let response = self
                     .ake
                     .handle_dhcommit(msg).map_err(OTRError::AuthenticationError)?;
-                self.host.inject(&encode_otr_message(
+                self.host.inject(&encode_message(
                     self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
@@ -461,11 +457,11 @@ impl Instance {
                 ));
                 Ok(UserMessage::None)
             }
-            OTRMessageType::DHKey(msg) => {
+            EncodedMessageType::DHKey(msg) => {
                 let response = self
                     .ake
                     .handle_dhkey(msg).map_err(OTRError::AuthenticationError)?;
-                self.host.inject(&encode_otr_message(
+                self.host.inject(&encode_message(
                     self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
@@ -473,13 +469,13 @@ impl Instance {
                 ));
                 Ok(UserMessage::None)
             }
-            OTRMessageType::RevealSignature(msg) => {
+            EncodedMessageType::RevealSignature(msg) => {
                 let (CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa}, response) = self
                     .ake
                     .handle_reveal_signature(msg).map_err(OTRError::AuthenticationError)?;
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
-                self.host.inject(&encode_otr_message(
+                self.host.inject(&encode_message(
                     self.ake.version(),
                     self.details.tag,
                     encoded_message.sender,
@@ -487,7 +483,7 @@ impl Instance {
                 ));
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
-            OTRMessageType::Signature(msg) => {
+            EncodedMessageType::Signature(msg) => {
                 let CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa} = self
                     .ake
                     .handle_signature(msg).map_err(OTRError::AuthenticationError)?;
@@ -496,7 +492,7 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
                 // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
-            OTRMessageType::Data(msg) => {
+            EncodedMessageType::Data(msg) => {
                 // TODO verify and validate message before passing on to state.
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are handled as part of the protocol.
                 // Other TLVs that are their own protocol or function, must be handled subsequently.
@@ -517,7 +513,7 @@ impl Instance {
                                     .write_byte(0)
                                     .write_tlv(reply_tlv)
                                     .to_vec())?;
-                            self.host.inject(&encode_otr_message(self.state.version(),
+                            self.host.inject(&encode_message(self.state.version(),
                                 self.details.tag, self.receiver, otr_message));
                         }
                         match self.state.smp().unwrap().status() {
@@ -536,13 +532,13 @@ impl Instance {
                         // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
                         // need to send an OTR Error response, to indicate to the other user that
                         // we no longer have a correctly established OTR session.
-                        self.host.inject(&encode_message(&MessageType::Error(
+                        self.host.inject(&serialize_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Ok(UserMessage::None)
                     }
                     Err(OTRError::UnreadableMessage(_)) => {
-                        self.host.inject(&encode_message(&MessageType::Error(
+                        self.host.inject(&serialize_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Err(OTRError::UnreadableMessage(self.receiver))
@@ -553,7 +549,7 @@ impl Instance {
                     }
                 }
             }
-            OTRMessageType::Undefined(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
+            EncodedMessageType::Unencoded(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
         }
     }
 
@@ -568,7 +564,7 @@ impl Instance {
             return UserMessage::None;
         }
         if let Some(msg) = abortmsg {
-            self.host.inject(&encode_otr_message(
+            self.host.inject(&encode_message(
                 version,
                 self.details.tag,
                 self.receiver,
@@ -578,24 +574,24 @@ impl Instance {
         UserMessage::Reset(self.receiver)
     }
 
-    // TODO double-check if I use this function correctly, don't encode_otr_message twice!
+    // FIXME consider a flag that indicates: 1. no effort just plaintext, 2. try to signal for encryption, 3. require encryption, then have function decide how to behave if not already encrypted.
     fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
         let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
-            OTRMessageType::Undefined(message) => {
+            EncodedMessageType::Unencoded(message) => {
                 assert!(
                     self.state.status() != ProtocolStatus::Plaintext,
                     "BUG: received undefined message type in state {:?}",
                     self.state.status()
                 );
-                Ok(encode_message(&MessageType::Plaintext(message)))
+                Ok(serialize_message(&MessageType::Plaintext(message)))
             }
-            message @ (OTRMessageType::DHCommit(_)
-            | OTRMessageType::DHKey(_)
-            | OTRMessageType::RevealSignature(_)
-            | OTRMessageType::Signature(_)
-            | OTRMessageType::Data(_)) => Ok(encode_otr_message(
+            message @ (EncodedMessageType::DHCommit(_)
+            | EncodedMessageType::DHKey(_)
+            | EncodedMessageType::RevealSignature(_)
+            | EncodedMessageType::Signature(_)
+            | EncodedMessageType::Data(_)) => Ok(encode_message(
                 self.state.version(),
                 self.details.tag,
                 self.receiver,
@@ -614,7 +610,7 @@ impl Instance {
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
         )?;
-        Ok(encode_otr_message(
+        Ok(encode_message(
             self.state.version(),
             self.details.tag,
             self.receiver,
@@ -635,7 +631,7 @@ impl Instance {
             ));
         }
         let tlv = smp.unwrap().abort();
-        let message = encode_otr_message(
+        let message = encode_message(
             self.state.version(),
             self.details.tag,
             self.receiver,
