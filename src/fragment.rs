@@ -70,7 +70,12 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
 ///
 /// Panics if illegal user input is provided.
 #[allow(clippy::cast_possible_truncation)]
-pub fn fragment(max_size: usize, content: &[u8]) -> Vec<Fragment> {
+pub fn fragment(
+    max_size: usize,
+    sender: InstanceTag,
+    receiver: InstanceTag,
+    content: &[u8],
+) -> Vec<Fragment> {
     const OTRV3_HEADER_SIZE: usize = 36;
     assert!(
         max_size > OTRV3_HEADER_SIZE,
@@ -82,11 +87,11 @@ pub fn fragment(max_size: usize, content: &[u8]) -> Vec<Fragment> {
     );
     let content_size: usize = max_size - OTRV3_HEADER_SIZE;
     let mut fragments = Vec::<Fragment>::new();
-    for i in (0..content.len()).step_by(content_size) {
-        let payload = &content[i..usize::min(i + content_size, content.len())];
+    for pos in (0..content.len()).step_by(content_size) {
+        let payload = &content[pos..usize::min(pos + content_size, content.len())];
         fragments.push(Fragment {
-            sender: 0,
-            receiver: 0,
+            sender,
+            receiver,
             part: 0,
             total: 0,
             payload: Vec::from(payload),
@@ -97,11 +102,9 @@ pub fn fragment(max_size: usize, content: &[u8]) -> Vec<Fragment> {
         f.part = i as u16;
         f.total = total;
     }
-    // TODO note that sender/receiver are still zero in this result
     fragments
 }
 
-// TODO move sender, receiver out of the Fragment structure. These are concerns for other logic.
 pub struct Fragment {
     pub sender: InstanceTag,
     pub receiver: InstanceTag,
