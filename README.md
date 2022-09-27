@@ -37,6 +37,10 @@ __warning__ this is a work-in-progress with current focus being the functional i
 
 __Functionality__:
 
+- ☑ Normal messages:
+  - ☑ Plaintext message
+  - ☐ Whitespace-tagged message
+  - ☑ Query message
 - ☑ Authenticated Key Exchange (AKE)
 - ☑ Socialist Millionaire's Protocol (SMP)
   - ☑ SMP zero-knowledge secret verificaton (w/ or w/o user-provided question)
@@ -50,18 +54,20 @@ __Functionality__:
   - ☑ `REQUIRE_ENCRYPTION` take appropriate actions given that active policy requires encryption.
   - ☑ `WHITESPACE_START_AKE` automatically initiate AKE when whitespace tag is received.
   - ☑ `ERROR_START_AKE` initiate AKE upon receiving error message.
-  - ☐ ..
+  - ☐ ability to change policy for account during use.
 - ☑ Fragmentation:
   - ☑ Assemble fragments of incoming message.
   - ☐ Fragment outgoing messages.
 - ☐ Optional: (only fleetingly described)
   - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
+  - ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)
 - ☐ Expose the Extra Symmetric Key (TLV type `8`)
 
 __Operational__:
 
 - ☑ Single instance of `Account` represents single account on a chat network: allows for specific identity (_DSA keypair_), chat network/transport.
-- ☐ No thread-safety. (Not yet determined necessary. Expect processing single message at a time.)
+- ☐ Thread-safety. (Not yet determined necessary.)  
+    _Limited by ordering-requirement for transport. Expect processing single message at a time._
 
 __Developmental__:
 
@@ -70,6 +76,7 @@ __Developmental__:
 - ☐ Errors do not propagate too far s.t. details leak to the client.
 - ☐ Threading design choices and in-logic callbacks (into client) are not too restricting (i.e. cause problems)
 - ☐ Need thread-safety for top-level API?
+- ☐ API and logic for managing multiple accounts, keys, policies.
 - ☐ ..
 
 __Known issues__:
