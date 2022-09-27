@@ -6,8 +6,8 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        serialize_message, encode_message, parse, EncodedMessage, MessageFlags, MessageType,
-        OTREncoder, EncodedMessageType, SSID,
+        encode_message, parse, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
+        MessageType, OTREncoder, SSID,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -23,6 +23,13 @@ pub struct Account {
     /// encountered. Instance 0 is used for clients that have not yet announced
     /// their instance tag. Typically, before or during initial stages of OTR.
     instances: collections::HashMap<InstanceTag, Instance>,
+    /// `whitespace_tagged` indicates whether or not a whitespace-tagged plaintext message was sent
+    /// already. This field is shared with the method call that constructs the actual
+    /// whitespace-tagged message whenever the opportunity is there. This field is shared such that
+    /// sending a whitespace-tagged message (which is not specific to an instance) is common
+    /// knowledge among all instances.
+    // TODO `whitespace_tagged` is never reset to false. (After reentering MSGSTATE_PLAINTEXT)
+    whitespace_tagged: bool,
 }
 
 // TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
@@ -36,6 +43,7 @@ impl Account {
                 tag: instancetag::random_tag(),
             }),
             instances: collections::HashMap::new(),
+            whitespace_tagged: false,
         }
     }
 
@@ -130,7 +138,7 @@ impl Account {
             }
             MessageType::Tagged(versions, content) => {
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
-                    if let Some(selected) = self.select_version(&versions) {
+                    if let Some(selected) = select_version(&self.details.policy, &versions) {
                         self.initiate(&selected, INSTANCE_ZERO);
                     }
                 }
@@ -141,7 +149,7 @@ impl Account {
                 }
             }
             MessageType::Query(versions) => {
-                if let Some(selected) = self.select_version(&versions) {
+                if let Some(selected) = select_version(&self.details.policy, &versions) {
                     self.initiate(&selected, INSTANCE_ZERO);
                 }
                 Ok(UserMessage::None)
@@ -190,22 +198,6 @@ impl Account {
         }
     }
 
-    fn select_version(&self, versions: &[Version]) -> Option<Version> {
-        if versions.contains(&Version::V3) && self.details.policy.contains(Policy::ALLOW_V3) {
-            Some(Version::V3)
-        } else {
-            None
-        }
-    }
-
-    fn filter_versions(&self, versions: &[Version]) -> Vec<Version> {
-        if versions.contains(&Version::V3) && self.details.policy.contains(Policy::ALLOW_V3) {
-            vec![Version::V3]
-        } else {
-            Vec::new()
-        }
-    }
-
     fn verify_encoded_message_header(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
         match msg.version {
             Version::None => {
@@ -244,6 +236,10 @@ impl Account {
     /// policies, `send` may issue warnings or refuse to operate to ensure that the client operates
     /// according to set policies.
     ///
+    /// NOTE: for correctness of the OTR protocol, `0` (`NULL`) values in the user message will be
+    /// dropped. If the policy does not allow OTR to operate (all protocol versions disabled) then
+    /// user content will not be touched at all.
+    ///
     /// # Errors
     ///
     /// Will return `OTRError` on any kind of special-case situations involving the OTR protocol,
@@ -281,9 +277,7 @@ impl Account {
         //    Inform the user that the message cannot be sent at this time. Store the plaintext
         //    message for possible retransmission."
         // TODO introduce message fragmentation (fragmentation logic is already available)
-        // TODO there is an issue where, once tags are known, one can have a MSGSTATE_PLAINTEXT session for a specific receiver tag. However, plaintext operations are not tagged, so state maintenance/bookkeeping changes from 1 to n (instances) and may deviate. For example, whitespace tags sent multiple times.
-        // FIXME add logic for sending whitespace tags.
-        instance.send(content)
+        instance.send(&mut self.whitespace_tagged, content)
     }
 
     /// `initiate` initiates the OTR protocol for designated receiver.
@@ -318,7 +312,7 @@ impl Account {
     ///
     /// Will return an error in case of no compatible errors.
     pub fn query(&mut self) -> Result<(), OTRError> {
-        let accepted_versions = self.filter_versions(&SUPPORTED_VERSIONS);
+        let accepted_versions = filter_versions(&self.details.policy, &SUPPORTED_VERSIONS);
         if accepted_versions.is_empty() {
             return Err(OTRError::UserError("No supported versions available."));
         }
@@ -574,18 +568,31 @@ impl Instance {
         UserMessage::Reset(self.receiver)
     }
 
-    // FIXME consider a flag that indicates: 1. no effort just plaintext, 2. try to signal for encryption, 3. require encryption, then have function decide how to behave if not already encrypted.
-    fn send(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn send(
+        &mut self,
+        whitespace_tagged: &mut bool,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, OTRError> {
         let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
-            EncodedMessageType::Unencoded(message) => {
+            EncodedMessageType::Unencoded(msg) => {
                 assert!(
                     self.state.status() != ProtocolStatus::Plaintext,
                     "BUG: received undefined message type in state {:?}",
                     self.state.status()
                 );
-                Ok(serialize_message(&MessageType::Plaintext(message)))
+                let versions = filter_versions(&self.details.policy, &SUPPORTED_VERSIONS);
+                let message = if self.details.policy.contains(Policy::SEND_WHITESPACE_TAG)
+                    && !*whitespace_tagged
+                    && !versions.is_empty()
+                {
+                    *whitespace_tagged = true;
+                    MessageType::Tagged(versions, msg)
+                } else {
+                    MessageType::Plaintext(msg)
+                };
+                Ok(serialize_message(&message))
             }
             message @ (EncodedMessageType::DHCommit(_)
             | EncodedMessageType::DHKey(_)
@@ -646,9 +653,26 @@ impl Instance {
     }
 }
 
-/// `AccountDetails` contains our own, static account details.
-// TODO either extend AccountDetails as needed, or remove unnecessary wrapper for only single value?
+/// `AccountDetails` contains our own, static details for an account shared among instances.
 struct AccountDetails {
     policy: Policy,
     tag: InstanceTag,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn select_version(policy: &Policy, versions: &[Version]) -> Option<Version> {
+    if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
+        Some(Version::V3)
+    } else {
+        None
+    }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
+    if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
+        vec![Version::V3]
+    } else {
+        Vec::new()
+    }
 }

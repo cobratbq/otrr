@@ -39,8 +39,9 @@ __Functionality__:
 
 - ☑ Normal messages:
   - ☑ Plaintext message
-  - ☐ Whitespace-tagged message
+  - ☑ Whitespace-tagged message
   - ☑ Query message
+  - ☑ Error message
 - ☑ Authenticated Key Exchange (AKE)
 - ☑ Socialist Millionaire's Protocol (SMP)
   - ☑ SMP zero-knowledge secret verificaton (w/ or w/o user-provided question)
@@ -54,7 +55,7 @@ __Functionality__:
   - ☑ `REQUIRE_ENCRYPTION` take appropriate actions given that active policy requires encryption.
   - ☑ `WHITESPACE_START_AKE` automatically initiate AKE when whitespace tag is received.
   - ☑ `ERROR_START_AKE` initiate AKE upon receiving error message.
-  - ☐ ability to change policy for account during use.
+  - ☐ ability to change policy for account or individual instance (during use).
 - ☑ Fragmentation:
   - ☑ Assemble fragments of incoming message.
   - ☐ Fragment outgoing messages.
@@ -87,7 +88,7 @@ __Known issues__:
 - ..
 </details>
 
-### notes
+## notes
 
 - `Session` <---[1-*]---> `Instance`, with:
   - `Session` expected to do preselection of protocol aspects (version, anything else) and other decisions prior to delegating to the designated `Instance`.
