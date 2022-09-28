@@ -14,11 +14,10 @@ extern crate bitflags;
 extern crate hex;
 extern crate num_bigint;
 extern crate num_integer;
-extern crate utils;
-// TODO std::lazy::Lazy is in rust nightly, consider using that once available.
 extern crate once_cell;
 extern crate regex;
 extern crate ring;
+extern crate utils;
 
 mod authentication;
 mod crypto;
@@ -51,6 +50,7 @@ pub mod session;
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
 // REMARK allow defining custom message to be included with the OTR Query-tag.
 // REMARK expose TLV 0 for manual padding by client?
+// REMARK switch from once_cell::lazy::Lazy to std::lazy::Lazy, once it is in rust nightly.
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
@@ -64,7 +64,6 @@ pub enum UserMessage {
     /// received in plaintext. The client must know such that it can issue a warning.
     WarningUnencrypted(Vec<u8>),
     /// OTR error message received.
-    // TODO under what circumstances should the error message abort anything in-progress and fall back to unencrypted/finished state?
     Error(Vec<u8>),
     /// Message state reset to "plaintext". (by user action)
     Reset(InstanceTag),
@@ -127,7 +126,6 @@ pub enum ProtocolStatus {
 const SUPPORTED_VERSIONS: [Version; 1] = [Version::V3];
 
 /// `Version` contains the various supported OTR protocol versions.
-// TODO version preference may be hard-coded in places
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
     None,
@@ -171,7 +169,7 @@ pub type TLVType = u16;
 /// client.
 pub trait Host {
     /// `message_size` queries the maximum message size accepted by the underlying transport.
-    /// 
+    ///
     /// It is expected that smaller message are allowed. The message size will be taken as a strict
     /// upper bound and it is expected that messages up to exactly that number in size are elligible
     /// for transport, while even a single byte more may mean -- in the worst case -- that the full

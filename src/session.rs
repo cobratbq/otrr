@@ -107,19 +107,21 @@ impl Account {
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
-                        return Err(OTRError::ProtocolViolation("Assembled fragments lead to fragment. This is disallowed by the specification."));
+                        return Err(OTRError::ProtocolViolation("Assembled fragments reconstruct to fragment. This is disallowed by the specification."));
                     }
                     self.receive(assembled.as_slice())
                 }
                 Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
                     // We've received a message fragment, but not enough to reassemble a message, so
-                    // return early with no actual result and tell the client to wait for more fragments
-                    // to arrive. (Or we have received an unexpected fragment, therefore reset
-                    // everything and forget what we had up to now.)
+                    // return early with no actual result and tell the client to wait for more
+                    // fragments to arrive. (Or we have received an unexpected fragment, therefore
+                    // reset everything and forget what we had up to now.)
                     Ok(UserMessage::None)
                 }
                 Err(FragmentError::InvalidData) => {
-                    // TODO consider responding with OTR Error message to inform client, assuming we do have a valid sender instance tag.
+                    // Given that this is (merely) a fragment, just discard it and do not send an
+                    // error message, as the error message would wreak havoc on the (still
+                    // functional) encrypted session.
                     Err(OTRError::ProtocolViolation("Fragment with invalid data."))
                 }
             };
