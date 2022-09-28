@@ -55,6 +55,7 @@ pub mod session;
 // TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
 // TODO review allow/warn/deny settings per file for clippy et al.
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
+// REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
@@ -181,6 +182,18 @@ pub type TLVType = u16;
 /// Host represents the interface to the host application, for calling back into the messaging
 /// client.
 pub trait Host {
+    /// `message_size` queries the maximum message size accepted by the underlying transport.
+    /// 
+    /// It is expected that smaller message are allowed. The message size will be taken as a strict
+    /// upper bound and it is expected that messages up to exactly that number in size are elligible
+    /// for transport, while even a single byte more may mean -- in the worst case -- that the full
+    /// message is dropped.
+    ///
+    /// `message_size` is called for every message constructed. If name changes, connection changes,
+    /// etc. are determining factors for the maximum message size, then the size only has to be
+    /// stable for a single (OTR-encoded) message to be constructed.
+    fn message_size(&self) -> usize;
+
     /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not
     /// relevant to return to the client.)
     /// NOTE: `otrr` assumes that injection of the provided message into the transport succeeds.

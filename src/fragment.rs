@@ -79,16 +79,16 @@ pub fn fragment(
     const OTRV3_HEADER_SIZE: usize = 36;
     assert!(
         max_size > OTRV3_HEADER_SIZE,
-        "Maximum allowed fragment size must be larger than overhead necessary for fragmentation."
+        "BUG: Maximum allowed fragment size must be larger than overhead necessary for fragmentation."
     );
     assert!(
         content.len() > max_size,
-        "Content must be larger than fragment size."
+        "Content must be larger than fragment size, otherwise content can be sent directly as-is."
     );
-    let content_size: usize = max_size - OTRV3_HEADER_SIZE;
+    let fragment_size: usize = max_size - OTRV3_HEADER_SIZE;
     let mut fragments = Vec::<Fragment>::new();
-    for pos in (0..content.len()).step_by(content_size) {
-        let payload = &content[pos..usize::min(pos + content_size, content.len())];
+    for pos in (0..content.len()).step_by(fragment_size) {
+        let payload = &content[pos..usize::min(pos + fragment_size, content.len())];
         fragments.push(Fragment {
             sender,
             receiver,

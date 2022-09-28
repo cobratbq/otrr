@@ -9,7 +9,7 @@ use crate::{
         encode_message, parse, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
         MessageType, OTREncoder, SSID,
     },
-    fragment::{self, FragmentError},
+    fragment::{self, fragment, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol,
     smp::{self, SMPStatus},
@@ -248,10 +248,14 @@ impl Account {
     /// # Panics
     ///
     /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
-    pub fn send(&mut self, instance: InstanceTag, content: &[u8]) -> Result<Vec<u8>, OTRError> {
+    pub fn send(
+        &mut self,
+        instance: InstanceTag,
+        content: &[u8],
+    ) -> Result<Vec<Vec<u8>>, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
-            return Ok(Vec::from(content));
+            return Ok(vec![Vec::from(content)]);
         }
         let instance = self
             .instances
@@ -373,10 +377,14 @@ impl Account {
             .ok_or(OTRError::UnknownInstance(instance))
     }
 
-    /// `has_encrypted_sessions` checks if any instances are established or finished OTR
-    /// sessions.
+    /// `has_encrypted_sessions` checks if any instances are established or finished OTR sessions.
     fn has_sessions(&self) -> bool {
         self.instances.iter().any(|i| {
+            assert_eq!(*i.0, i.1.receiver);
+            assert!(
+                *i.0 != INSTANCE_ZERO || i.1.status() == ProtocolStatus::Plaintext,
+                "BUG: Given that we do not support OTR version 1 and 2, we expect instance 0 to be plaintext"
+            );
             i.1.status() == ProtocolStatus::Encrypted || i.1.status() == ProtocolStatus::Finished
         })
     }
@@ -572,7 +580,7 @@ impl Instance {
         &mut self,
         whitespace_tagged: &mut bool,
         plaintext: &[u8],
-    ) -> Result<Vec<u8>, OTRError> {
+    ) -> Result<Vec<Vec<u8>>, OTRError> {
         let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
         // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
@@ -592,18 +600,34 @@ impl Instance {
                 } else {
                     MessageType::Plaintext(msg)
                 };
-                Ok(serialize_message(&message))
+                Ok(vec![serialize_message(&message)])
             }
             message @ (EncodedMessageType::DHCommit(_)
             | EncodedMessageType::DHKey(_)
             | EncodedMessageType::RevealSignature(_)
             | EncodedMessageType::Signature(_)
-            | EncodedMessageType::Data(_)) => Ok(encode_message(
-                self.state.version(),
-                self.details.tag,
-                self.receiver,
-                message,
-            )),
+            | EncodedMessageType::Data(_)) => {
+                // FIXME `self.state.version()` is not reliable for any of the AKE message-types. Must deliberately choose which version to query. (`state` is likely still `MSGSTATE_PLAINTEXT` while AKE is in progress.)
+                let payload = encode_message(
+                    self.state.version(),
+                    self.details.tag,
+                    self.receiver,
+                    message,
+                );
+                let max_size = self.host.message_size();
+                if payload.len() <= max_size {
+                    // send message-bytes as-is: fragmentation is not needed.
+                    Ok(vec![payload])
+                } else {
+                    // fragmentation is needed, so send multiple fragments instead.
+                    let payloads: Vec<Vec<u8>> =
+                        fragment(max_size, self.details.tag, self.receiver, &payload)
+                            .iter()
+                            .map(|f| OTREncoder::new().write_encodable(f).to_vec())
+                            .collect();
+                    Ok(payloads)
+                }
+            }
         }
     }
 
