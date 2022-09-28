@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     crypto::{constant, CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
     encoding::{
-        DHCommitMessage, DHKeyMessage, OTRDecoder, OTREncoder, EncodedMessageType,
+        DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
         RevealSignatureMessage, SignatureMessage, SSID,
     },
     Host, Version,
@@ -68,7 +68,10 @@ impl AKEContext {
         }
     }
 
-    pub fn handle_dhcommit(&mut self, msg: DHCommitMessage) -> Result<EncodedMessageType, AKEError> {
+    pub fn handle_dhcommit(
+        &mut self,
+        msg: DHCommitMessage,
+    ) -> Result<EncodedMessageType, AKEError> {
         let (result, transition) = match &self.state {
             AKEState::None => Self::handle_dhcommit_from_initial(msg),
             AKEState::AwaitingDHKey(state) => {
@@ -178,7 +181,7 @@ impl AKEContext {
             AKEState::AwaitingDHKey(state) => {
                 DH::verify_public_key(&msg.gy).map_err(AKEError::CryptographicViolation)?;
                 // Reply with a Reveal Signature Message and transition authstate to
-                // AUTHSTATE_AWAITING_SIG.
+                // `AUTHSTATE_AWAITING_SIG`.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 let dsa_keypair = self.host.keypair();
@@ -206,17 +209,20 @@ impl AKEContext {
                     .write_data(&secrets.c.encrypt(&[0u8; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
+                let reveal_sig_message = RevealSignatureMessage {
+                    key: state.r.clone(),
+                    signature_encrypted: enc_b,
+                    signature_mac: mac_enc_b,
+                };
                 (
-                    Ok(EncodedMessageType::RevealSignature(RevealSignatureMessage {
-                        key: state.r.clone(),
-                        signature_encrypted: enc_b,
-                        signature_mac: mac_enc_b,
-                    })),
+                    Ok(EncodedMessageType::RevealSignature(
+                        reveal_sig_message.clone(),
+                    )),
                     Some(AKEState::AwaitingSignature(AwaitingSignature {
                         our_dh_keypair: Rc::clone(&state.our_dh_keypair),
                         gy: msg.gy,
-                        key: state.r.clone(),
                         s,
+                        previous_message: reveal_sig_message,
                     })),
                 )
             }
@@ -225,38 +231,10 @@ impl AKEContext {
                     // Ignore the message.
                     return Err(AKEError::MessageIgnored);
                 }
-                let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&state.s).to_vec());
-                // TODO the computations below could be cached during first handling of DH Key message.
-                // If this D-H Key message is the same the one you received earlier (when you entered AUTHSTATE_AWAITING_SIG):
-                //    Retransmit your Reveal Signature Message.
-                let dsa_keypair = self.host.keypair();
-                let pub_b = dsa_keypair.public_key();
-                let keyid_b = 1u32;
-                let m_b = SHA256::hmac(
-                    &secrets.m1,
-                    &OTREncoder::new()
-                        .write_mpi(&state.our_dh_keypair.public)
-                        .write_mpi(&msg.gy)
-                        .write_public_key(&pub_b)
-                        .write_int(keyid_b)
-                        .to_vec(),
-                );
-                let sig_b = dsa_keypair.sign(&m_b);
-                let x_b = OTREncoder::new()
-                    .write_public_key(&pub_b)
-                    .write_int(keyid_b)
-                    .write_signature(&sig_b)
-                    .to_vec();
-                let enc_b = OTREncoder::new()
-                    .write_data(&secrets.c.encrypt(&[0u8; 16], &x_b))
-                    .to_vec();
-                let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
                 (
-                    Ok(EncodedMessageType::RevealSignature(RevealSignatureMessage {
-                        key: state.key.clone(),
-                        signature_encrypted: enc_b,
-                        signature_mac: mac_enc_b,
-                    })),
+                    Ok(EncodedMessageType::RevealSignature(
+                        state.previous_message.clone(),
+                    )),
                     None,
                 )
             }
@@ -482,9 +460,9 @@ struct AwaitingRevealSignature {
 // TODO: clean-up fields, now gy, s and secrets.
 struct AwaitingSignature {
     our_dh_keypair: Rc<DH::Keypair>,
-    key: AES128::Key,
     gy: BigUint,
     s: DH::SharedSecret,
+    previous_message: RevealSignatureMessage,
 }
 
 /// `AKEError` contains the variants of errors produced during AKE.

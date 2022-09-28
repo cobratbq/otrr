@@ -6,7 +6,7 @@ use fragment::Assembler;
 use crate::{
     authentication::{self, CryptographicMaterial},
     encoding::{
-        encode_message, parse, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
+        self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
         MessageType, OTREncoder, SSID,
     },
     fragment::{self, fragment, FragmentError},
@@ -32,7 +32,6 @@ pub struct Account {
     whitespace_tagged: bool,
 }
 
-// TODO not taking into account fragmentation yet. Any of the OTR-encoded messages can (and sometimes needs) to be fragmented.
 // TODO how to modify policy bitflags?
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
@@ -83,7 +82,7 @@ impl Account {
     ///
     /// Will panic on incorrect internal state or uses. It should not panic on any user input, as
     /// these are typically the chat network messages therefore out of the clients control.
-    // TODO fuzzing target
+    // REMARK fuzzing target
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
@@ -106,12 +105,17 @@ impl Account {
                 .entry(fragment.sender)
                 .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
             return match instance.assembler.assemble(&fragment) {
-                // TODO theoretically, we could be recursing on a (nested) fragment, which is disallowed by the spec.
-                Ok(assembled) => self.receive(assembled.as_slice()),
-                // We've received a message fragment, but not enough to reassemble a message, so
-                // return early with no actual result and tell the client to wait for more fragments
-                // to arrive.
+                Ok(assembled) => {
+                    if fragment::match_fragment(&assembled) {
+                        return Err(OTRError::ProtocolViolation("Assembled fragments lead to fragment. This is disallowed by the specification."));
+                    }
+                    self.receive(assembled.as_slice())
+                }
                 Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
+                    // We've received a message fragment, but not enough to reassemble a message, so
+                    // return early with no actual result and tell the client to wait for more fragments
+                    // to arrive. (Or we have received an unexpected fragment, therefore reset
+                    // everything and forget what we had up to now.)
                     Ok(UserMessage::None)
                 }
                 Err(FragmentError::InvalidData) => {
@@ -120,9 +124,7 @@ impl Account {
                 }
             };
         }
-        // TODO we should reset assembler here, but not sure how to do this, given that we many `n` instances with fragment assembler.
-        // TODO consider returning empty vector or error code when message is only intended for OTR internally.
-        match parse(payload)? {
+        match encoding::parse(payload)? {
             MessageType::Error(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
                     self.query()?;
@@ -180,10 +182,10 @@ impl Account {
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
                     Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
                 });
+                // TODO consider checking status of receiver-instance first to see if it accepts DH-Key, because if so it is likely that the DH-Commit message was sent from the instance itself.
                 if let Ok(context) = result_context {
                     // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
                     // indicates whether transfer is possible.
-                    // TODO how to respond if: AKE already initialized (i.e. in progress), if instance is MSGSTATE_ENCRYPTED or MSGSTATE_FINISHED?
                     instance.adopt_akecontext(context);
                 }
                 instance.handle(msg)
@@ -269,7 +271,6 @@ impl Account {
             //       Store the plaintext message for possible retransmission, and send a Query
             //       Message."
             self.query()?;
-            // TODO OTR: store message for possible retransmission after OTR session is established.
             return Err(OTRError::PolicyRestriction(
                 "Encryption is required by policy, but no confidential session is established yet. Query-message is sent to initiate OTR session.",
             ));
@@ -280,7 +281,6 @@ impl Account {
         //  If msgstate is MSGSTATE_FINISHED:
         //    Inform the user that the message cannot be sent at this time. Store the plaintext
         //    message for possible retransmission."
-        // TODO introduce message fragmentation (fragmentation logic is already available)
         instance.send(&mut self.whitespace_tagged, content)
     }
 
@@ -320,9 +320,8 @@ impl Account {
         if accepted_versions.is_empty() {
             return Err(OTRError::UserError("No supported versions available."));
         }
-        // TODO Embed query tag into plaintext message or construct plaintext message with clarifying information.
-        let msg = MessageType::Query(accepted_versions);
-        self.host.inject(&serialize_message(&msg));
+        self.host
+            .inject(&serialize_message(&MessageType::Query(accepted_versions)));
         Ok(())
     }
 
@@ -370,7 +369,6 @@ impl Account {
             .smp_ssid()
     }
 
-    // TODO this function has nasty detail that borrow checker sees these calls as a persistent mutable borrow. This unnecessarily limits flexibility. Can we do something with lifetimes to avoid this?
     fn get_instance(&mut self, instance: InstanceTag) -> Result<&mut Instance, OTRError> {
         self.instances
             .get_mut(&instance)
@@ -392,7 +390,6 @@ impl Account {
 
 /// Instance serves a single communication session, ensuring that messages always travel between the same two clients.
 struct Instance {
-    // TODO can we share the details in an immutable way?
     details: Rc<AccountDetails>,
     receiver: InstanceTag,
     host: Rc<dyn Host>,
@@ -446,6 +443,9 @@ impl Instance {
         assert_eq!(encoded_message.version, Version::V3);
         assert_eq!(self.receiver, encoded_message.sender);
         assert_eq!(self.details.tag, encoded_message.receiver);
+        // Given that we are processing an actual (OTR-)encoded message intended for this instance,
+        // we should reset the assembler now.
+        self.assembler.reset();
         match encoded_message.message {
             EncodedMessageType::DHCommit(msg) => {
                 let response = self
@@ -492,12 +492,12 @@ impl Instance {
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
-                // TODO If there is a recent stored message, encrypt it and send it as a Data Message.
             }
             EncodedMessageType::Data(msg) => {
                 // TODO verify and validate message before passing on to state.
-                // NOTE that TLV 0 (Padding) and 1 (Disconnect) are handled as part of the protocol.
-                // Other TLVs that are their own protocol or function, must be handled subsequently.
+                // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
+                // protocol. Other TLVs that are their own protocol or function, must be handled
+                // subsequently.
                 let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
@@ -525,7 +525,7 @@ impl Instance {
                             SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
                     }
-                    // TODO following three patterns exist only to replace 0 instance tag value with actual receiver value.
+                    // TODO following three patterns exist only to replace 0 instance tag value with actual receiver value. (This should be done better.)
                     Ok(UserMessage::ConfidentialSessionStarted(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionStarted(self.receiver)),
                     Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
                     Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
@@ -638,7 +638,6 @@ impl Instance {
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
-        // TODO consider what to do if SMP in progress: immediately reset and initiate, or do nothing, or ...?
         let tlv = self.state.smp_mut()?.initiate(secret, question)?;
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,

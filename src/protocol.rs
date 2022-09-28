@@ -5,15 +5,22 @@ use num_bigint::BigUint;
 use crate::{
     crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
-        encode_authenticator_data, DataMessage, Fingerprint, MessageFlags, OTRDecoder, OTREncoder,
-        EncodedMessageType, MAC_LEN, SSID, TLV,
+        encode_authenticator_data, DataMessage, EncodedMessageType, Fingerprint, MessageFlags,
+        OTRDecoder, OTREncoder, MAC_LEN, SSID, TLV,
     },
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
     utils::std::{bytes, slice},
-    Host, OTRError, ProtocolStatus, UserMessage, Version, TLV_TYPE_1_DISCONNECT,
+    Host, OTRError, ProtocolStatus, TLVType, UserMessage, Version,
 };
+
+/// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
+/// encrypted message.
+const TLV_TYPE_0_PADDING: TLVType = 0;
+
+/// `TLV_TYPE_1_DISCONNECT` is the TLV that signals a disconnect.
+const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
 pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
@@ -43,7 +50,11 @@ pub trait ProtocolState {
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
     // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError>;
+    fn prepare(
+        &mut self,
+        flags: MessageFlags,
+        content: &[u8],
+    ) -> Result<EncodedMessageType, OTRError>;
     fn smp(&self) -> Result<&SMPContext, OTRError>;
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError>;
 }
@@ -203,8 +214,14 @@ impl ProtocolState for EncryptedState {
         (optabort, Box::new(PlaintextState {}))
     }
 
-    fn prepare(&mut self, flags: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError> {
-        Ok(EncodedMessageType::Data(self.encrypt_message(flags, content)))
+    fn prepare(
+        &mut self,
+        flags: MessageFlags,
+        content: &[u8],
+    ) -> Result<EncodedMessageType, OTRError> {
+        Ok(EncodedMessageType::Data(
+            self.encrypt_message(flags, content),
+        ))
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {
@@ -332,12 +349,13 @@ impl EncryptedState {
 fn parse_message(raw_content: &[u8]) -> Result<UserMessage, OTRError> {
     let mut decoder = OTRDecoder::new(raw_content);
     let content = decoder.read_bytes_null_terminated()?;
-    let tlvs = decoder.read_tlvs()?;
-    // TODO drop TLV-0-PADDING as it is only padding?
-    // TODO handle possibility for multiple TLVs, including TLV-1-DISCONNECT above
-    // TODO add logic for handling SMP
+    let tlvs: Vec<TLV> = decoder
+        .read_tlvs()?
+        .into_iter()
+        .filter(|t| t.0 != TLV_TYPE_0_PADDING)
+        .collect();
     if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
-        // TODO strictly speaking there may be a user-readable message that we do to return to the client. (Spec does not strictly say this is a use case to consider.)
+        // TODO if the TLV-1-DISCONNECT is contained in an actual user message, then this user content is lost.
         Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO))
     } else {
         Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs))

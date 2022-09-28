@@ -267,6 +267,7 @@ impl OTREncodable for DHKeyMessage {
     }
 }
 
+#[derive(Clone)]
 pub struct RevealSignatureMessage {
     pub key: AES128::Key,
     pub signature_encrypted: Vec<u8>,

@@ -1,5 +1,4 @@
 #![deny(unused_must_use)]
-
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions)]
 
@@ -32,17 +31,10 @@ mod smp;
 pub mod instancetag;
 pub mod session;
 
-// TODO early implementation assumptions:
-// 1. injections of messages into the transport never fails.
-// 2. OTR is always enabled. (clarify nuances of this/meaning of this)
-// 3. add message fragmentation.
-// 4. ...
-
 // TODO initialization-time checking:
 //   1. CPU capabilities: usize 32-bit or 64-bit, given checking for appropriate boundaries throughout code. (e.g. encoding.rs serialization)
 //      - usize >= u32 for array-indexing in OTR-encoding.
 //      - usize >= u32 for array-indexing using KeyID. (protocol.rs)
-
 // TODO can we use top-level std::panic::catch_unwind for catching/diagnosing unexpected failures? (isolate panics within single session/instance)
 // TODO `encoding#OTR_USE_INFORMATION_MESSAGE`: make accompanying message changeable, consider length for fragmenting.
 // TODO add periodic heartbeat message
@@ -57,6 +49,8 @@ pub mod session;
 // TODO store plaintext message for possible retransmission (various states, see spec)
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
+// REMARK allow defining custom message to be included with the OTR Query-tag.
+// REMARK expose TLV 0 for manual padding by client?
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
@@ -169,13 +163,6 @@ bitflags! {
     const ERROR_START_AKE = 0b0100_0000;
     }
 }
-
-/// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
-/// encrypted message.
-pub const TLV_TYPE_0_PADDING: TLVType = 0;
-
-/// `TLV_TYPE_1_DISCONNECT` is the TLV that signals a disconnect.
-pub const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
 /// `TLV_TYPE` is an alias for an u16 value. The values are not restricted. Therefore define the type.
 pub type TLVType = u16;

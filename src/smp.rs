@@ -254,7 +254,6 @@ impl SMPContext {
 
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
         // "1. Determine Bob's secret input y, which is to be compared to Alice's secret x."
-        // TODO querying the host for the secret is synchronous, so it will hold up the SMP message processing. Would this be a problem in client implementation or can we keep it as simple as this?
         let answer = self.host.query_smp_secret(&received_question);
         if answer.is_none() {
             // Abort SMP because user has cancelled query for their secret.
