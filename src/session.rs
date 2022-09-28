@@ -582,7 +582,6 @@ impl Instance {
         plaintext: &[u8],
     ) -> Result<Vec<Vec<u8>>, OTRError> {
         let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
-        // TODO OTR: store plaintext message for possible retransmission (various states, see spec)
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             EncodedMessageType::Unencoded(msg) => {
                 assert!(
@@ -605,33 +604,37 @@ impl Instance {
             message @ (EncodedMessageType::DHCommit(_)
             | EncodedMessageType::DHKey(_)
             | EncodedMessageType::RevealSignature(_)
-            | EncodedMessageType::Signature(_)
-            | EncodedMessageType::Data(_)) => {
-                // FIXME `self.state.version()` is not reliable for any of the AKE message-types. Must deliberately choose which version to query. (`state` is likely still `MSGSTATE_PLAINTEXT` while AKE is in progress.)
-                let payload = encode_message(
+            | EncodedMessageType::Signature(_)) => {
+                let content =
+                    encode_message(self.ake.version(), self.details.tag, self.receiver, message);
+                Ok(self.prepare_payloads(content))
+            }
+            message @ EncodedMessageType::Data(_) => {
+                let content = encode_message(
                     self.state.version(),
                     self.details.tag,
                     self.receiver,
                     message,
                 );
-                let max_size = self.host.message_size();
-                if payload.len() <= max_size {
-                    // send message-bytes as-is: fragmentation is not needed.
-                    Ok(vec![payload])
-                } else {
-                    // fragmentation is needed, so send multiple fragments instead.
-                    let payloads: Vec<Vec<u8>> =
-                        fragment(max_size, self.details.tag, self.receiver, &payload)
-                            .iter()
-                            .map(|f| OTREncoder::new().write_encodable(f).to_vec())
-                            .collect();
-                    Ok(payloads)
-                }
+                Ok(self.prepare_payloads(content))
             }
         }
     }
 
-    // TODO delegate to here from Account instance.
+    fn prepare_payloads(&self, payload: Vec<u8>) -> Vec<Vec<u8>> {
+        let max_size = self.host.message_size();
+        if payload.len() <= max_size {
+            // send message-bytes as-is: fragmentation is not needed.
+            vec![payload]
+        } else {
+            // fragmentation is needed: send multiple fragments instead.
+            fragment(max_size, self.details.tag, self.receiver, &payload)
+                .iter()
+                .map(|f| OTREncoder::new().write_encodable(f).to_vec())
+                .collect()
+        }
+    }
+
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
@@ -653,7 +656,6 @@ impl Instance {
         Ok(self.state.smp()?.ssid())
     }
 
-    // TODO delegate to here from Account instance.
     fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
         let smp = self.state.smp_mut();
         if smp.is_err() {

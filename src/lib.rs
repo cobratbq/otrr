@@ -54,6 +54,7 @@ pub mod session;
 // TODO currently two different RNG types in use. (See DSA for OsRng)
 // TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
 // TODO review allow/warn/deny settings per file for clippy et al.
+// TODO store plaintext message for possible retransmission (various states, see spec)
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
 
