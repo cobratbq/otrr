@@ -122,7 +122,9 @@ impl Account {
                     // Given that this is (merely) a fragment, just discard it and do not send an
                     // error message, as the error message would wreak havoc on the (still
                     // functional) encrypted session.
-                    Err(OTRError::ProtocolViolation("Fragment with invalid data."))
+                    Err(OTRError::ProtocolViolation(
+                        "Fragment contains invalid data.",
+                    ))
                 }
             };
         }
@@ -184,7 +186,6 @@ impl Account {
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
                     Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
                 });
-                // TODO consider checking status of receiver-instance first to see if it accepts DH-Key, because if so it is likely that the DH-Commit message was sent from the instance itself.
                 if let Ok(context) = result_context {
                     // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
                     // indicates whether transfer is possible.
@@ -383,7 +384,7 @@ impl Account {
             assert_eq!(*i.0, i.1.receiver);
             assert!(
                 *i.0 != INSTANCE_ZERO || i.1.status() == ProtocolStatus::Plaintext,
-                "BUG: Given that we do not support OTR version 1 and 2, we expect instance 0 to be plaintext"
+                "BUG: Given that we do not support OTR version 1 and 2, we expect instance 0 is Plaintext"
             );
             i.1.status() == ProtocolStatus::Encrypted || i.1.status() == ProtocolStatus::Finished
         })
@@ -508,9 +509,9 @@ impl Instance {
                     Ok(UserMessage::Confidential(_, _, tlvs)) if smp::any_smp_tlv(&tlvs) => {
                         // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
-                        let tlv = tlvs.iter().find(|t| smp::is_smp_tlv(t)).unwrap();
+                        let tlv = tlvs.into_iter().find(smp::is_smp_tlv).unwrap();
                         // Socialist Millionaire Protocol (SMP) handling.
-                        if let Some(reply_tlv) = self.state.smp_mut().unwrap().handle(tlv) {
+                        if let Some(reply_tlv) = self.state.smp_mut().unwrap().handle(&tlv) {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
@@ -560,7 +561,6 @@ impl Instance {
     fn reset(&mut self) -> UserMessage {
         let previous = self.state.status();
         let version = self.state.version();
-        // TODO what happens with verification status when we force-reset? Should be preserved? (prefer always reset for safety)
         let (abortmsg, newstate) = self.state.finish();
         self.state = newstate;
         if previous == self.state.status() {

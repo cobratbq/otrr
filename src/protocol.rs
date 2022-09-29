@@ -261,7 +261,7 @@ impl EncryptedState {
         let (receiver_keyid, receiver_key) = self.keys.their_current();
         let (our_keyid, our_dh) = self.keys.current_keys();
         let next_dh = self.keys.next_keys().1.public.clone();
-        let shared_secret = self.keys.take_shared_secret();
+        let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
         assert!(bytes::any_nonzero(&secbytes));
         let secrets = OTR::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
@@ -272,8 +272,7 @@ impl EncryptedState {
             .sender_crypt_key()
             .encrypt(&nonce, plaintext_message);
         assert!(bytes::any_nonzero(&ciphertext));
-        // TODO the spec says ".. whenever we are about to forget one of our D-H key pairs, ...". Check if implementation satisfies this requiremend.
-        let oldmackeys = self.keys.get_used_macs();
+        let oldmackeys = self.keys.get_reveal_macs();
         assert_eq!(oldmackeys.len() % 20, 0);
         assert!(bytes::any_nonzero(&oldmackeys));
 
@@ -316,8 +315,10 @@ impl EncryptedState {
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
         let secrets = OTR::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
+        // "Uses mk to verify MACmk(TA)."
+        let receiving_mac_key = secrets.receiver_mac_key();
         let authenticator = SHA1::hmac(
-            &secrets.receiver_mac_key(),
+            &receiving_mac_key,
             &encode_authenticator_data(
                 &self.version,
                 self.their_instance,
@@ -325,17 +326,14 @@ impl EncryptedState {
                 message,
             ),
         );
-        // TODO do we need to verify dh key against local key cache?
-        // "Uses mk to verify MACmk(TA)."
         constant::verify(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
+        self.keys.register_used_mac_key(receiving_mac_key);
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         self.keys.verify_counter(&message.ctr)?;
         let mut nonce = [0u8; 16];
         slice::copy(&mut nonce, &message.ctr);
         assert!(utils::std::bytes::any_nonzero(&nonce));
-        // TODO double-check if this is appropriate time to register mac-to-be-revealed.
-        self.keys.reveal_mac(&message.authenticator);
         self.keys.acknowledge_ours(message.receiver_keyid)?;
         self.keys
             .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;

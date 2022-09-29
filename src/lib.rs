@@ -46,6 +46,7 @@ pub mod session;
 // TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
 // TODO review allow/warn/deny settings per file for clippy et al.
 // TODO store plaintext message for possible retransmission (various states, see spec)
+// TODO was there a requirement that other party's dh key must not be equal to a previous key? If so, would we need to remember more keys?
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
 // REMARK allow defining custom message to be included with the OTR Query-tag.

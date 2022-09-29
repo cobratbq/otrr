@@ -11,12 +11,15 @@ pub struct KeyManager {
     theirs: PublicKeyRotation,
     our_ctr: Counter,
     their_ctr: Counter,
-    oldmacs: Vec<u8>,
+    /// `used_macs` are MACs that are used and must be revealed in time after key rotation.
+    used_macs: Vec<[u8; 20]>,
+    /// `old_macs` are MACs that are ready to be revealed as key rotation has occurred.
+    old_macs: Vec<u8>,
 }
 
 impl Drop for KeyManager {
     fn drop(&mut self) {
-        self.oldmacs.fill(0);
+        self.old_macs.clear();
     }
 }
 
@@ -33,7 +36,8 @@ impl KeyManager {
             // pair, and must not be all 0x00."
             our_ctr: Counter::new(),
             their_ctr: Counter::new(),
-            oldmacs: Vec::new(),
+            used_macs: Vec::new(),
+            old_macs: Vec::new(),
         }
     }
 
@@ -51,6 +55,7 @@ impl KeyManager {
 
     pub fn acknowledge_ours(&mut self, key_id: KeyID) -> Result<(), OTRError> {
         if self.ours.acknowledge(key_id)? {
+            self.reveal_used_mac_keys();
             self.reset_counters();
         }
         Ok(())
@@ -64,7 +69,7 @@ impl KeyManager {
         self.theirs.select(key_id)
     }
 
-    pub fn take_shared_secret(&self) -> BigUint {
+    pub fn current_shared_secret(&self) -> BigUint {
         let (_, keypair) = self.ours.current();
         let (_, their_pk) = self.theirs.current();
         keypair.generate_shared_secret(their_pk)
@@ -72,6 +77,7 @@ impl KeyManager {
 
     pub fn register_their_key(&mut self, key_id: KeyID, key: BigUint) -> Result<(), OTRError> {
         if self.theirs.register(key_id, key)? {
+            self.reveal_used_mac_keys();
             self.reset_counters();
         }
         Ok(())
@@ -87,13 +93,24 @@ impl KeyManager {
         self.our_ctr.take()
     }
 
-    pub fn reveal_mac(&mut self, mac: &[u8]) {
-        self.oldmacs.extend_from_slice(mac);
+    pub fn register_used_mac_key(&mut self, mac: [u8; 20]) {
+        if !self.used_macs.iter().any(|m| *m == mac) {
+            self.used_macs.push(mac);
+        }
     }
 
-    pub fn get_used_macs(&mut self) -> Vec<u8> {
-        let reveal_macs = std::mem::take(&mut self.oldmacs);
-        assert_eq!(self.oldmacs.len(), 0);
+    fn reveal_used_mac_keys(&mut self) {
+        for m in &self.used_macs {
+            self.old_macs.extend(m);
+        }
+        self.used_macs.clear();
+        assert_eq!(0, self.old_macs.len() % 20);
+    }
+
+    pub fn get_reveal_macs(&mut self) -> Vec<u8> {
+        let reveal_macs = std::mem::take(&mut self.old_macs);
+        assert_eq!(self.old_macs.len(), 0);
+        assert_eq!(0, reveal_macs.len() % 20);
         reveal_macs
     }
 
