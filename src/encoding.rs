@@ -139,7 +139,6 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                 .collect(),
         );
     }
-    // TODO search for multiple occurrences?
     if let Some(caps) = (*WHITESPACE_PATTERN).captures(data) {
         let cleaned = (*WHITESPACE_PATTERN)
             .replace_all(data, b"".as_ref())
@@ -413,7 +412,6 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
                 buffer.len() >= 24,
                 "OTR requires at least one protocol version tag."
             );
-            // TODO determine/look-up best location, e.g. beginning or end of string or somewhere in between?
             buffer.extend(message);
             buffer
         }

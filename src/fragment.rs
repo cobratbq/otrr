@@ -13,7 +13,7 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
-// TODO for now assuming that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
+// TODO for now, assumes that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
 static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
@@ -21,12 +21,15 @@ static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     .unwrap()
 });
 
-// TODO match matches OTRv2 prefix but parsing does not handling OTRv2 fragments, so somewhere we need to handle.
+/// `match_fragment` recognizes both `OTRv2` an`OTRv3` fragment patterns. This allows for a more
+/// graceful control flow. `OTRv2` fragments are not processed though.
 pub fn match_fragment(content: &[u8]) -> bool {
     (content.starts_with(OTR_FRAGMENT_V2_PREFIX) || content.starts_with(OTR_FRAGMENT_V3_PREFIX))
         && content.ends_with(OTR_FRAGMENT_SUFFIX)
 }
 
+/// `parse` parses fragments. Only the `OTRv3` fragment pattern is supported. `OTRv2` fragments will not
+/// match, therefore result in a `None` result.
 pub fn parse(content: &[u8]) -> Option<Fragment> {
     let captures = FRAGMENT_PATTERN.captures(content)?;
     let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();

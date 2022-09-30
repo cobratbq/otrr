@@ -47,6 +47,9 @@ pub mod session;
 // TODO review allow/warn/deny settings per file for clippy et al.
 // TODO store plaintext message for possible retransmission (various states, see spec)
 // TODO was there a requirement that other party's dh key must not be equal to a previous key? If so, would we need to remember more keys?
+// TODO review all zeroing, trait drop::Drop
+// TODO review need for constant-time handling (e.g. comparisons)
+// TODO whitespace-tag is now placed at the beginning of the message. Better location?
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
 // REMARK allow defining custom message to be included with the OTR Query-tag.

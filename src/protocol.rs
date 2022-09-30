@@ -26,8 +26,6 @@ pub trait ProtocolState {
     fn status(&self) -> ProtocolStatus;
     fn version(&self) -> Version;
     /// handle processes a received message in accordance with the active protocol state.
-    // TODO check but I believe we should also handle plaintext message for state correction purposes.
-    // TODO consider not returning a UserMessage here, but some convenient intermediate format.
     fn handle(
         &mut self,
         msg: &DataMessage,
@@ -49,7 +47,6 @@ pub trait ProtocolState {
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
-    // TODO check logic sequence using `prepare` because this send seems to prepare for a sendable OTR message type only.
     fn prepare(
         &mut self,
         flags: MessageFlags,
@@ -63,7 +60,6 @@ pub fn new_state() -> Box<dyn ProtocolState> {
     Box::new(PlaintextState {})
 }
 
-// TODO review public access for various state structs
 pub struct PlaintextState {}
 
 impl ProtocolState for PlaintextState {
@@ -156,18 +152,21 @@ impl ProtocolState for EncryptedState {
         Result<UserMessage, OTRError>,
         Option<Box<dyn ProtocolState>>,
     ) {
-        // TODO can/should we sanity-check revealed MAC keys? They have already been exposed on the network as we receive them, but we might validate whether they contain some measure of sane information.
-        assert_eq!(msg.revealed.len() % 20, 0);
-        assert!(msg.revealed.is_empty() || bytes::any_nonzero(&msg.revealed));
+        if msg.revealed.len() % 20 != 0
+            || (!msg.revealed.is_empty() && bytes::all_zero(&msg.revealed))
+        {
+            println!("NOTE: revealed MAC keys in received data message do not satisfy protocol requirements.");
+        }
         match self.decrypt_message(msg) {
-            // TODO carefully inspect possible state transitions, now assumes None.
-            // TODO check if just plaintext or contains OTR protocol directions, ...
-            Ok(plaintext) => match parse_message(&plaintext) {
+            Ok(decrypted) => match parse_message(&decrypted) {
                 msg @ Ok(UserMessage::ConfidentialSessionFinished(_)) => {
                     (msg, Some(Box::new(FinishedState {})))
                 }
                 msg @ Ok(_) => (msg, None),
-                err @ Err(_) => (err, None),
+                err @ Err(_) => {
+                    // TODO if parsing message produces error, should we transition to different state or ignore? (protocol violation) ERROR_START_AKE seems to indicate that we need to assume the session is lost if OTR Error is received.
+                    (err, None)
+                }
             },
             Err(_) => {
                 // TODO consider logging the details of the error message, but for the client it is not relevant

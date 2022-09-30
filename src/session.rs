@@ -32,7 +32,6 @@ pub struct Account {
     whitespace_tagged: bool,
 }
 
-// TODO how to modify policy bitflags?
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
         Self {
@@ -44,6 +43,16 @@ impl Account {
             instances: collections::HashMap::new(),
             whitespace_tagged: false,
         }
+    }
+
+    #[must_use]
+    pub fn get_instance_tag(&self) -> InstanceTag {
+        self.details.tag
+    }
+
+    #[must_use]
+    pub fn get_policy(&self) -> Policy {
+        self.details.policy
     }
 
     /// `sessions` returns a list of known instance tags (i.e. sessions). The session may be in any
@@ -128,6 +137,7 @@ impl Account {
                 }
             };
         }
+        // TODO can we handle possible errors produced here to reset whitespace_tagged, respond with OTR Error, etc?
         match encoding::parse(payload)? {
             MessageType::Error(error) => {
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {

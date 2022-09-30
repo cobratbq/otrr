@@ -5,9 +5,6 @@ use ring::rand::SystemRandom;
 
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
-// TODO add safety assertions that prevent working with all-zero byte-arrays.
-// TODO what constant-time implementations needed?
-
 #[allow(non_snake_case)]
 pub mod DH {
 
@@ -116,7 +113,6 @@ pub mod DH {
 
     pub type SharedSecret = BigUint;
 
-    // TODO needs constant-time?
     pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
         assert!(
             !std::ptr::eq(expected, actual),
@@ -285,7 +281,6 @@ pub mod OTR {
         value
             .mod_inverse(modulus)
             .unwrap()
-            // TODO is `mod_floor` redundant?
             .mod_floor(&modulus.to_bigint().unwrap())
             .to_biguint()
             .unwrap()
@@ -340,13 +335,11 @@ pub mod AES128 {
 
     impl Drop for Key {
         fn drop(&mut self) {
-            // TODO does this form of zeroing work?
-            self.0 = [0u8; KEY_LENGTH];
+            self.0.fill(0);
         }
     }
 }
 
-// TODO do we need to verify any of the DSA components, also for encoding/decoding?
 #[allow(non_snake_case)]
 pub mod DSA {
     use core::fmt;
@@ -392,7 +385,6 @@ pub mod DSA {
         }
 
         pub fn sign(&self, digest_bytes: &[u8; 32]) -> Signature {
-            // TODO ensure that digest_bytes themselves are signed, instead of first hashed!
             Signature(
                 self.sk
                     .sign_digest(ModQHash::new().chain_update(digest_bytes)),
@@ -400,7 +392,6 @@ pub mod DSA {
         }
     }
 
-    // TODO check other parts of code where components (e.g. Q) need to be verified/validated.
     impl PublicKey {
         pub fn from_components(
             p: BigUint,
@@ -494,8 +485,8 @@ pub mod DSA {
     }
 
     impl Update for ModQHash {
-        /// update updates the internal data for `ModQHash`. Subsequent calls to `update` will merely
-        /// replace the content from previous calls.
+        /// update updates the internal data for `ModQHash`. Subsequent calls to `update` will
+        /// merely replace the content from previous calls.
         fn update(&mut self, data: &[u8]) {
             assert_eq!(data.len(), MOD_Q_HASH_LENGTH);
             utils::std::slice::copy(&mut self.0, data);
@@ -550,7 +541,6 @@ pub mod DSA {
     }
 }
 
-// TODO Fingerprint = SHA1(byte-level representation of Public Key without 0x0000 which is the short-type pubkey type identifier)
 #[allow(non_snake_case)]
 pub mod SHA1 {
     type Digest = [u8; 20];

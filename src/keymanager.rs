@@ -317,7 +317,6 @@ impl Counter {
             assert!(utils::std::bytes::any_nonzero(&result));
             return result;
         }
-        // TODO ctr (8-byte part) overflowing is very unlikely to happen, so just panic and make this a problem for the future.
         panic!("BUG: wrapped around counter value completely.")
     }
 }
