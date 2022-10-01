@@ -273,6 +273,13 @@ pub struct RevealSignatureMessage {
     pub signature_mac: MAC,
 }
 
+impl Drop for RevealSignatureMessage {
+    fn drop(&mut self) {
+        self.signature_encrypted.fill(0);
+        self.signature_mac.fill(0);
+    }
+}
+
 impl RevealSignatureMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<RevealSignatureMessage, OTRError> {
         Ok(RevealSignatureMessage {

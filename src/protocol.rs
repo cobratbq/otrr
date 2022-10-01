@@ -12,7 +12,7 @@ use crate::{
     keymanager::KeyManager,
     smp::SMPContext,
     utils::std::{bytes, slice},
-    Host, OTRError, ProtocolStatus, TLVType, UserMessage, Version,
+    Host, OTRError, ProtocolStatus, TLVType, Version,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -29,10 +29,7 @@ pub trait ProtocolState {
     fn handle(
         &mut self,
         msg: &DataMessage,
-    ) -> (
-        Result<UserMessage, OTRError>,
-        Option<Box<dyn ProtocolState>>,
-    );
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     #[allow(clippy::too_many_arguments)]
     fn secure(
         &self,
@@ -74,10 +71,7 @@ impl ProtocolState for PlaintextState {
     fn handle(
         &mut self,
         _: &DataMessage,
-    ) -> (
-        Result<UserMessage, OTRError>,
-        Option<Box<dyn ProtocolState>>,
-    ) {
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -148,10 +142,7 @@ impl ProtocolState for EncryptedState {
     fn handle(
         &mut self,
         msg: &DataMessage,
-    ) -> (
-        Result<UserMessage, OTRError>,
-        Option<Box<dyn ProtocolState>>,
-    ) {
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         if msg.revealed.len() % 20 != 0
             || (!msg.revealed.is_empty() && bytes::all_zero(&msg.revealed))
         {
@@ -159,9 +150,7 @@ impl ProtocolState for EncryptedState {
         }
         match self.decrypt_message(msg) {
             Ok(decrypted) => match parse_message(&decrypted) {
-                msg @ Ok(UserMessage::ConfidentialSessionFinished(_)) => {
-                    (msg, Some(Box::new(FinishedState {})))
-                }
+                msg @ Ok(Message::ConfidentialFinished) => (msg, Some(Box::new(FinishedState {}))),
                 msg @ Ok(_) => (msg, None),
                 err @ Err(_) => {
                     // TODO if parsing message produces error, should we transition to different state or ignore? (protocol violation) ERROR_START_AKE seems to indicate that we need to assume the session is lost if OTR Error is received.
@@ -343,7 +332,7 @@ impl EncryptedState {
     }
 }
 
-fn parse_message(raw_content: &[u8]) -> Result<UserMessage, OTRError> {
+fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
     let mut decoder = OTRDecoder::new(raw_content);
     let content = decoder.read_bytes_null_terminated()?;
     let tlvs: Vec<TLV> = decoder
@@ -353,9 +342,9 @@ fn parse_message(raw_content: &[u8]) -> Result<UserMessage, OTRError> {
         .collect();
     if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
         // TODO if the TLV-1-DISCONNECT is contained in an actual user message, then this user content is lost.
-        Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO))
+        Ok(Message::ConfidentialFinished)
     } else {
-        Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs))
+        Ok(Message::Confidential(content, tlvs))
     }
 }
 
@@ -373,10 +362,7 @@ impl ProtocolState for FinishedState {
     fn handle(
         &mut self,
         _: &DataMessage,
-    ) -> (
-        Result<UserMessage, OTRError>,
-        Option<Box<dyn ProtocolState>>,
-    ) {
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -423,4 +409,9 @@ impl ProtocolState for FinishedState {
             "SMP is not available when protocol is in Finished state.",
         ))
     }
+}
+
+pub enum Message {
+    Confidential(Vec<u8>, Vec<TLV>),
+    ConfidentialFinished,
 }

@@ -41,7 +41,7 @@ pub mod session;
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
 // TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
-// TODO consider introducing (genreally) logging to keep track of the internal process.
+// TODO consider introducing (generally) logging to keep track of the internal process.
 // TODO currently two different RNG types in use. (See DSA for OsRng)
 // TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
 // TODO review allow/warn/deny settings per file for clippy et al.

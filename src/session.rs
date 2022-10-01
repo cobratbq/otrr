@@ -11,7 +11,7 @@ use crate::{
     },
     fragment::{self, fragment, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
-    protocol,
+    protocol::{self, Message},
     smp::{self, SMPStatus},
     Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS,
 };
@@ -509,14 +509,14 @@ impl Instance {
             EncodedMessageType::Data(msg) => {
                 // TODO verify and validate message before passing on to state.
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
-                // protocol. Other TLVs that are their own protocol or function, must be handled
-                // subsequently.
+                // protocol. Other TLVs that are their own protocol or function, therefore must be
+                // handled separately.
                 let (message, transition) = self.state.handle(&msg);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(UserMessage::Confidential(_, _, tlvs)) if smp::any_smp_tlv(&tlvs) => {
+                    Ok(Message::Confidential(_, tlvs)) if smp::any_smp_tlv(&tlvs) => {
                         // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                         let tlv = tlvs.into_iter().find(smp::is_smp_tlv).unwrap();
@@ -538,11 +538,8 @@ impl Instance {
                             SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
                     }
-                    // TODO following three patterns exist only to replace 0 instance tag value with actual receiver value. (This should be done better.)
-                    Ok(UserMessage::ConfidentialSessionStarted(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionStarted(self.receiver)),
-                    Ok(UserMessage::Confidential(INSTANCE_ZERO, content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
-                    Ok(UserMessage::ConfidentialSessionFinished(INSTANCE_ZERO)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
-                    msg @ Ok(_) => msg,
+                    Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
+                    Ok(Message::ConfidentialFinished) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
                     Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
                         // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
                         // need to send an OTR Error response, to indicate to the other user that
@@ -558,9 +555,9 @@ impl Instance {
                         )));
                         Err(OTRError::UnreadableMessage(self.receiver))
                     }
-                    err @ Err(_) => {
+                    Err(error) => {
                         // TODO do all these errors require Error Message response to other party?
-                        err
+                        Err(error)
                     }
                 }
             }

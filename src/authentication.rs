@@ -365,6 +365,7 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(state) => {
+                let SignatureMessage{signature_encrypted, signature_mac} = msg;
                 // Decrypt the encrypted signature, and verify the signature and the MACs. If everything checks out:
                 // - Transition authstate to AUTHSTATE_NONE.
                 // - Transition msgstate to MSGSTATE_ENCRYPTED.
@@ -373,14 +374,14 @@ impl AKEContext {
                 let mac = SHA256::hmac160(
                     &secrets.m2p,
                     &OTREncoder::new()
-                        .write_data(&msg.signature_encrypted)
+                        .write_data(&signature_encrypted)
                         .to_vec(),
                 );
-                constant::verify(&msg.signature_mac, &mac)
+                constant::verify(&signature_mac, &mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 let x_a = secrets.cp.decrypt(
                     &[0u8; 16],
-                    &OTRDecoder::new(&msg.signature_encrypted)
+                    &OTRDecoder::new(&signature_encrypted)
                         .read_data()
                         .or(Err(AKEError::MessageIncomplete))?,
                 );
@@ -457,7 +458,6 @@ struct AwaitingRevealSignature {
     gx_hashed: Vec<u8>,
 }
 
-// TODO: clean-up fields, now gy, s and secrets.
 struct AwaitingSignature {
     our_dh_keypair: Rc<DH::Keypair>,
     gy: BigUint,
