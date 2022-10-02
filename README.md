@@ -2,9 +2,7 @@
 
 OTR version 3 implementation in Rust.
 
-__status__ "_It builds, usually._"
-
-__warning__ this is a work-in-progress with current focus being the functional implementation of a design that takes security into account.
+__status__ work-in-progress, "_It builds, usually._", it never ran
 
 ## Warning
 
@@ -20,11 +18,7 @@ __warning__ this is a work-in-progress with current focus being the functional i
 
 ## Design
 
-- Authenticated Key Exchange (AKE)
-- Signatures for long-term identity
-- Encrypted exchange of messages
-- Socialist Millionaire's Protocol (SMP)
-- Fragmentation
+`TODO write design considerations here`
 
 ## Under consideration
 
@@ -58,10 +52,9 @@ __Functionality__:
   - ☐ ability to change policy for account or individual instance (during use).
 - ☑ Fragmentation:
   - ☑ Assemble fragments of incoming message.
-  - ☐ Fragment outgoing messages.
-- ☐ Optional: (only fleetingly described)
-  - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
-  - ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)
+  - ☑ Fragment outgoing messages.
+- ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
+- ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)
 - ☐ Expose the Extra Symmetric Key (TLV type `8`)
 
 __Operational__:
@@ -74,10 +67,7 @@ __Developmental__:
 
 - ☑ No logic for managing multiple accounts:  
   _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Session` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
-- ☐ Errors do not propagate too far s.t. details leak to the client.
-- ☐ Threading design choices and in-logic callbacks (into client) are not too restricting (i.e. cause problems)
-- ☐ Need thread-safety for top-level API?
-- ☐ API and logic for managing multiple accounts, keys, policies.
+- ☐ API for managing multiple accounts, keys, policies?
 - ☐ ..
 
 __Known issues__:
@@ -87,9 +77,3 @@ __Known issues__:
 - There is no convention on how the Extra Symmetric Key should be used.
 - ..
 </details>
-
-## notes
-
-- `Session` <---[1-*]---> `Instance`, with:
-  - `Session` expected to do preselection of protocol aspects (version, anything else) and other decisions prior to delegating to the designated `Instance`.
-  - `Instance` dedicated processing for a specific configuration of version, receiver tag, etc.

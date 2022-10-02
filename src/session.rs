@@ -92,6 +92,8 @@ impl Account {
     /// Will panic on incorrect internal state or uses. It should not panic on any user input, as
     /// these are typically the chat network messages therefore out of the clients control.
     // REMARK fuzzing target
+    // TODO check impact of receiving error: cannot disconnect all established sessions (multiple instances)
+    // TODO check impact of receiving query: should not re-establish all active sessions (multiple instances)
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
@@ -116,7 +118,7 @@ impl Account {
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
-                        return Err(OTRError::ProtocolViolation("Assembled fragments reconstruct to fragment. This is disallowed by the specification."));
+                        return Err(OTRError::ProtocolViolation("Assembled fragments lead to a fragment. This is disallowed by the specification."));
                     }
                     self.receive(assembled.as_slice())
                 }
@@ -507,7 +509,7 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::Data(msg) => {
-                // TODO verify and validate message before passing on to state.
+                // TODO verify and validate message (necessary?) before passing on to state.
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
