@@ -2,16 +2,13 @@
 
 use std::{collections, rc::Rc};
 
-use authentication::AKEContext;
-use fragment::Assembler;
-
 use crate::{
-    authentication::{self, CryptographicMaterial},
+    ake::{AKEContext, CryptographicMaterial},
     encoding::{
         self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
         MessageType, OTREncoder, SSID,
     },
-    fragment::{self, fragment, FragmentError},
+    fragment::{self, fragment, Assembler, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol::{self, Message},
     smp::{self, SMPStatus},

@@ -66,7 +66,7 @@ __Operational__:
 __Developmental__:
 
 - ☑ No logic for managing multiple accounts:  
-  _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Session` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
+  _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Account` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
 - ☐ API for managing multiple accounts, keys, policies?
 - ☐ Unit tests: too few tests, because rust syntax is that expressive
 

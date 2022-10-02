@@ -4,7 +4,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions)]
 
-use authentication::AKEError;
+use ake::AKEError;
 use bitflags::bitflags;
 use crypto::{CryptoError, DSA};
 use encoding::TLV;
@@ -21,7 +21,7 @@ extern crate regex;
 extern crate ring;
 extern crate utils;
 
-mod authentication;
+mod ake;
 mod crypto;
 mod encoding;
 mod fragment;
@@ -194,7 +194,7 @@ pub trait Host {
     /// Acquire the long-term DSA keypair from the host application. The long-term keypair, that is
     /// used for authentication purposes, is requested from the host application. This allows the
     /// host control over which keypair to provide for which account.
-    fn keypair(&self) -> DSA::Keypair;
+    fn keypair(&self) -> &DSA::Keypair;
 
     /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
     /// secret answer that is necessary to continue the SMP.
