@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
-    crypto::{DH, OTR, SHA256},
+    crypto::{CryptoError, DH, OTR, SHA256},
     encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
     Host, OTRError, TLVType, TLV,
 };
@@ -45,7 +45,6 @@ pub struct SMPContext {
     status: SMPStatus,
     state: SMPState,
     ssid: SSID,
-    our_fingerprint: Fingerprint,
     their_fingerprint: Fingerprint,
     host: Rc<dyn Host>,
 }
@@ -58,18 +57,12 @@ impl Drop for SMPContext {
 
 #[allow(non_snake_case)]
 impl SMPContext {
-    pub fn new(
-        host: Rc<dyn Host>,
-        ssid: SSID,
-        our_fingerprint: Fingerprint,
-        their_fingerprint: Fingerprint,
-    ) -> Self {
+    pub fn new(host: Rc<dyn Host>, ssid: SSID, their_fingerprint: Fingerprint) -> Self {
         Self {
             status: SMPStatus::Initial,
             state: SMPState::Expect1,
             host,
             ssid,
-            our_fingerprint,
             their_fingerprint,
         }
     }
@@ -94,7 +87,7 @@ impl SMPContext {
             return Err(OTRError::SMPInProgress);
         }
         let x = compute_secret(
-            &self.our_fingerprint,
+            &OTR::fingerprint(&self.host.keypair().public_key()),
             &self.their_fingerprint,
             &self.ssid,
             secret,
@@ -110,9 +103,11 @@ impl SMPContext {
 
         let (r2, r3) = (random(), random());
         let c2 = hash_1_mpi(1, &g1.modpow(&r2, MOD));
-        let D2 = (&r2 - &a2 * &c2).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D2 = (&r2 + q - (&a2 * &c2).mod_floor(q)).mod_floor(q);
         let c3 = hash_1_mpi(2, &g1.modpow(&r3, MOD));
-        let D3 = (&r3 - &a3 * &c3).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D3 = (&r3 + q - (&a3 * &c3).mod_floor(q)).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
         let typ = if question.is_empty() {
@@ -139,7 +134,13 @@ impl SMPContext {
         match self.dispatch(tlv) {
             Ok(tlv) => Some(tlv),
             Err(OTRError::SMPSuccess(response)) => {
+                self.state = SMPState::Expect1;
                 self.status = SMPStatus::Success;
+                response
+            }
+            Err(OTRError::SMPFailed(response)) => {
+                self.state = SMPState::Expect1;
+                self.status = SMPStatus::Aborted(Vec::from("Secret failed verification."));
                 response
             }
             Err(OTRError::SMPAborted(needs_abort_tlv)) => {
@@ -263,7 +264,7 @@ impl SMPContext {
         }
         let y = compute_secret(
             &self.their_fingerprint,
-            &self.our_fingerprint,
+            &OTR::fingerprint(&self.host.keypair().public_key()),
             &self.ssid,
             &answer.unwrap(),
         );
@@ -282,11 +283,13 @@ impl SMPContext {
         // values are calculated modulo `q = (p - 1) / 2`, where `p` is the same 1536-bit prime as
         // elsewhere. The random exponents are 1536-bit numbers."
         let c2 = hash_1_mpi(3, &g1.modpow(&r2, MOD));
-        let D2 = (&r2 - &b2 * &c2).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D2 = (&r2 + q - (&b2 * &c2).mod_floor(q)).mod_floor(q);
         // "6. Generate a zero-knowledge proof that the exponent b3 is known by setting
         // `c3 = SHA256(4, g1r3)` and `D3 = r3 - b3 c3 mod q`."
         let c3 = hash_1_mpi(4, &g1.modpow(&r3, MOD));
-        let D3 = (&r3 - &b3 * &c3).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D3 = (&r3 + q - (&b3 * &c3).mod_floor(q)).mod_floor(q);
         // "7. Compute `g2 = g2ab2` and `g3 = g3ab3`"
         let g2 = g2a.modpow(&b2, MOD);
         let g3 = g3a.modpow(&b3, MOD);
@@ -301,8 +304,10 @@ impl SMPContext {
             &g3.modpow(&r5, MOD),
             &(g1.modpow(&r5, MOD) * g2.modpow(&r6, MOD)).mod_floor(MOD),
         );
-        let D5 = (&r5 - &r4 * &cP).mod_floor(q);
-        let D6 = (&r6 - &y * &cP).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D5 = (&r5 + q - (&r4 * &cP).mod_floor(q)).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D6 = (&r6 + q - (&y * &cP).mod_floor(q)).mod_floor(q);
 
         let payload = OTREncoder::new()
             .write_mpi_sequence(&[&g2b, &c2, &D2, &g3b, &c3, &D3, &Pb, &Qb, &cP, &D5, &D6])
@@ -428,9 +433,11 @@ impl SMPContext {
             &(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD)).mod_floor(MOD),
         );
         // "... `D5 = r5 - r4 cP mod q`, and ..."
-        let D5 = (&r5 - r4 * &cP).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D5 = (&r5 + q - (&r4 * &cP).mod_floor(q)).mod_floor(q);
         // "... `D6 = r6 - x cP mod q`."
-        let D6 = (&r6 - x * &cP).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D6 = (&r6 + q - (&x * &cP).mod_floor(q)).mod_floor(q);
         // "Compute `Ra = (Qa / Qb) a3`"
         let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
         let Ra = QadivQb.modpow(&a3, MOD);
@@ -438,7 +445,8 @@ impl SMPContext {
         //  setting `cR = SHA256(7, g1r7, (Qa / Qb)r7)` and ..."
         let cR = hash_2_mpi(7, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
         // "... `D7 = r7 - a3 cR mod q`."
-        let D7 = (&r7 - &a3 * &cR).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D7 = (&r7 + q - (&a3 * &cR).mod_floor(q)).mod_floor(q);
         /*
            Store the values of g3b, (Pa / Pb), (Qa / Qb) and a3 for use later in the protocol.
            Send Bob a type 4 TLV (SMP message 3) containing Pa, Qa, cP, D5, D6, Ra, cR and D7 in that order.
@@ -557,21 +565,26 @@ impl SMPContext {
         // Generate a zero-knowledge proof that Rb was created according to the protocol by setting
         // cR = SHA256(8, g1r7, (Qa / Qb)r7) and D7 = r7 - b3 cR mod q.
         let cR = hash_2_mpi(8, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
-        let D7 = (&r7 - &b3 * &cR).mod_floor(q);
+        // FIXME can we add `q` to avoid negative values?
+        let D7 = (&r7 + q - (&b3 * &cR).mod_floor(q)).mod_floor(q);
 
         // Check whether the protocol was successful:
         // Compute Rab = Rab3.
         let Rab = Ra.modpow(&b3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
         let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
-        DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
+
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
-        let tlv = OTREncoder::new()
-            .write_mpi_sequence(&[Rb, &cR, &D7])
-            .to_vec();
-        // Set smpstate to SMPSTATE_EXPECT1, as no more messages are expected from Alice.
-        self.state = SMPState::Expect1;
-        Err(OTRError::SMPSuccess(Some(TLV(TLV_TYPE_SMP_MESSAGE_4, tlv))))
+        let tlv = TLV(
+            TLV_TYPE_SMP_MESSAGE_4,
+            OTREncoder::new()
+                .write_mpi_sequence(&[Rb, &cR, &D7])
+                .to_vec(),
+        );
+        match DH::verify(&PadivPb, &Rab) {
+            Ok(()) => Err(OTRError::SMPSuccess(Some(tlv))),
+            Err(CryptoError::VerificationFailure(_)) => Err(OTRError::SMPFailed(Some(tlv))),
+        }
     }
 
     /// handleMessage4 handles the 4th SMP message.
@@ -638,9 +651,10 @@ impl SMPContext {
         // Compute Rab = Rba3.
         let Rab = Rb.modpow(&a3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
-        DH::verify(&PadivPb, &Rab).map_err(OTRError::CryptographicViolation)?;
-        self.state = SMPState::Expect1;
-        Err(OTRError::SMPSuccess(None))
+        match DH::verify(&PadivPb, &Rab) {
+            Ok(()) => Err(OTRError::SMPSuccess(None)),
+            Err(CryptoError::VerificationFailure(_)) => Err(OTRError::SMPFailed(None)),
+        }
     }
 
     /// Indiscriminately reset SMP state to `StateExpect1`. Returns TLV with SMP Abort-payload.
@@ -710,7 +724,7 @@ fn random() -> BigUint {
     (*RAND)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
-    BigUint::from_bytes_be(&v).mod_floor(DH::modulus())
+    BigUint::from_bytes_be(&v).mod_floor(DH::q())
 }
 
 fn hash_1_mpi(version: u8, mpi1: &BigUint) -> BigUint {
@@ -726,4 +740,595 @@ fn hash_2_mpi(version: u8, mpi1: &BigUint, mpi2: &BigUint) -> BigUint {
         &OTREncoder::new().write_mpi(mpi1).to_vec(),
         &OTREncoder::new().write_mpi(mpi2).to_vec(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use crate::{
+        crypto::{DSA, OTR},
+        encoding::SSID,
+        smp::SMPStatus,
+        Host,
+    };
+
+    use super::SMPContext;
+
+    #[test]
+    fn test_my_first_smp() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret: Vec<u8> = Vec::from("World");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Alice: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = alice.initiate(&secret, &question).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+
+        // Bob: respond to init
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: finish on Alice's reply
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+
+        // Alice: finish on Bob's reply
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+        assert!(alice.handle(&reply).is_none());
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+    }
+
+    #[test]
+    fn test_successful_smp_symmetric() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret: Vec<u8> = Vec::from("World");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Bob: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.initiate(&secret, &question).unwrap();
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Follow up on Alice
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        assert!(bob.handle(&reply).is_none());
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+    }
+
+    #[test]
+    fn test_successful_smp_no_question() {
+        let secret: Vec<u8> = Vec::from("A different, longer secret to be verified");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, Vec::new(), secret.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, Vec::new(), secret.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Bob: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.initiate(&secret, &[]).unwrap();
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Follow up on Alice
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        assert!(bob.handle(&reply).is_none());
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+    }
+
+    #[test]
+    fn test_repeated_successes() {
+        let secret: Vec<u8> = Vec::from("A different, longer secret to be verified");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, Vec::new(), secret.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, Vec::new(), secret.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Bob: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.initiate(&secret, &[]).unwrap();
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Follow up on Alice
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        assert!(bob.handle(&reply).is_none());
+        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Success, bob.status());
+
+        for i in 1..3 {
+            println!("iteration {:}", i + 1);
+
+            // Bob: initiate SMP
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Success, bob.status());
+            let reply = bob.initiate(&secret, &[]).unwrap();
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Alice: Follow up on Bob
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = alice.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Bob: Follow up on Alice
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = bob.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Alice: Follow up on Bob
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = alice.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Bob: Finish on Alice's reply
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            assert!(bob.handle(&reply).is_none());
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Success, bob.status());
+        }
+    }
+
+    #[test]
+    fn test_failing_smp() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret_alice: Vec<u8> = Vec::from("Alice's secret");
+        let secret_bob: Vec<u8> = Vec::from("Bob's secret");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> =
+            Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Alice: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = alice.initiate(&secret_alice, &question).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+
+        // Bob: respond to init
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+        assert!(alice.handle(&reply).is_none());
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+    }
+
+    #[test]
+    fn test_failing_smp_symmetric() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret_alice: Vec<u8> = Vec::from("Alice's secret");
+        let secret_bob: Vec<u8> = Vec::from("Bob's secret");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret_alice));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> =
+            Rc::new(TestHost(keypair_b, question.clone(), secret_bob.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // Bob: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.initiate(&secret_bob, &question).unwrap();
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Follow up on Alice
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        assert!(bob.handle(&reply).is_none());
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+    }
+
+    #[test]
+    fn test_bad_ssid() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret_alice: Vec<u8> = Vec::from("Alice's secret");
+        let secret_bob: Vec<u8> = Vec::from("Bob's secret");
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> =
+            Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
+
+        let mut alice =
+            SMPContext::new(Rc::clone(&host_a), [1, 1, 1, 1, 1, 1, 1, 1], fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), [9, 9, 9, 9, 9, 9, 9, 9], fingerprint_a);
+
+        // Alice: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = alice.initiate(&secret_alice, &question).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+
+        // Bob: respond to init
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+        assert!(alice.handle(&reply).is_none());
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+    }
+
+    #[test]
+    fn test_fingerprint_mitm() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret_alice: Vec<u8> = Vec::from("Alice's secret");
+        let secret_bob: Vec<u8> = Vec::from("Bob's secret");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let fingerprint_mitm = OTR::fingerprint(&DSA::Keypair::generate().public_key());
+
+        let keypair_a = DSA::Keypair::generate();
+        let host_a: Rc<dyn Host> =
+            Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_mitm);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_mitm);
+
+        // Alice: initiate SMP
+        assert_eq!(SMPStatus::Initial, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = alice.initiate(&secret_alice, &question).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+
+        // Bob: respond to init
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::Initial, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = alice.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+
+        // Bob: Finish on Alice's reply
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert_eq!(SMPStatus::InProgress, bob.status());
+        let reply = bob.handle(&reply).unwrap();
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+
+        // Alice: Follow up on Bob
+        assert_eq!(SMPStatus::InProgress, alice.status());
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+        assert!(alice.handle(&reply).is_none());
+        assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+        assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+    }
+
+    #[test]
+    fn test_success_after_fail() {
+        let question: Vec<u8> = Vec::from("Hello");
+        let secret: Vec<u8> = Vec::from("The shared secret answer!");
+        let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        let keypair_a = DSA::Keypair::generate();
+        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
+        let keypair_b = DSA::Keypair::generate();
+        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
+
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_a);
+
+        // First attempt.
+        {
+            // Bob: initiate SMP
+            assert_eq!(SMPStatus::Initial, alice.status());
+            assert_eq!(SMPStatus::Initial, bob.status());
+            let reply = bob
+                .initiate(b"Bob provides the wrong secret", &question)
+                .unwrap();
+            assert_eq!(SMPStatus::Initial, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Alice: Follow up on Bob
+            assert_eq!(SMPStatus::Initial, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = alice.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Bob: Follow up on Alice
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = bob.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Alice: Follow up on Bob
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = alice.handle(&reply).unwrap();
+            assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Bob: Finish on Alice's reply
+            assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            assert!(bob.handle(&reply).is_none());
+            assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+            assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+        }
+
+        // Second attempt.
+        {
+            // Alice: initiate SMP
+            assert!(matches!(alice.status(), SMPStatus::Aborted(_)));
+            assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+            let reply = alice.initiate(&secret, &question).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+
+            // Bob: respond to init
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert!(matches!(bob.status(), SMPStatus::Aborted(_)));
+            let reply = bob.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Alice: follow up on Bob
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = alice.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+
+            // Bob: finish on Alice's reply
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::InProgress, bob.status());
+            let reply = bob.handle(&reply).unwrap();
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::Success, bob.status());
+
+            // Alice: finish on Bob's reply
+            assert_eq!(SMPStatus::InProgress, alice.status());
+            assert_eq!(SMPStatus::Success, bob.status());
+            assert!(alice.handle(&reply).is_none());
+            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Success, bob.status());
+        }
+    }
+
+    struct TestHost(DSA::Keypair, Vec<u8>, Vec<u8>);
+
+    impl Host for TestHost {
+        fn message_size(&self) -> usize {
+            usize::MAX
+        }
+
+        fn inject(&self, _message: &[u8]) {
+            todo!("not implemented: not necessary for tests")
+        }
+
+        fn keypair(&self) -> &DSA::Keypair {
+            &self.0
+        }
+
+        fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
+            assert_eq!(&self.1, question);
+            Some(self.2.clone())
+        }
+    }
 }

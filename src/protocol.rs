@@ -235,13 +235,12 @@ impl EncryptedState {
         their_dh: BigUint,
         their_fingerprint: Fingerprint,
     ) -> Self {
-        let our_fingerprint = OTR::fingerprint(&host.keypair().public_key());
         Self {
             version,
             our_instance,
             their_instance,
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
-            smp: SMPContext::new(Rc::clone(&host), ssid, our_fingerprint, their_fingerprint),
+            smp: SMPContext::new(Rc::clone(&host), ssid, their_fingerprint),
         }
     }
 

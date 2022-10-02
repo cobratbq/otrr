@@ -117,7 +117,7 @@ pub mod DH {
 
     pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
         assert!(
-            !std::ptr::eq(expected, actual),
+            !core::ptr::eq(expected, actual),
             "BUG: references provided for verification must be different."
         );
         if expected == actual {

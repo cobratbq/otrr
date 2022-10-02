@@ -118,6 +118,7 @@ pub enum OTRError {
     /// can be sent to other party to signal SMP abort. The boolean value indicates whether the
     /// abort-action needs to be communicated, that is: true to require sending abort-TLV, false if
     /// no further action needed.
+    SMPFailed(Option<TLV>),
     SMPAborted(bool),
     UserError(&'static str),
 }
