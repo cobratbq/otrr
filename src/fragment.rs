@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 

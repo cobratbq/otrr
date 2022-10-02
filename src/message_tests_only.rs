@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 #[cfg(test)]
 mod tests {
     use crate::message::{parse_message, MessageType, Version};

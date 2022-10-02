@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use std::{collections, rc::Rc};
 
 use authentication::AKEContext;

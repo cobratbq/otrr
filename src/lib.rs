@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions)]

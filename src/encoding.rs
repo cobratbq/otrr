@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
 use std::convert::TryInto;

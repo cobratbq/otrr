@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use std::fmt::Debug;
 
 use once_cell::sync::Lazy;
