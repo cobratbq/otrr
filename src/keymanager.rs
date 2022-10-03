@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 
-use crate::{crypto::DH, encoding::KeyID, OTRError};
+use crate::{crypto::DH, encoding::KeyID, OTRError, utils};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
@@ -292,12 +292,12 @@ impl Counter {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn verify(&mut self, ctr: &[u8; COUNTER_HALF_LEN]) -> Result<(), OTRError> {
-        if utils::std::bytes::all_zero(ctr) {
+        if utils::bytes::all_zero(ctr) {
             return Err(OTRError::ProtocolViolation(
                 "Counter-value cannot be all-zero.",
             ));
         }
-        match utils::std::bytes::cmp(ctr, &self.0) {
+        match utils::bytes::cmp(ctr, &self.0) {
             Ordering::Greater => {
                 self.0 = *ctr;
                 Ok(())
@@ -316,7 +316,7 @@ impl Counter {
             if carry {
                 continue;
             }
-            assert!(utils::std::bytes::any_nonzero(&result));
+            assert!(utils::bytes::any_nonzero(&result));
             return result;
         }
         panic!("BUG: wrapped around counter value completely.")

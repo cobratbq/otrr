@@ -19,7 +19,6 @@ extern crate num_integer;
 extern crate once_cell;
 extern crate regex;
 extern crate ring;
-extern crate utils;
 
 mod ake;
 mod crypto;
@@ -28,6 +27,7 @@ mod fragment;
 mod keymanager;
 mod protocol;
 mod smp;
+mod utils;
 
 pub mod instancetag;
 pub mod session;

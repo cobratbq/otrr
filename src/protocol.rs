@@ -13,8 +13,7 @@ use crate::{
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
-    utils::std::{bytes, slice},
-    Host, OTRError, ProtocolStatus, TLVType, Version,
+    Host, OTRError, ProtocolStatus, TLVType, Version, utils,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -146,7 +145,7 @@ impl ProtocolState for EncryptedState {
         msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         if msg.revealed.len() % 20 != 0
-            || (!msg.revealed.is_empty() && bytes::all_zero(&msg.revealed))
+            || (!msg.revealed.is_empty() && utils::bytes::all_zero(&msg.revealed))
         {
             println!("NOTE: revealed MAC keys in received data message do not satisfy protocol requirements.");
         }
@@ -246,24 +245,24 @@ impl EncryptedState {
 
     fn encrypt_message(&mut self, flags: MessageFlags, plaintext_message: &[u8]) -> DataMessage {
         let ctr = self.keys.take_counter();
-        assert!(bytes::any_nonzero(&ctr));
+        assert!(utils::bytes::any_nonzero(&ctr));
         let (receiver_keyid, receiver_key) = self.keys.their_current();
         let (our_keyid, our_dh) = self.keys.current_keys();
         let next_dh = self.keys.next_keys().1.public.clone();
         let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        assert!(bytes::any_nonzero(&secbytes));
+        assert!(utils::bytes::any_nonzero(&secbytes));
         let secrets = OTR::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
-        slice::copy(&mut nonce, &ctr);
-        assert!(bytes::any_nonzero(&nonce));
+        utils::slice::copy(&mut nonce, &ctr);
+        assert!(utils::bytes::any_nonzero(&nonce));
         let ciphertext = secrets
             .sender_crypt_key()
             .encrypt(&nonce, plaintext_message);
-        assert!(bytes::any_nonzero(&ciphertext));
+        assert!(utils::bytes::any_nonzero(&ciphertext));
         let oldmackeys = self.keys.get_reveal_macs();
         assert_eq!(oldmackeys.len() % 20, 0);
-        assert!(bytes::any_nonzero(&oldmackeys));
+        assert!(utils::bytes::any_nonzero(&oldmackeys));
 
         // Create data message without valid authenticator.
         let mut data_message = DataMessage {
@@ -288,7 +287,7 @@ impl EncryptedState {
                 &data_message,
             ),
         );
-        assert!(bytes::any_nonzero(&authenticator));
+        assert!(utils::bytes::any_nonzero(&authenticator));
         data_message.authenticator = authenticator;
 
         data_message
@@ -321,8 +320,8 @@ impl EncryptedState {
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         self.keys.verify_counter(&message.ctr)?;
         let mut nonce = [0u8; 16];
-        slice::copy(&mut nonce, &message.ctr);
-        assert!(utils::std::bytes::any_nonzero(&nonce));
+        utils::slice::copy(&mut nonce, &message.ctr);
+        assert!(utils::bytes::any_nonzero(&nonce));
         self.keys.acknowledge_ours(message.receiver_keyid)?;
         self.keys
             .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;

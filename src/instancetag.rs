@@ -35,7 +35,7 @@ pub(crate) fn random_tag() -> InstanceTag {
         (*RAND)
             .fill(&mut value)
             .expect("Failed to acquire random bytes");
-        let num = utils::std::u32::from_4byte_be(&value);
+        let num = utils::u32::from_4byte_be(&value);
         if num >= INSTANCE_MIN_VALID {
             return num;
         }

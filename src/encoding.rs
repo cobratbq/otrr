@@ -351,9 +351,9 @@ impl DataMessage {
         Ok(DataMessage {
             flags: MessageFlags::from_bits(decoder.read_byte()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
-            sender_keyid: utils::std::u32::nonzero(decoder.read_int()?)
+            sender_keyid: utils::u32::nonzero(decoder.read_int()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
-            receiver_keyid: utils::std::u32::nonzero(decoder.read_int()?)
+            receiver_keyid: utils::u32::nonzero(decoder.read_int()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
             dh_y: decoder.read_mpi()?,
             ctr: decoder.read_ctr()?,
@@ -408,7 +408,7 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
         MessageType::Tagged(versions, message) => {
             assert!(!versions.is_empty());
             buffer.extend_from_slice(WHITESPACE_PREFIX);
-            for v in utils::std::alloc::vec_unique(versions.clone()) {
+            for v in utils::alloc::vec_unique(versions.clone()) {
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for tagging"),
                     Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
@@ -429,7 +429,7 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
             // NOTE: each version listed at most once, in arbitrary order.
             // (Version 1 has deviating syntax but is no longer supported.)
             buffer.extend_from_slice(OTR_QUERY_PREFIX);
-            for v in utils::std::alloc::vec_unique(versions.clone()) {
+            for v in utils::alloc::vec_unique(versions.clone()) {
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for query messages"),
                     Version::V3 => buffer.push(b'3'),

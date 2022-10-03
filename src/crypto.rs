@@ -15,6 +15,8 @@ pub mod DH {
     use num_bigint::BigUint;
     use ring::rand::SecureRandom;
 
+    use crate::utils;
+
     use super::{CryptoError, RAND};
 
     /// GENERATOR (g): 2
@@ -95,7 +97,7 @@ pub mod DH {
             (*RAND)
                 .fill(&mut v)
                 .expect("Failed to produce random bytes for random big unsigned integer value.");
-            assert!(utils::std::bytes::any_nonzero(&v));
+            assert!(utils::bytes::any_nonzero(&v));
             Self::new(BigUint::from_bytes_be(&v))
         }
 
@@ -491,14 +493,14 @@ pub mod DSA {
         /// merely replace the content from previous calls.
         fn update(&mut self, data: &[u8]) {
             assert_eq!(data.len(), MOD_Q_HASH_LENGTH);
-            utils::std::slice::copy(&mut self.0, data);
+            utils::slice::copy(&mut self.0, data);
         }
     }
 
     impl FixedOutputReset for ModQHash {
         fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
             let bytes = ModQHash::finalize(self);
-            utils::std::slice::copy(out, &bytes);
+            utils::slice::copy(out, &bytes);
             Reset::reset(self);
         }
     }
@@ -510,7 +512,7 @@ pub mod DSA {
     impl FixedOutput for ModQHash {
         fn finalize_into(self, out: &mut Output<Self>) {
             let bytes = ModQHash::finalize(&self);
-            utils::std::slice::copy(out, &bytes);
+            utils::slice::copy(out, &bytes);
         }
     }
 
@@ -610,13 +612,13 @@ pub mod SHA256 {
 }
 
 pub mod constant {
-    use crate::utils::std::bytes;
+    use crate::utils;
 
     use super::CryptoError;
 
     pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
-        assert!(bytes::any_nonzero(mac1));
-        assert!(bytes::any_nonzero(mac2));
+        assert!(utils::bytes::any_nonzero(mac1));
+        assert!(utils::bytes::any_nonzero(mac2));
         ring::constant_time::verify_slices_are_equal(mac1, mac2).or(Err(
             CryptoError::VerificationFailure("mac verification failed"),
         ))

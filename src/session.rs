@@ -12,7 +12,7 @@ use crate::{
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol::{self, Message},
     smp::{self, SMPStatus},
-    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS,
+    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS, utils,
 };
 
 pub struct Account {
@@ -591,7 +591,7 @@ impl Instance {
         whitespace_tagged: &mut bool,
         plaintext: &[u8],
     ) -> Result<Vec<Vec<u8>>, OTRError> {
-        let plaintext = utils::std::bytes::drop_by_value(plaintext, 0);
+        let plaintext = utils::bytes::drop_by_value(plaintext, 0);
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             EncodedMessageType::Unencoded(msg) => {
                 assert!(

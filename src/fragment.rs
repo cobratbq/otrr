@@ -39,8 +39,8 @@ pub fn parse(content: &[u8]) -> Option<Fragment> {
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
     return Some(Fragment {
-        sender: verify_instance_tag(utils::std::u32::from_4byte_be(&sender_bytes)).ok()?,
-        receiver: verify_instance_tag(utils::std::u32::from_4byte_be(&receiver_bytes)).ok()?,
+        sender: verify_instance_tag(utils::u32::from_4byte_be(&sender_bytes)).ok()?,
+        receiver: verify_instance_tag(utils::u32::from_4byte_be(&receiver_bytes)).ok()?,
         part: std::str::from_utf8(captures.get(3).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
