@@ -1163,13 +1163,13 @@ mod tests {
     }
 
     #[test]
-    fn test_fingerprint_mitm() {
+    fn test_false_fingerprints() {
         let question: Vec<u8> = Vec::from("Hello");
         let secret_alice: Vec<u8> = Vec::from("Alice's secret");
         let secret_bob: Vec<u8> = Vec::from("Bob's secret");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let fingerprint_mitm = OTR::fingerprint(&DSA::Keypair::generate().public_key());
+        let false_fingerprint = OTR::fingerprint(&DSA::Keypair::generate().public_key());
 
         let keypair_a = DSA::Keypair::generate();
         let host_a: Rc<dyn Host> =
@@ -1177,8 +1177,8 @@ mod tests {
         let keypair_b = DSA::Keypair::generate();
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
 
-        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_mitm);
-        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, fingerprint_mitm);
+        let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, false_fingerprint);
+        let mut bob = SMPContext::new(Rc::clone(&host_b), ssid, false_fingerprint);
 
         // Alice: initiate SMP
         assert_eq!(SMPStatus::Initial, alice.status());
