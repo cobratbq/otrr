@@ -53,7 +53,7 @@ pub mod session;
 // TODO review need for constant-time handling (e.g. comparisons)
 // TODO whitespace-tag is now placed at the beginning of the message. Better location?
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
-// REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic.
+// REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.
 // REMARK expose TLV 0 for manual padding by client?
 // REMARK switch from once_cell::lazy::Lazy to std::lazy::Lazy, once it is in rust nightly.

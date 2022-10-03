@@ -12,7 +12,7 @@ use crate::{
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol::{self, Message},
     smp::{self, SMPStatus},
-    Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS, utils,
+    utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS,
 };
 
 pub struct Account {

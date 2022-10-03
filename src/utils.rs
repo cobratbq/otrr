@@ -57,6 +57,28 @@ pub mod bytes {
     }
 }
 
+pub mod biguint {
+    use num_bigint::BigUint;
+    use once_cell::sync::Lazy;
+
+    // TODO not sure that I am happy with this way of working. Would like to have constants, but that's not possible. For later consideration.
+    static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
+    static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
+    static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+
+    pub fn zero() -> &'static BigUint {
+        &*ZERO
+    }
+
+    pub fn one() -> &'static BigUint {
+        &*ONE
+    }
+
+    pub fn two() -> &'static BigUint {
+        &*TWO
+    }
+}
+
 pub mod slice {
     /// copy copies the content from source slice to destination slice.
     /// It requires that dst is at least as long as src.

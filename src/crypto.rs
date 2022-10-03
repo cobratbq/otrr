@@ -43,10 +43,11 @@ pub mod DH {
     });
 
     /// Modulus - 2
-    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - BigUint::from(2u8));
+    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - utils::biguint::two());
 
     // "D values are calculated modulo `q = (p - 1) / 2`"
-    static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - BigUint::from(1u8)) / BigUint::from(2u8));
+    static Q: Lazy<BigUint> =
+        Lazy::new(|| (&*MODULUS - utils::biguint::one()) / utils::biguint::two());
 
     pub fn generator() -> &'static BigUint {
         &*GENERATOR
@@ -70,10 +71,8 @@ pub mod DH {
         }
     }
 
-    static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
-
     pub fn verify_exponent(component: &BigUint) -> Result<(), CryptoError> {
-        if component >= &*ONE && component < &*Q {
+        if component >= utils::biguint::one() && component < &*Q {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
@@ -128,42 +127,6 @@ pub mod DH {
             Err(CryptoError::VerificationFailure(
                 "Provided values are not equal.",
             ))
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use num_bigint::BigUint;
-
-        use super::verify;
-
-        #[test]
-        fn test_verify_homogenous() {
-            let v1 = BigUint::from(7u8);
-            let v2 = BigUint::from(7u8);
-            let v3 = BigUint::from(9u8);
-            assert!(verify(&v1, &v2).is_ok());
-            assert!(verify(&v2, &v1).is_ok());
-            assert!(verify(&v1, &v3).is_err());
-            assert!(verify(&v2, &v3).is_err());
-            assert!(verify(&v3, &v1).is_err());
-            assert!(verify(&v3, &v2).is_err());
-        }
-
-        #[test]
-        fn test_verify_heterogenous() {
-            let v1 = BigUint::from(7u8);
-            let v2 = BigUint::from(7u16);
-            assert!(verify(&v1, &v2).is_ok());
-            assert!(verify(&v2, &v1).is_ok());
-        }
-
-        #[test]
-        #[should_panic]
-        #[allow(unused_must_use)]
-        fn test_verify_panic_on_same() {
-            let v1 = BigUint::from(7u8);
-            verify(&v1, &v1);
         }
     }
 }
@@ -628,4 +591,130 @@ pub mod constant {
 #[derive(Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::utils;
+    use num_bigint::BigUint;
+
+    use super::{constant, DH};
+
+    #[test]
+    fn test_dh_verify_homogenous() {
+        let v1 = BigUint::from(7u8);
+        let v2 = BigUint::from(7u8);
+        let v3 = BigUint::from(9u8);
+        assert!(DH::verify(&v1, &v2).is_ok());
+        assert!(DH::verify(&v2, &v1).is_ok());
+        assert!(DH::verify(&v1, &v3).is_err());
+        assert!(DH::verify(&v2, &v3).is_err());
+        assert!(DH::verify(&v3, &v1).is_err());
+        assert!(DH::verify(&v3, &v2).is_err());
+    }
+
+    #[test]
+    fn test_dh_verify_heterogenous() {
+        let v1 = BigUint::from(7u8);
+        let v2 = BigUint::from(7u16);
+        assert!(DH::verify(&v1, &v2).is_ok());
+        assert!(DH::verify(&v2, &v1).is_ok());
+    }
+
+    #[test]
+    #[should_panic]
+    #[allow(unused_must_use)]
+    fn test_dh_verify_panic_on_same() {
+        let v1 = BigUint::from(7u8);
+        DH::verify(&v1, &v1);
+    }
+
+    #[test]
+    fn test_dh_general_expectations() {
+        assert_eq!(DH::generator(), DH::generator());
+        assert_eq!(DH::modulus(), DH::modulus());
+        assert_eq!(DH::q(), DH::q());
+        let k1 = DH::Keypair::generate();
+        assert!(DH::verify_public_key(&k1.public).is_ok());
+        let k2 = DH::Keypair::generate();
+        assert!(DH::verify_public_key(&k2.public).is_ok());
+        let k3 = DH::Keypair::generate();
+        assert!(DH::verify_public_key(&k3.public).is_ok());
+        let k4 = DH::Keypair::generate();
+        assert!(DH::verify_public_key(&k4.public).is_ok());
+        let k5 = DH::Keypair::generate();
+        assert!(DH::verify_public_key(&k5.public).is_ok());
+        assert_ne!(k1.public, k2.public);
+        assert_ne!(k2.public, k3.public);
+        assert_ne!(k3.public, k4.public);
+        assert_ne!(k4.public, k5.public);
+        assert_eq!(
+            k1.generate_shared_secret(&k2.public),
+            k2.generate_shared_secret(&k1.public)
+        );
+        assert_eq!(
+            k2.generate_shared_secret(&k3.public),
+            k3.generate_shared_secret(&k2.public)
+        );
+        assert_eq!(
+            k4.generate_shared_secret(&k3.public),
+            k3.generate_shared_secret(&k4.public)
+        );
+        assert_eq!(
+            k4.generate_shared_secret(&k5.public),
+            k5.generate_shared_secret(&k4.public)
+        );
+        assert_eq!(
+            k1.generate_shared_secret(&k5.public),
+            k5.generate_shared_secret(&k1.public)
+        );
+        assert_eq!(
+            k2.generate_shared_secret(&k4.public),
+            k4.generate_shared_secret(&k2.public)
+        );
+        assert_eq!(
+            k3.generate_shared_secret(&k3.public),
+            k3.generate_shared_secret(&k3.public)
+        );
+        assert!(DH::verify_public_key(utils::biguint::zero()).is_err());
+        assert!(DH::verify_public_key(utils::biguint::one()).is_err());
+        assert!(DH::verify_public_key(utils::biguint::two()).is_ok());
+        assert!(DH::verify_public_key(&(DH::modulus() - utils::biguint::two())).is_ok());
+        assert!(DH::verify_public_key(&(DH::modulus() - utils::biguint::one())).is_err());
+        assert!(DH::verify_public_key(DH::modulus()).is_err());
+        assert!(DH::verify_public_key(&(DH::modulus() + utils::biguint::one())).is_err());
+        assert!(DH::verify_exponent(utils::biguint::zero()).is_err());
+        assert!(DH::verify_exponent(utils::biguint::one()).is_ok());
+        assert!(DH::verify_exponent(utils::biguint::two()).is_ok());
+        assert!(DH::verify_exponent(&(DH::q() - utils::biguint::one())).is_ok());
+        assert!(DH::verify_exponent(DH::q()).is_err());
+        assert!(DH::verify_exponent(&(DH::q() + utils::biguint::one())).is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_zero_length_slices() {
+        constant::verify(&[], &[]).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_zero_slices() {
+        constant::verify(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
+    }
+
+    #[test]
+    fn test_same_length_slices() {
+        constant::verify(b"Hello world", b"Hello world").unwrap();
+    }
+
+    #[test]
+    fn test_different_content() {
+        assert!(constant::verify(b"Hello!", b"Yo!").is_err());
+    }
+
+    #[test]
+    fn test_differing_length_slices() {
+        assert!(constant::verify(b"Hello!", b"Hello").is_err());
+    }
 }
