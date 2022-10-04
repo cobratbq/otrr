@@ -309,24 +309,12 @@ pub mod AES128 {
 
 #[allow(non_snake_case)]
 pub mod DSA {
-    use core::fmt;
     use std::rc::Rc;
 
-    use digest::{
-        crypto_common::{AlgorithmName, BlockSizeUser},
-        Digest, FixedOutput, FixedOutputReset, HashMarker, Output, OutputSizeUser, Reset, Update,
-    };
-    use dsa::{
-        signature::{digest, rand_core::OsRng, DigestSigner, DigestVerifier},
-        Components, KeySize, SigningKey, VerifyingKey,
-    };
+    use dsa::{signature::rand_core::OsRng, Components, KeySize, SigningKey, VerifyingKey};
     use num_bigint::BigUint;
-    use num_integer::Integer;
-    use typenum::{U32, U64};
 
-    use crate::utils;
-
-    use super::{CryptoError, DH};
+    use super::CryptoError;
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
     const PARAM_Q_LENGTH: usize = 20;
@@ -352,10 +340,12 @@ pub mod DSA {
         }
 
         pub fn sign(&self, digest_bytes: &[u8; 32]) -> Signature {
-            Signature(
-                self.sk
-                    .sign_digest(ModQHash::new().chain_update(digest_bytes)),
-            )
+            // FIXME DSA needs proper implementation but `sign_prehashed` is not accessible (internal use only)
+            println!("WARNING: NOOP implementation of DSA signatures for testing purposes only.");
+            Signature(dsa::Signature::from_components(
+                BigUint::from(0u8),
+                BigUint::from(0u8),
+            ))
         }
     }
 
@@ -384,9 +374,9 @@ pub mod DSA {
         }
 
         pub fn verify(&self, signature: &Signature, digest: &[u8]) -> Result<(), CryptoError> {
-            self.0
-                .verify_digest(ModQHash::new().chain_update(digest), &signature.0)
-                .map_err(|_| CryptoError::VerificationFailure("signature verification failed"))
+            // FIXME DSA needs proper implementation but `sign_prehashed` is not accessible (internal use only)
+            println!("WARNING: NOOP implementation of DSA signatures for testing purposes only.");
+            Ok(())
         }
 
         pub fn p(&self) -> &BigUint {
@@ -427,83 +417,6 @@ pub mod DSA {
 
         pub fn s(&self) -> &BigUint {
             self.0.s()
-        }
-    }
-
-    /// Core block-level SHA-256 hasher with variable output size.
-    ///
-    /// Supports initialization only for 28 and 32 byte output sizes,
-    /// i.e. 224 and 256 bits respectively.
-    #[derive(Clone)]
-    struct ModQHash([u8; MOD_Q_HASH_LENGTH]);
-
-    const MOD_Q_HASH_LENGTH: usize = 32;
-
-    impl HashMarker for ModQHash {}
-
-    impl BlockSizeUser for ModQHash {
-        type BlockSize = U64;
-    }
-
-    impl Default for ModQHash {
-        fn default() -> Self {
-            Self([0u8; MOD_Q_HASH_LENGTH])
-        }
-    }
-
-    impl Update for ModQHash {
-        /// update updates the internal data for `ModQHash`. Subsequent calls to `update` will
-        /// merely replace the content from previous calls.
-        fn update(&mut self, data: &[u8]) {
-            assert_eq!(data.len(), MOD_Q_HASH_LENGTH);
-            utils::slice::copy(&mut self.0, data);
-        }
-    }
-
-    impl FixedOutputReset for ModQHash {
-        fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
-            let bytes = ModQHash::finalize(self);
-            utils::slice::copy(out, &bytes);
-            Reset::reset(self);
-        }
-    }
-
-    impl OutputSizeUser for ModQHash {
-        type OutputSize = U32;
-    }
-
-    impl FixedOutput for ModQHash {
-        fn finalize_into(self, out: &mut Output<Self>) {
-            let bytes = ModQHash::finalize(&self);
-            utils::slice::copy(out, &bytes);
-        }
-    }
-
-    impl Reset for ModQHash {
-        fn reset(&mut self) {
-            self.0 = [0u8; MOD_Q_HASH_LENGTH];
-        }
-    }
-
-    impl AlgorithmName for ModQHash {
-        #[inline]
-        fn write_alg_name(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("Mod Q")
-        }
-    }
-
-    impl fmt::Debug for ModQHash {
-        #[inline]
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("Mod Q { ... }")
-        }
-    }
-
-    impl ModQHash {
-        fn finalize(&self) -> Vec<u8> {
-            BigUint::from_bytes_be(&self.0)
-                .mod_floor(DH::q())
-                .to_bytes_be()
         }
     }
 }
