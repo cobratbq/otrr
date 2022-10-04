@@ -33,13 +33,19 @@ pub struct Account {
 
 impl Account {
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
+        let details = Rc::new(AccountDetails {
+            policy,
+            tag: instancetag::random_tag(),
+        });
+        let mut instances = collections::HashMap::new();
+        instances.insert(
+            INSTANCE_ZERO,
+            Instance::new(INSTANCE_ZERO, Rc::clone(&details), Rc::clone(&host)),
+        );
         Self {
             host,
-            details: Rc::new(AccountDetails {
-                policy,
-                tag: instancetag::random_tag(),
-            }),
-            instances: collections::HashMap::new(),
+            details,
+            instances,
             whitespace_tagged: false,
         }
     }
@@ -93,6 +99,7 @@ impl Account {
     // REMARK fuzzing target
     // TODO check impact of receiving error: cannot disconnect all established sessions (multiple instances)
     // TODO check impact of receiving query: should not re-establish all active sessions (multiple instances)
+    #[allow(clippy::too_many_lines)]
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
@@ -113,7 +120,7 @@ impl Account {
             let instance = self
                 .instances
                 .entry(fragment.sender)
-                .or_insert_with(|| Instance::new(details, fragment.sender, Rc::clone(&self.host)));
+                .or_insert_with(|| Instance::new(fragment.sender, details, Rc::clone(&self.host)));
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
@@ -195,7 +202,7 @@ impl Account {
                     .unwrap()
                     .transfer_akecontext();
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
-                    Instance::new(Rc::clone(&self.details), msg.sender, Rc::clone(&self.host))
+                    Instance::new(msg.sender, Rc::clone(&self.details), Rc::clone(&self.host))
                 });
                 if let Ok(context) = result_context {
                     // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
@@ -209,7 +216,12 @@ impl Account {
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
-                self.get_instance(msg.sender)?.handle(msg)
+                self.instances
+                    .entry(msg.sender)
+                    .or_insert_with(|| {
+                        Instance::new(msg.sender, Rc::clone(&self.details), Rc::clone(&self.host))
+                    })
+                    .handle(msg)
             }
         }
     }
@@ -303,7 +315,7 @@ impl Account {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
-                Instance::new(Rc::clone(&self.details), receiver, Rc::clone(&self.host))
+                Instance::new(receiver, Rc::clone(&self.details), Rc::clone(&self.host))
             })
             .initiate(version)
     }
@@ -404,8 +416,8 @@ impl Account {
 
 /// Instance serves a single communication session, ensuring that messages always travel between the same two clients.
 struct Instance {
-    details: Rc<AccountDetails>,
     receiver: InstanceTag,
+    details: Rc<AccountDetails>,
     host: Rc<dyn Host>,
     assembler: Assembler,
     state: Box<dyn protocol::ProtocolState>,
@@ -418,10 +430,10 @@ struct Instance {
 /// `Instance` expects to receive (as much as possible) preselected values to be used: selection,
 /// validation to be performed in `Session` if possible.
 impl Instance {
-    fn new(details: Rc<AccountDetails>, receiver: InstanceTag, host: Rc<dyn Host>) -> Self {
+    fn new(receiver: InstanceTag, details: Rc<AccountDetails>, host: Rc<dyn Host>) -> Self {
         Self {
-            details,
             receiver,
+            details,
             assembler: Assembler::new(),
             state: protocol::new_state(),
             ake: AKEContext::new(Rc::clone(&host)),
@@ -454,9 +466,6 @@ impl Instance {
     }
 
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
-        assert_eq!(encoded_message.version, Version::V3);
-        assert_eq!(self.receiver, encoded_message.sender);
-        assert_eq!(self.details.tag, encoded_message.receiver);
         // Given that we are processing an actual (OTR-)encoded message intended for this instance,
         // we should reset the assembler now.
         self.assembler.reset();
@@ -595,7 +604,7 @@ impl Instance {
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             EncodedMessageType::Unencoded(msg) => {
                 assert!(
-                    self.state.status() != ProtocolStatus::Plaintext,
+                    self.state.status() == ProtocolStatus::Plaintext,
                     "BUG: received undefined message type in state {:?}",
                     self.state.status()
                 );
@@ -709,5 +718,95 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
         vec![Version::V3]
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+
+    use crate::{crypto::DSA, Host, Policy, UserMessage, instancetag::INSTANCE_ZERO};
+
+    use super::Account;
+
+    #[test]
+    fn test_plaintext_conversation() {
+        let keypair_alice = DSA::Keypair::generate();
+        let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> = Rc::new(RefCell::new(VecDeque::new()));
+
+        let keypair_bob = DSA::Keypair::generate();
+        let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> = Rc::new(RefCell::new(VecDeque::new()));
+
+        let host_alice: Rc<dyn Host> =
+            Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
+        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let host_bob: Rc<dyn Host> =
+            Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
+        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+
+        messages_bob.borrow_mut().extend(alice.send(INSTANCE_ZERO, b"Hello bob!").unwrap());
+        handle_messages("Bob", &mut messages_bob, &mut bob);
+        messages_alice.borrow_mut().extend(bob.send(INSTANCE_ZERO, b"Hello Alice!").unwrap());
+        handle_messages("Alice", &mut messages_alice, &mut alice);
+    }
+
+    #[test]
+    fn test_my_first_otr_session() {
+        let keypair_alice = DSA::Keypair::generate();
+        let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
+
+        let keypair_bob = DSA::Keypair::generate();
+        let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
+
+        let host_alice: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
+        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
+        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+
+        alice.query().unwrap();
+        handle_messages("Alice", &mut messages_alice, &mut alice);
+        handle_messages("Bob", &mut messages_bob, &mut bob);
+        handle_messages("Alice", &mut messages_alice, &mut alice);
+        handle_messages("Bob", &mut messages_bob, &mut bob);
+        handle_messages("Alice", &mut messages_alice, &mut alice);
+    }
+
+    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);
+
+    impl Host for TestHost {
+        fn message_size(&self) -> usize {
+            usize::MAX
+        }
+
+        fn inject(&self, message: &[u8]) {
+            self.0.borrow_mut().push_back(Vec::from(message));
+        }
+
+        fn keypair(&self) -> &DSA::Keypair {
+            &self.1
+        }
+
+        fn query_smp_secret(&self, _question: &[u8]) -> Option<Vec<u8>> {
+            todo!()
+        }
+    }
+
+    fn handle_messages(id: &str, channel: &mut Rc<RefCell<VecDeque<Vec<u8>>>>, session: &mut Account) {
+        println!("Messages available: {}", channel.borrow_mut().len());
+        while let Some(m) = channel.borrow_mut().pop_front() {
+            println!("{}: processing message `{}`", id, std::str::from_utf8(&m).unwrap());
+            let message = session.receive(&m).unwrap();
+            println!("Incoming for Bob: {:?}", extract_readable(&message));
+        }
+    }
+
+    fn extract_readable(msg: &UserMessage) -> &str {
+        match msg {
+            UserMessage::None => "(none)",
+            UserMessage::Plaintext(msg) => std::str::from_utf8(msg).unwrap(),
+            msg => todo!("To be implemented: {:?}", msg),
+        }
     }
 }

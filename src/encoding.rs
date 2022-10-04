@@ -92,7 +92,9 @@ fn parse_encoded_content(
         OTR_DH_COMMIT_TYPE_CODE => Ok(EncodedMessageType::DHCommit(DHCommitMessage::decode(
             &mut decoder,
         )?)),
-        OTR_DH_KEY_TYPE_CODE => Ok(EncodedMessageType::DHKey(DHKeyMessage::decode(&mut decoder)?)),
+        OTR_DH_KEY_TYPE_CODE => Ok(EncodedMessageType::DHKey(DHKeyMessage::decode(
+            &mut decoder,
+        )?)),
         OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(EncodedMessageType::RevealSignature(
             RevealSignatureMessage::decode(&mut decoder)?,
         )),
@@ -747,10 +749,12 @@ impl OTREncoder {
         const PARAM_LEN: usize = Signature::parameter_size();
         const SIGNATURE_LEN: usize = Signature::size();
         // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
-        self.buffer.extend_from_slice(&sig.r().to_bytes_be());
-        assert_eq!(PARAM_LEN, self.buffer.len());
-        self.buffer.extend_from_slice(&sig.s().to_bytes_be());
-        assert_eq!(SIGNATURE_LEN, self.buffer.len());
+        // TODO probably better to remove these assertions, once sure signature serialization works as expected.
+        let startlen = self.buffer.len();
+        self.buffer.extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.r()));
+        assert_eq!(PARAM_LEN, self.buffer.len() - startlen);
+        self.buffer.extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.s()));
+        assert_eq!(SIGNATURE_LEN, self.buffer.len() - startlen);
         self
     }
 

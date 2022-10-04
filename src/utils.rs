@@ -77,6 +77,19 @@ pub mod biguint {
     pub fn two() -> &'static BigUint {
         &*TWO
     }
+
+    pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8;N] {
+        let mut buffer = [0u8;N];
+        to_bytes_be_into(&mut buffer, v);
+        buffer
+    }
+
+    pub fn to_bytes_be_into(dst: &mut [u8], v: &BigUint) {
+        let bytes = v.to_bytes_be();
+        assert!(dst.len() >= bytes.len());
+        let start = dst.len() - bytes.len();
+        dst[start..].copy_from_slice(&bytes);
+    }
 }
 
 pub mod slice {
