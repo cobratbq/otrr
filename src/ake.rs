@@ -188,7 +188,7 @@ impl AKEContext {
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 let dsa_keypair = self.host.keypair();
                 let pub_b = dsa_keypair.public_key();
-                let keyid_b = 1u32;
+                const keyid_b: u32 = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
@@ -301,13 +301,15 @@ impl AKEContext {
                     .read_signature()
                     .or(Err(AKEError::MessageIncomplete))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
-                let m_b_bytes = OTREncoder::new()
-                    .write_mpi(&gx)
-                    .write_mpi(&state.our_dh_keypair.public)
-                    .write_public_key(&pub_b)
-                    .write_int(keyid_b)
-                    .to_vec();
-                let m_b = SHA256::hmac(&secrets.m1, &m_b_bytes);
+                let m_b = SHA256::hmac(
+                    &secrets.m1,
+                    &OTREncoder::new()
+                        .write_mpi(&gx)
+                        .write_mpi(&state.our_dh_keypair.public)
+                        .write_public_key(&pub_b)
+                        .write_int(keyid_b)
+                        .to_vec(),
+                );
                 pub_b
                     .verify(&sig_b, &m_b)
                     .map_err(AKEError::CryptographicViolation)?;
@@ -367,7 +369,10 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(state) => {
-                let SignatureMessage{signature_encrypted, signature_mac} = msg;
+                let SignatureMessage {
+                    signature_encrypted,
+                    signature_mac,
+                } = msg;
                 // Decrypt the encrypted signature, and verify the signature and the MACs. If everything checks out:
                 // - Transition authstate to AUTHSTATE_NONE.
                 // - Transition msgstate to MSGSTATE_ENCRYPTED.
@@ -375,12 +380,9 @@ impl AKEContext {
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&state.s).to_vec());
                 let mac = SHA256::hmac160(
                     &secrets.m2p,
-                    &OTREncoder::new()
-                        .write_data(&signature_encrypted)
-                        .to_vec(),
+                    &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
-                constant::verify(&signature_mac, &mac)
-                    .map_err(AKEError::CryptographicViolation)?;
+                constant::verify(&signature_mac, &mac).map_err(AKEError::CryptographicViolation)?;
                 let x_a = secrets.cp.decrypt(
                     &[0u8; 16],
                     &OTRDecoder::new(&signature_encrypted)

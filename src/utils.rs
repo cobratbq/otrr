@@ -62,24 +62,12 @@ pub mod biguint {
     use once_cell::sync::Lazy;
 
     // TODO not sure that I am happy with this way of working. Would like to have constants, but that's not possible. For later consideration.
-    static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
-    static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
-    static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    pub static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
+    pub static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
+    pub static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
-    pub fn zero() -> &'static BigUint {
-        &*ZERO
-    }
-
-    pub fn one() -> &'static BigUint {
-        &*ONE
-    }
-
-    pub fn two() -> &'static BigUint {
-        &*TWO
-    }
-
-    pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8;N] {
-        let mut buffer = [0u8;N];
+    pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8; N] {
+        let mut buffer = [0u8; N];
         to_bytes_be_into(&mut buffer, v);
         buffer
     }
@@ -123,4 +111,7 @@ pub mod u32 {
             Some(value)
         }
     }
+}
+
+pub mod ring {
 }

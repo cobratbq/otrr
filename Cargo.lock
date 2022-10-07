@@ -178,8 +178,6 @@ dependencies = [
 [[package]]
 name = "dsa"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1474cd5fb39a637d804f5752ab2cb5180335e0800f2ea4f3580993ed461b6d0f"
 dependencies = [
  "digest",
  "num-bigint-dig",
@@ -348,6 +346,7 @@ dependencies = [
  "once_cell",
  "regex",
  "ring",
+ "sha-1",
  "sha2",
  "typenum",
 ]
@@ -436,8 +435,6 @@ checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
 [[package]]
 name = "rfc6979"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88c86280f057430a52f4861551b092a01b419b8eacefc7c995eacb9dc132fe32"
 dependencies = [
  "crypto-bigint",
  "hmac",
@@ -464,6 +461,17 @@ name = "serde"
 version = "1.0.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f747710de3dcd43b88c9168773254e809d8ddbdf9653b84e2554ab219f17860"
+
+[[package]]
+name = "sha-1"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "028f48d513f9678cda28f6e4064755b3fbb2af6acd672f2c209b62323f7aea0f"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
 
 [[package]]
 name = "sha2"

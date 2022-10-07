@@ -15,7 +15,10 @@ pub mod DH {
     use num_bigint::BigUint;
     use ring::rand::SecureRandom;
 
-    use crate::utils;
+    use crate::utils::{
+        self,
+        biguint::{ONE, TWO},
+    };
 
     use super::{CryptoError, RAND};
 
@@ -43,11 +46,10 @@ pub mod DH {
     });
 
     /// Modulus - 2
-    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - utils::biguint::two());
+    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - &*TWO);
 
     // "D values are calculated modulo `q = (p - 1) / 2`"
-    static Q: Lazy<BigUint> =
-        Lazy::new(|| (&*MODULUS - utils::biguint::one()) / utils::biguint::two());
+    static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - &*ONE) / &*TWO);
 
     pub fn generator() -> &'static BigUint {
         &*GENERATOR
@@ -72,7 +74,7 @@ pub mod DH {
     }
 
     pub fn verify_exponent(component: &BigUint) -> Result<(), CryptoError> {
-        if component >= utils::biguint::one() && component < &*Q {
+        if component >= &*ONE && component < &*Q {
             Ok(())
         } else {
             Err(CryptoError::VerificationFailure(
@@ -339,13 +341,8 @@ pub mod DSA {
             PublicKey(Rc::clone(&self.pk))
         }
 
-        pub fn sign(&self, digest_bytes: &[u8; 32]) -> Signature {
-            // FIXME DSA needs proper implementation but `sign_prehashed` is not accessible (internal use only)
-            println!("WARNING: NOOP implementation of DSA signatures for testing purposes only.");
-            Signature(dsa::Signature::from_components(
-                BigUint::from(0u8),
-                BigUint::from(0u8),
-            ))
+        pub fn sign(&self, hash: &[u8; 32]) -> Signature {
+            Signature(self.sk.sign_hash::<sha1::Sha1>(hash).unwrap())
         }
     }
 
@@ -373,10 +370,20 @@ pub mod DSA {
             )))
         }
 
-        pub fn verify(&self, signature: &Signature, digest: &[u8]) -> Result<(), CryptoError> {
-            // FIXME DSA needs proper implementation but `sign_prehashed` is not accessible (internal use only)
-            println!("WARNING: NOOP implementation of DSA signatures for testing purposes only.");
-            Ok(())
+        pub fn verify(&self, signature: &Signature, hash: &[u8;32]) -> Result<(), CryptoError> {
+            let result =
+                self.0
+                    .verify_hash(hash, &signature.0)
+                    .ok_or(CryptoError::VerificationFailure(
+                        "DSA signature or public key contains invalid data.",
+                    ))?;
+            if result {
+                Ok(())
+            } else {
+                Err(CryptoError::VerificationFailure(
+                    "DSA signature failed verification.",
+                ))
+            }
         }
 
         pub fn p(&self) -> &BigUint {
@@ -508,7 +515,7 @@ pub enum CryptoError {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils;
+    use crate::utils::biguint::{ONE, TWO, ZERO};
     use num_bigint::BigUint;
 
     use super::{constant, DH};
@@ -589,19 +596,19 @@ mod tests {
             k3.generate_shared_secret(&k3.public),
             k3.generate_shared_secret(&k3.public)
         );
-        assert!(DH::verify_public_key(utils::biguint::zero()).is_err());
-        assert!(DH::verify_public_key(utils::biguint::one()).is_err());
-        assert!(DH::verify_public_key(utils::biguint::two()).is_ok());
-        assert!(DH::verify_public_key(&(DH::modulus() - utils::biguint::two())).is_ok());
-        assert!(DH::verify_public_key(&(DH::modulus() - utils::biguint::one())).is_err());
+        assert!(DH::verify_public_key(&*ZERO).is_err());
+        assert!(DH::verify_public_key(&*ONE).is_err());
+        assert!(DH::verify_public_key(&*TWO).is_ok());
+        assert!(DH::verify_public_key(&(DH::modulus() - &*TWO)).is_ok());
+        assert!(DH::verify_public_key(&(DH::modulus() - &*ONE)).is_err());
         assert!(DH::verify_public_key(DH::modulus()).is_err());
-        assert!(DH::verify_public_key(&(DH::modulus() + utils::biguint::one())).is_err());
-        assert!(DH::verify_exponent(utils::biguint::zero()).is_err());
-        assert!(DH::verify_exponent(utils::biguint::one()).is_ok());
-        assert!(DH::verify_exponent(utils::biguint::two()).is_ok());
-        assert!(DH::verify_exponent(&(DH::q() - utils::biguint::one())).is_ok());
+        assert!(DH::verify_public_key(&(DH::modulus() + &*ONE)).is_err());
+        assert!(DH::verify_exponent(&*ZERO).is_err());
+        assert!(DH::verify_exponent(&*ONE).is_ok());
+        assert!(DH::verify_exponent(&*TWO).is_ok());
+        assert!(DH::verify_exponent(&(DH::q() - &*ONE)).is_ok());
         assert!(DH::verify_exponent(DH::q()).is_err());
-        assert!(DH::verify_exponent(&(DH::q() + utils::biguint::one())).is_err());
+        assert!(DH::verify_exponent(&(DH::q() + &*ONE)).is_err());
     }
 
     #[test]

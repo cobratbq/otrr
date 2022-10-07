@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-use crate::{crypto::DH, encoding::KeyID, utils, OTRError};
+use crate::{crypto::DH, encoding::KeyID, utils::{self, biguint::ZERO}, OTRError};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
@@ -215,7 +215,7 @@ impl Drop for PublicKeyRotation {
 impl PublicKeyRotation {
     fn new(key_id: KeyID, public_key: BigUint) -> Self {
         assert_ne!(0, key_id);
-        assert_ne!(*utils::biguint::zero(), public_key);
+        assert_ne!(*ZERO, public_key);
         let mut keys: [BigUint; NUM_KEYS] = [BigUint::from(0u8), BigUint::from(0u8)];
         keys[key_id as usize % NUM_KEYS] = public_key;
         Self { keys, id: key_id }
@@ -243,7 +243,7 @@ impl PublicKeyRotation {
     /// indicates the key was already known.
     fn register(&mut self, next_id: KeyID, next_key: BigUint) -> Result<bool, OTRError> {
         assert_ne!(0, next_id);
-        assert_ne!(*utils::biguint::zero(), next_key);
+        assert_ne!(*ZERO, next_key);
         if self.id == next_id {
             if self.keys[(self.id as usize) % NUM_KEYS] == next_key {
                 Ok(false)

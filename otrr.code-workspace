@@ -1,9 +1,15 @@
 {
 	"folders": [
 		{
+			"name": "otrr",
 			"path": "."
 		},
 		{
+			"name": "dsa",
+			"path": "../signatures/dsa"
+		},
+		{
+			"name": "utils",
 			"path": "../utils"
 		}
 	],

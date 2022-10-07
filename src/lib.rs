@@ -57,6 +57,7 @@ pub mod session;
 // REMARK allow defining custom message to be included with the OTR Query-tag.
 // REMARK expose TLV 0 for manual padding by client?
 // REMARK switch from once_cell::lazy::Lazy to std::lazy::Lazy, once it is in rust nightly.
+// REMARK there are two distinct implementations of many cryptography primitives (sha1, signatures) because individual implementations next to `ring`.
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
