@@ -484,6 +484,7 @@ fn encode_version(version: &Version) -> u16 {
     }
 }
 
+// TODO consider adding 'done' function to indicate/verify end of input stream
 pub struct OTRDecoder<'a>(&'a [u8]);
 
 /// `OTRDecoder` contains the logic for reading entries from byte-buffer.
@@ -715,6 +716,7 @@ impl OTREncoder {
         self
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
         // - 4-byte unsigned len, big-endian
         // - <len> byte unsigned value, big-endian
@@ -724,7 +726,8 @@ impl OTREncoder {
             0, encoded[0],
             "Assertion checking for minimum-length encoding has failed."
         );
-        self.write_data(&encoded)
+        self.write_int(encoded.len() as u32);
+        self.write(&encoded)
     }
 
     pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
@@ -751,9 +754,11 @@ impl OTREncoder {
         // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
         // TODO probably better to remove these assertions, once sure signature serialization works as expected.
         let startlen = self.buffer.len();
-        self.buffer.extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.r()));
+        self.buffer
+            .extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.r()));
         assert_eq!(PARAM_LEN, self.buffer.len() - startlen);
-        self.buffer.extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.s()));
+        self.buffer
+            .extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.s()));
         assert_eq!(SIGNATURE_LEN, self.buffer.len() - startlen);
         self
     }

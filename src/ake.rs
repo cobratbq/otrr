@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
+// TODO re-check logic and remove assertions that verify user input, as this would crash the library on input data
 
 use std::rc::Rc;
 
@@ -8,8 +9,9 @@ use crate::{
         DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
         RevealSignatureMessage, SignatureMessage, SSID,
     },
-    Host, Version,
+    log, Host, Version,
 };
+
 use num_bigint::BigUint;
 
 pub struct AKEContext {
@@ -32,6 +34,7 @@ impl AKEContext {
     }
 
     pub fn initiate(&mut self) -> EncodedMessageType {
+        log::info!("Initiating AKE.");
         let keypair = DH::Keypair::generate();
         let r = AES128::Key::generate();
         let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
@@ -181,6 +184,7 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingDHKey(state) => {
+                const KEYID_B: u32 = 1;
                 DH::verify_public_key(&msg.gy).map_err(AKEError::CryptographicViolation)?;
                 // Reply with a Reveal Signature Message and transition authstate to
                 // `AUTHSTATE_AWAITING_SIG`.
@@ -188,27 +192,29 @@ impl AKEContext {
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 let dsa_keypair = self.host.keypair();
                 let pub_b = dsa_keypair.public_key();
-                const keyid_b: u32 = 1u32;
                 let m_b = SHA256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_mpi(&msg.gy)
                         .write_public_key(&pub_b)
-                        .write_int(keyid_b)
+                        .write_int(KEYID_B)
                         .to_vec(),
                 );
                 // "This is the signature, using the private part of the key pubB, of the 32-byte MB
                 //  (taken modulo q instead of being truncated (as described in FIPS-186), and not
                 //  hashed again)."
                 let sig_b = dsa_keypair.sign(&m_b);
+                log::trace!("Sig_B: {:?}", &sig_b);
+                log::trace!("M_B: {:?}", &m_b);
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
-                    .write_int(keyid_b)
+                    .write_int(KEYID_B)
                     .write_signature(&sig_b)
                     .to_vec();
+                log::trace!("X_B: {:?}", &x_b);
                 let enc_b = OTREncoder::new()
-                    .write_data(&secrets.c.encrypt(&[0u8; 16], &x_b))
+                    .write_data(&secrets.c.encrypt(&[0; 16], &x_b))
                     .to_vec();
                 let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
                 let reveal_sig_message = RevealSignatureMessage {
@@ -247,7 +253,7 @@ impl AKEContext {
         result
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
@@ -258,6 +264,8 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingRevealSignature(state) => {
+                const KEYID_A: u32 = 1;
+                log::debug!("start: handling RevealSignatureMessage");
                 // (OTRv3) Use the received value of r to decrypt the value of gx received in the D-H Commit Message,
                 // and verify the hash therein. Decrypt the encrypted signature, and verify the signature and
                 // the MACs. If everything checks out:
@@ -267,39 +275,62 @@ impl AKEContext {
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
 
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
-                let gxmpi = msg.key.decrypt(&[0u8; 16], &state.gx_encrypted);
+                let gxmpi = msg.key.decrypt(
+                    &[0; 16],
+                    &OTRDecoder::new(&state.gx_encrypted).read_data().or(Err(
+                        AKEError::MessageIncomplete("Failed to read data from gx_encrypted"),
+                    ))?,
+                );
                 let gxmpihash = SHA256::digest(&gxmpi);
                 constant::verify(&gxmpihash, &state.gx_hashed)
                     .map_err(AKEError::CryptographicViolation)?;
+                log::debug!("gxmpi verified: correct");
+
                 // Verify acquired g^x value.
-                let gx = OTRDecoder::new(&gxmpi)
-                    .read_mpi()
-                    .or(Err(AKEError::MessageIncomplete))?;
+                let gx =
+                    OTRDecoder::new(&gxmpi)
+                        .read_mpi()
+                        .or(Err(AKEError::MessageIncomplete(
+                            "Failed to read MPI from gxmpi",
+                        )))?;
                 DH::verify_public_key(&gx).map_err(AKEError::CryptographicViolation)?;
+                log::debug!("gx verified: correct");
 
                 // Validate encrypted signature using MAC based on m2, ensuring signature content is unchanged.
                 let s = state.our_dh_keypair.generate_shared_secret(&gx);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
-                let expected_signature_mac = SHA256::hmac160(
-                    &secrets.m2,
-                    &OTREncoder::new()
-                        .write_data(&msg.signature_encrypted)
-                        .to_vec(),
-                );
+                let expected_signature_mac = SHA256::hmac160(&secrets.m2, &msg.signature_encrypted);
                 constant::verify(&expected_signature_mac, &msg.signature_mac)
                     .map_err(AKEError::CryptographicViolation)?;
+                log::debug!("signature MAC verified: correct");
 
                 // Acquire Bob's identity material from the encrypted x_b.
-                let x_b = secrets.c.decrypt(&[0u8; 16], &msg.signature_encrypted);
+                let x_b = secrets.c.decrypt(
+                    &[0; 16],
+                    &OTRDecoder::new(&msg.signature_encrypted)
+                        .read_data()
+                        .or(Err(AKEError::MessageIncomplete(
+                            "Failed to read data from signature_encrypted",
+                        )))?,
+                );
+                log::trace!("X_B: {:?}", &x_b);
                 let mut decoder = OTRDecoder::new(&x_b);
+                // FIXME need to verify pub_b before use?
                 let pub_b = decoder
                     .read_public_key()
-                    .or(Err(AKEError::MessageIncomplete))?;
-                let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                    .or(Err(AKEError::MessageIncomplete(
+                        "Failed to read public key from X_B",
+                    )))?;
+                log::trace!("Reading ...");
+                let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete(
+                    "Failed to read keyid from X_B",
+                )))?;
                 assert_ne!(0, keyid_b);
                 let sig_b = decoder
                     .read_signature()
-                    .or(Err(AKEError::MessageIncomplete))?;
+                    .or(Err(AKEError::MessageIncomplete(
+                        "Failed to read signature from X_B",
+                    )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
                 let m_b = SHA256::hmac(
                     &secrets.m1,
@@ -310,11 +341,13 @@ impl AKEContext {
                         .write_int(keyid_b)
                         .to_vec(),
                 );
+                log::trace!("Sig_B: {:?}", &sig_b);
+                log::trace!("M_B: {:?}", &m_b);
                 pub_b
                     .verify(&sig_b, &m_b)
                     .map_err(AKEError::CryptographicViolation)?;
+                log::debug!("M_B verified: correct");
 
-                let keyid_a = 1u32;
                 let keypair = self.host.keypair();
                 let m_a = SHA256::hmac(
                     &secrets.m1p,
@@ -322,20 +355,22 @@ impl AKEContext {
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_mpi(&gx)
                         .write_public_key(&keypair.public_key())
-                        .write_int(keyid_a)
+                        .write_int(KEYID_A)
                         .to_vec(),
                 );
                 let sig_m_a = keypair.sign(&m_a);
+                log::debug!("M_A constructed and signed.");
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
-                    .write_int(keyid_a)
+                    .write_int(KEYID_A)
                     .write_signature(&sig_m_a)
                     .to_vec();
-                let encrypted_signature = secrets.cp.encrypt(&[0u8; 16], &x_a);
+                let encrypted_signature = secrets.cp.encrypt(&[0; 16], &x_a);
                 let encrypted_mac = SHA256::hmac160(
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&encrypted_signature).to_vec(),
                 );
+                log::debug!("Signature encrypted and MAC'd");
                 (
                     Ok((
                         CryptographicMaterial {
@@ -369,6 +404,7 @@ impl AKEContext {
                 return Err(AKEError::MessageIgnored);
             }
             AKEState::AwaitingSignature(state) => {
+                log::debug!("Start handling SignatureMessage.");
                 let SignatureMessage {
                     signature_encrypted,
                     signature_mac,
@@ -383,21 +419,24 @@ impl AKEContext {
                     &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
                 constant::verify(&signature_mac, &mac).map_err(AKEError::CryptographicViolation)?;
-                let x_a = secrets.cp.decrypt(
-                    &[0u8; 16],
-                    &OTRDecoder::new(&signature_encrypted)
-                        .read_data()
-                        .or(Err(AKEError::MessageIncomplete))?,
-                );
+                log::debug!("Signature MAC verified.");
+                let x_a = secrets.cp.decrypt(&[0; 16], &signature_encrypted);
+                log::debug!("X_A decrypted.");
                 let mut decoder = OTRDecoder::new(&x_a);
                 let pub_a = decoder
                     .read_public_key()
-                    .or(Err(AKEError::MessageIncomplete))?;
-                let keyid_a = decoder.read_int().or(Err(AKEError::MessageIncomplete))?;
+                    .or(Err(AKEError::MessageIncomplete(
+                        "Failed to read public key from X_A",
+                    )))?;
+                let keyid_a = decoder.read_int().or(Err(AKEError::MessageIncomplete(
+                    "Failed to read keyid from X_A",
+                )))?;
                 assert_ne!(0, keyid_a);
                 let sig_m_a = decoder
                     .read_signature()
-                    .or(Err(AKEError::MessageIncomplete))?;
+                    .or(Err(AKEError::MessageIncomplete(
+                        "Failed to read signature from X_A",
+                    )))?;
                 let m_a = SHA256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
@@ -410,6 +449,7 @@ impl AKEContext {
                 pub_a
                     .verify(&sig_m_a, &m_a)
                     .map_err(AKEError::CryptographicViolation)?;
+                log::debug!("M_A signature verified.");
                 (
                     Ok(CryptographicMaterial {
                         version: self.version.clone(),
@@ -477,7 +517,7 @@ pub enum AKEError {
     /// AKE message ignored due to it arriving in violation of protocol.
     MessageIgnored,
     /// AKE message is incomplete. Errors were encountered while reading out message components.
-    MessageIncomplete,
+    MessageIncomplete(&'static str),
     /// AKE completed and no response message is produced/necessary.
     Completed,
     // Incorrect AKE state for message to be handled.

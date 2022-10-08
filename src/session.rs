@@ -725,33 +725,46 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
 mod tests {
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
-    use crate::{crypto::DSA, Host, Policy, UserMessage, instancetag::INSTANCE_ZERO};
+    use crate::{crypto::DSA, instancetag::INSTANCE_ZERO, Host, Policy, UserMessage};
 
     use super::Account;
 
+    fn init() {
+        let _ = env_logger::builder()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Trace)
+            .try_init();
+    }
+
     #[test]
     fn test_plaintext_conversation() {
+        init();
         let keypair_alice = DSA::Keypair::generate();
-        let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> = Rc::new(RefCell::new(VecDeque::new()));
+        let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
 
         let keypair_bob = DSA::Keypair::generate();
-        let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> = Rc::new(RefCell::new(VecDeque::new()));
+        let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
 
-        let host_alice: Rc<dyn Host> =
-            Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
+        let host_alice: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
         let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let host_bob: Rc<dyn Host> =
-            Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
         let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
 
-        messages_bob.borrow_mut().extend(alice.send(INSTANCE_ZERO, b"Hello bob!").unwrap());
+        messages_bob
+            .borrow_mut()
+            .extend(alice.send(INSTANCE_ZERO, b"Hello bob!").unwrap());
         handle_messages("Bob", &mut messages_bob, &mut bob);
-        messages_alice.borrow_mut().extend(bob.send(INSTANCE_ZERO, b"Hello Alice!").unwrap());
+        messages_alice
+            .borrow_mut()
+            .extend(bob.send(INSTANCE_ZERO, b"Hello Alice!").unwrap());
         handle_messages("Alice", &mut messages_alice, &mut alice);
     }
 
     #[test]
     fn test_my_first_otr_session() {
+        init();
         let keypair_alice = DSA::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
@@ -766,11 +779,26 @@ mod tests {
         let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
 
         alice.query().unwrap();
-        handle_messages("Alice", &mut messages_alice, &mut alice);
-        handle_messages("Bob", &mut messages_bob, &mut bob);
-        handle_messages("Alice", &mut messages_alice, &mut alice);
-        handle_messages("Bob", &mut messages_bob, &mut bob);
-        handle_messages("Alice", &mut messages_alice, &mut alice);
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, &mut bob),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, &mut bob),
+            None
+        ));
+        let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
+        assert!(matches!(result, UserMessage::ConfidentialSessionStarted(_)));
+        let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
+        assert!(matches!(result, UserMessage::ConfidentialSessionStarted(_)));
     }
 
     struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);
@@ -793,20 +821,44 @@ mod tests {
         }
     }
 
-    fn handle_messages(id: &str, channel: &mut Rc<RefCell<VecDeque<Vec<u8>>>>, session: &mut Account) {
+    fn handle_messages(
+        id: &str,
+        channel: &mut Rc<RefCell<VecDeque<Vec<u8>>>>,
+        session: &mut Account,
+    ) -> Option<UserMessage> {
         println!("Messages available: {}", channel.borrow_mut().len());
         while let Some(m) = channel.borrow_mut().pop_front() {
-            println!("{}: processing message `{}`", id, std::str::from_utf8(&m).unwrap());
+            println!(
+                "{}: processing message `{}`",
+                id,
+                std::str::from_utf8(&m).unwrap()
+            );
             let message = session.receive(&m).unwrap();
             println!("Incoming for Bob: {:?}", extract_readable(&message));
+            if let UserMessage::None = message {
+                // nothing worthwhile, continue with possible next message
+            } else {
+                return Some(message);
+            }
         }
+        None
     }
 
     fn extract_readable(msg: &UserMessage) -> &str {
         match msg {
             UserMessage::None => "(none)",
             UserMessage::Plaintext(msg) => std::str::from_utf8(msg).unwrap(),
-            msg => todo!("To be implemented: {:?}", msg),
+            UserMessage::ConfidentialSessionStarted(_) => {
+                "Confidential session started for instance"
+            }
+            UserMessage::Confidential(_, _, _) => "Confidential message sent",
+            UserMessage::ConfidentialSessionFinished(_) => {
+                "Confidential session finished for instance"
+            }
+            msg => todo!(
+                "[test utils: extract_readable]: To be implemented: {:?}",
+                msg
+            ),
         }
     }
 }

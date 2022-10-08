@@ -319,7 +319,7 @@ pub mod DSA {
     use super::CryptoError;
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
-    const PARAM_Q_LENGTH: usize = 20;
+    const PARAM_Q_LENGTH_BYTES: usize = 20;
 
     pub struct Keypair {
         sk: SigningKey,
@@ -353,7 +353,7 @@ pub mod DSA {
             g: BigUint,
             y: BigUint,
         ) -> Result<Self, CryptoError> {
-            if q.bits() != PARAM_Q_LENGTH {
+            if q.bits() != PARAM_Q_LENGTH_BYTES * 8 {
                 return Err(CryptoError::VerificationFailure(
                     "Number of bits in component Q does not correspond to prescribed length of 20.",
                 ));
@@ -370,7 +370,7 @@ pub mod DSA {
             )))
         }
 
-        pub fn verify(&self, signature: &Signature, hash: &[u8;32]) -> Result<(), CryptoError> {
+        pub fn verify(&self, signature: &Signature, hash: &[u8; 32]) -> Result<(), CryptoError> {
             let result =
                 self.0
                     .verify_hash(hash, &signature.0)
@@ -403,15 +403,16 @@ pub mod DSA {
         }
     }
 
+    #[derive(Debug)]
     pub struct Signature(dsa::Signature);
 
     impl Signature {
         pub const fn size() -> usize {
-            2 * PARAM_Q_LENGTH
+            2 * PARAM_Q_LENGTH_BYTES
         }
 
         pub const fn parameter_size() -> usize {
-            PARAM_Q_LENGTH
+            PARAM_Q_LENGTH_BYTES
         }
 
         pub fn from_components(r: BigUint, s: BigUint) -> Self {

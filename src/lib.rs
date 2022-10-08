@@ -14,6 +14,7 @@ extern crate aes_ctr;
 extern crate base64;
 extern crate bitflags;
 extern crate hex;
+extern crate log;
 extern crate num_bigint;
 extern crate num_integer;
 extern crate once_cell;
