@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 pub mod alloc {
     #[must_use]
     pub fn vec_unique<T: Ord>(mut src: Vec<T>) -> Vec<T> {
