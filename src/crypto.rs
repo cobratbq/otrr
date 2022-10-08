@@ -509,7 +509,7 @@ pub mod constant {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
 }

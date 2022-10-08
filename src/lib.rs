@@ -62,7 +62,7 @@ pub mod session;
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.
     None,
@@ -89,7 +89,7 @@ pub enum UserMessage {
 }
 
 /// `OTRError` is the enum containing the various errors that can occur.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),

@@ -510,7 +510,7 @@ struct AwaitingSignature {
 }
 
 /// `AKEError` contains the variants of errors produced during AKE.
-#[derive(std::fmt::Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AKEError {
     /// AKE message processing produced an error due to a cryptographic violation.
     CryptographicViolation(CryptoError),

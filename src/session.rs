@@ -726,7 +726,9 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
 mod tests {
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
-    use crate::{crypto::DSA, instancetag::INSTANCE_ZERO, Host, Policy, UserMessage};
+    use crate::{
+        crypto::DSA, instancetag::INSTANCE_ZERO, Host, Policy, ProtocolStatus, UserMessage,
+    };
 
     use super::Account;
 
@@ -780,27 +782,22 @@ mod tests {
         let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
 
         alice.query().unwrap();
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, &mut bob),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, &mut bob),
-            None
-        ));
+        assert_eq!(
+            None,
+            handle_messages("Alice", &mut messages_alice, &mut alice)
+        );
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
+        assert_eq!(
+            None,
+            handle_messages("Alice", &mut messages_alice, &mut alice)
+        );
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
         let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
         let tag_bob = match result {
             UserMessage::ConfidentialSessionStarted(tag) => tag,
             _ => panic!("BUG: expected confidential session to have started now."),
         };
+        assert_eq!(Some(ProtocolStatus::Encrypted), alice.status(tag_bob));
         messages_bob.borrow_mut().extend(
             alice
                 .send(tag_bob, b"Hello Bob! Are we chatting confidentially now?")
@@ -811,6 +808,7 @@ mod tests {
             UserMessage::ConfidentialSessionStarted(tag) => tag,
             _ => panic!("BUG: expected confidential session to have started now."),
         };
+        assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
         assert!(matches!(
             handle_messages("Bob", &mut messages_bob, &mut bob),
             Some(UserMessage::Confidential(_, _, _))
@@ -821,7 +819,8 @@ mod tests {
         messages_alice
             .borrow_mut()
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
-        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(_))));
+        assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
+        assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, &mut alice),
             Some(UserMessage::Confidential(_, _, _))
@@ -834,6 +833,7 @@ mod tests {
             handle_messages("Alice", &mut messages_alice, &mut alice),
             Some(UserMessage::ConfidentialSessionFinished(_))
         ));
+        assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
     }
 
     struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);

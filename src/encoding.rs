@@ -824,6 +824,6 @@ const SSID_LEN: usize = 8;
 #[allow(clippy::upper_case_acronyms)]
 pub type SSID = [u8; SSID_LEN];
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct TLV(pub TLVType, pub Vec<u8>);
