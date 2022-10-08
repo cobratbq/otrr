@@ -306,15 +306,14 @@ impl Counter {
     }
 
     fn take(&mut self) -> [u8; COUNTER_HALF_LEN] {
-        let result = self.0;
+        let mut carry: bool;
         for idx in (0..COUNTER_HALF_LEN).rev() {
-            let (val, carry) = self.0[idx].overflowing_add(1);
-            self.0[idx] = val;
+            (self.0[idx], carry) = self.0[idx].overflowing_add(1);
             if carry {
                 continue;
             }
-            assert!(utils::bytes::any_nonzero(&result));
-            return result;
+            assert!(utils::bytes::any_nonzero(&self.0));
+            return self.0;
         }
         panic!("BUG: wrapped around counter value completely.")
     }

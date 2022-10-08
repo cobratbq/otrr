@@ -147,7 +147,7 @@ impl ProtocolState for EncryptedState {
         if msg.revealed.len() % 20 != 0
             || (!msg.revealed.is_empty() && utils::bytes::all_zero(&msg.revealed))
         {
-            println!("NOTE: revealed MAC keys in received data message do not satisfy protocol requirements.");
+            log::info!("NOTE: revealed MAC keys in received data message do not satisfy protocol expectations.");
         }
         match self.decrypt_message(msg) {
             Ok(decrypted) => match parse_message(&decrypted) {
@@ -262,7 +262,7 @@ impl EncryptedState {
         assert!(utils::bytes::any_nonzero(&ciphertext));
         let oldmackeys = self.keys.get_reveal_macs();
         assert_eq!(oldmackeys.len() % 20, 0);
-        assert!(utils::bytes::any_nonzero(&oldmackeys));
+        assert!(oldmackeys.is_empty() || utils::bytes::any_nonzero(&oldmackeys));
 
         // Create data message without valid authenticator.
         let mut data_message = DataMessage {
@@ -294,6 +294,7 @@ impl EncryptedState {
     }
 
     fn decrypt_message(&mut self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
+        log::debug!("Decrypting confidential message ...");
         // "Uses Diffie-Hellman to compute a shared secret from the two keys labelled by keyidA and
         //  keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
         //  detailed below. (These will be the same as the keys Alice generated, above.)"
@@ -316,6 +317,7 @@ impl EncryptedState {
         );
         constant::verify(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
+        log::debug!("Authenticator of received confidential message verified.");
         self.keys.register_used_mac_key(receiving_mac_key);
         // "Uses ek and ctr to decrypt AES-CTRek,ctr(msg)."
         self.keys.verify_counter(&message.ctr)?;
@@ -326,6 +328,7 @@ impl EncryptedState {
         self.keys
             .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;
         // finally, return the message
+        log::debug!("Decrypting and returning confidential message.");
         Ok(secrets
             .receiver_crypt_key()
             .decrypt(&nonce, &message.encrypted))
@@ -334,16 +337,18 @@ impl EncryptedState {
 
 fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
     let mut decoder = OTRDecoder::new(raw_content);
-    let content = decoder.read_bytes_null_terminated()?;
+    let content = decoder.read_bytes_null_terminated();
     let tlvs: Vec<TLV> = decoder
         .read_tlvs()?
         .into_iter()
         .filter(|t| t.0 != TLV_TYPE_0_PADDING)
         .collect();
     if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+        log::debug!("Received confidential message with type 1 TLV (DISCONNECT)");
         // TODO if the TLV-1-DISCONNECT is contained in an actual user message, then this user content is lost.
         Ok(Message::ConfidentialFinished)
     } else {
+        log::debug!("Received confidential message.");
         Ok(Message::Confidential(content, tlvs))
     }
 }

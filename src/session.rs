@@ -567,6 +567,7 @@ impl Instance {
                     }
                     Err(error) => {
                         // TODO do all these errors require Error Message response to other party?
+                        log::debug!("Received unexpected error-type: {:?}", &error);
                         Err(error)
                     }
                 }
@@ -796,9 +797,43 @@ mod tests {
             None
         ));
         let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
-        assert!(matches!(result, UserMessage::ConfidentialSessionStarted(_)));
+        let tag_bob = match result {
+            UserMessage::ConfidentialSessionStarted(tag) => tag,
+            _ => panic!("BUG: expected confidential session to have started now."),
+        };
+        messages_bob.borrow_mut().extend(
+            alice
+                .send(tag_bob, b"Hello Bob! Are we chatting confidentially now?")
+                .unwrap(),
+        );
         let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
-        assert!(matches!(result, UserMessage::ConfidentialSessionStarted(_)));
+        let tag_alice = match result {
+            UserMessage::ConfidentialSessionStarted(tag) => tag,
+            _ => panic!("BUG: expected confidential session to have started now."),
+        };
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, &mut bob),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        messages_alice
+            .borrow_mut()
+            .extend(bob.send(tag_alice, b"Hi Alice! I think we are!").unwrap());
+        messages_alice
+            .borrow_mut()
+            .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
+        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(_))));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::ConfidentialSessionFinished(_))
+        ));
     }
 
     struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);
@@ -834,7 +869,7 @@ mod tests {
                 std::str::from_utf8(&m).unwrap()
             );
             let message = session.receive(&m).unwrap();
-            println!("Incoming for Bob: {:?}", extract_readable(&message));
+            extract_readable(id, &message);
             if let UserMessage::None = message {
                 // nothing worthwhile, continue with possible next message
             } else {
@@ -844,19 +879,28 @@ mod tests {
         None
     }
 
-    fn extract_readable(msg: &UserMessage) -> &str {
+    fn extract_readable(id: &str, msg: &UserMessage) {
         match msg {
-            UserMessage::None => "(none)",
-            UserMessage::Plaintext(msg) => std::str::from_utf8(msg).unwrap(),
-            UserMessage::ConfidentialSessionStarted(_) => {
-                "Confidential session started for instance"
+            UserMessage::None => println!("{}: (none)", id),
+            UserMessage::Plaintext(msg) => {
+                println!("{}: {}", id, std::str::from_utf8(msg).unwrap());
             }
-            UserMessage::Confidential(_, _, _) => "Confidential message sent",
-            UserMessage::ConfidentialSessionFinished(_) => {
-                "Confidential session finished for instance"
+            UserMessage::ConfidentialSessionStarted(tag) => {
+                println!("{}: confidential session started for instance {}", id, tag);
+            }
+            UserMessage::Confidential(tag, message, tlvs) => println!(
+                "{}: confidential message to {}: {} (TLVs: {:?})",
+                id,
+                tag,
+                std::str::from_utf8(message).unwrap(),
+                tlvs,
+            ),
+            UserMessage::ConfidentialSessionFinished(tag) => {
+                println!("{}: confidential session finished for instance {}", id, tag);
             }
             msg => todo!(
-                "[test utils: extract_readable]: To be implemented: {:?}",
+                "{}: [test utils: extract_readable]: To be implemented: {:?}",
+                id,
                 msg
             ),
         }

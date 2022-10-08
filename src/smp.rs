@@ -211,7 +211,7 @@ impl SMPContext {
 
         let mut decoder = OTRDecoder::new(&tlv.1);
         let received_question = if tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q {
-            decoder.read_bytes_null_terminated()?
+            decoder.read_bytes_null_terminated()
         } else {
             Vec::new()
         };

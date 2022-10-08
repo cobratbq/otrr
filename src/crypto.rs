@@ -187,7 +187,7 @@ pub mod OTR {
     impl DataSecrets {
         pub fn derive(our_key: &BigUint, their_key: &BigUint, secbytes: &[u8]) -> DataSecrets {
             // testing keys for equality as this should be virtually impossible
-            assert_eq!(our_key, their_key);
+            assert_ne!(our_key, their_key);
             let (sendbyte, recvbyte) = if our_key > their_key {
                 (1u8, 2u8)
             } else {
