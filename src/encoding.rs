@@ -498,7 +498,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_byte` reads a single byte from buffer.
     pub fn read_byte(&mut self) -> Result<u8, OTRError> {
-        log::trace!("OTRDecoder: read byte.");
+        log::trace!("read byte");
         if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
         }
@@ -509,7 +509,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_short` reads a short value (2 bytes, big-endian) from buffer.
     pub fn read_short(&mut self) -> Result<u16, OTRError> {
-        log::trace!("OTRDecoder: read short.");
+        log::trace!("read short");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -520,7 +520,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_int(&mut self) -> Result<u32, OTRError> {
-        log::trace!("OTRDecoder: read int.");
+        log::trace!("read int");
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -533,14 +533,14 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
-        log::trace!("OTRDecoder: read instance tag.");
+        log::trace!("read instance tag");
         verify_instance_tag(self.read_int()?)
             .or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
     /// `read_data` reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
-        log::trace!("OTRDecoder: read DATA.");
+        log::trace!("read DATA");
         let len = self.read_int()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
@@ -552,7 +552,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_mpi` reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
-        log::trace!("OTRDecoder: read MPI.");
+        log::trace!("read MPI");
         let len = self.read_int()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
@@ -564,7 +564,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// Read sequence of MPI values as defined by SMP.
     pub fn read_mpi_sequence(&mut self) -> Result<Vec<BigUint>, OTRError> {
-        log::trace!("OTRDecoder: read sequence of MPIs.");
+        log::trace!("read sequence of MPIs");
         let len = self.read_int()? as usize;
         let mut mpis = Vec::new();
         for _ in 0..len {
@@ -575,7 +575,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_ctr` reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
-        log::trace!("OTRDecoder: read CTR.");
+        log::trace!("read CTR");
         if self.0.len() < CTR_LEN {
             return Err(OTRError::IncompleteMessage);
         }
@@ -587,7 +587,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_mac` reads a MAC value from buffer.
     pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
-        log::trace!("OTRDecoder: read MAC.");
+        log::trace!("read MAC");
         if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
         }
@@ -599,7 +599,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_public_key` reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
-        log::trace!("OTRDecoder: read DSA public key.");
+        log::trace!("read DSA public key");
         let pktype = self.read_short()?;
         if pktype != 0u16 {
             return Err(OTRError::ProtocolViolation(
@@ -617,7 +617,7 @@ impl<'a> OTRDecoder<'a> {
     pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
         const SIGNATURE_LEN: usize = Signature::size();
         const PARAM_LEN: usize = Signature::parameter_size();
-        log::trace!("OTRDecoder: read signature.");
+        log::trace!("read signature");
         if self.0.len() < Signature::size() {
             return Err(OTRError::IncompleteMessage);
         }
@@ -630,7 +630,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
-        log::trace!("OTRDecoder: read all TLVs.");
+        log::trace!("read all TLVs");
         let mut tlvs = Vec::new();
         while !self.0.is_empty() {
             tlvs.push(self.read_tlv()?);
@@ -640,7 +640,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_tlv` reads a type-length-value record from the content.
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
-        log::trace!("OTRDecoder: read TLV.");
+        log::trace!("read TLV");
         let typ = self.read_short()?;
         let len = self.read_short()? as usize;
         if self.0.len() < len {
@@ -655,7 +655,7 @@ impl<'a> OTRDecoder<'a> {
     /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
     /// if present.
     pub fn read_bytes_null_terminated(&mut self) -> Vec<u8> {
-        log::trace!("OTRDecoder: read until null-terminated or empty.");
+        log::trace!("read until null-terminated or empty");
         let mut bytes = Vec::new();
         for i in 0..self.0.len() {
             if self.0[i] == 0 {
