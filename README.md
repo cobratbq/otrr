@@ -2,7 +2,9 @@
 
 OTR version 3 implementation in Rust.
 
-__status__ work-in-progress, "_It builds, usually._", it never ran
+__status__ work-in-progress, "_It builds, usually._"
+
+Tests demonstrate an established OTR session, however this only proves that bugs are symmetric in nature.
 
 ## Warning
 
