@@ -2,13 +2,18 @@
 
 OTR version 3 implementation in Rust.
 
-__status__ work-in-progress, "_It builds, usually._"
+__status__ work-in-progress, "_It builds. There are some tests."
 
-Tests demonstrate an established OTR session, however this only proves that bugs are symmetric in nature.
+Tests demonstrate an established OTR session, however this only proves that any bugs we might touch are symmetric in nature.
+
+- ☐ correctness?
+- ☐ interoperability?
 
 ## Warning
 
-- crate `dsa`: disclaimer states it is not thoroughly verified
+- crate `dsa`:
+  - disclaimer states it is not thoroughly verified
+  - needs changes to expose additional API
 
 ## Architecture
 
