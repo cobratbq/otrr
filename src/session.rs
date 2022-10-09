@@ -834,6 +834,8 @@ mod tests {
             Some(UserMessage::ConfidentialSessionFinished(_))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
+        assert_eq!(Ok(UserMessage::Reset(tag_bob)), alice.end(tag_bob));
+        assert_eq!(Some(ProtocolStatus::Plaintext), alice.status(tag_bob));
     }
 
     struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);
