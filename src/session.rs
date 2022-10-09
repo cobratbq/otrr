@@ -8,7 +8,7 @@ use crate::{
         self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
         MessageType, OTREncoder, SSID,
     },
-    fragment::{self, fragment, Assembler, FragmentError},
+    fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol::{self, Message},
     smp::{self, SMPStatus},
@@ -101,17 +101,21 @@ impl Account {
     // TODO check impact of receiving query: should not re-establish all active sessions (multiple instances)
     #[allow(clippy::too_many_lines)]
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
+        log::debug!("Processing incoming message ..");
         if !self.details.policy.contains(Policy::ALLOW_V3) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(UserMessage::Plaintext(Vec::from(payload)));
         }
         if fragment::match_fragment(payload) {
-            let fragment = match fragment::parse(payload) {
-                Some(fragment) => fragment,
-                None => return Ok(UserMessage::None),
+            log::debug!("Processing OTR fragment ..");
+            let fragment = if let Some(fragment) = fragment::parse(payload) {
+                fragment
+            } else {
+                log::debug!("Not a valid/supported fragment.");
+                return Ok(UserMessage::None);
             };
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
-            if fragment.receiver != self.details.tag {
+            if fragment.receiver != INSTANCE_ZERO && fragment.receiver != self.details.tag {
                 // NOTE: ignore instance tag ZERO as this is only relevant for OTRv2 and we do not
                 // support this.
                 return Err(OTRError::MessageForOtherInstance);
@@ -126,7 +130,7 @@ impl Account {
                     if fragment::match_fragment(&assembled) {
                         return Err(OTRError::ProtocolViolation("Assembled fragments lead to a fragment. This is disallowed by the specification."));
                     }
-                    self.receive(assembled.as_slice())
+                    self.receive(&assembled)
                 }
                 Err(FragmentError::IncompleteResult | FragmentError::UnexpectedFragment) => {
                     // We've received a message fragment, but not enough to reassemble a message, so
@@ -148,12 +152,14 @@ impl Account {
         // TODO can we handle possible errors produced here to reset whitespace_tagged, respond with OTR Error, etc?
         match encoding::parse(payload)? {
             MessageType::Error(error) => {
+                log::debug!("Processing OTR Error message ..");
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
                     self.query()?;
                 }
                 Ok(UserMessage::Error(error))
             }
             MessageType::Plaintext(content) => {
+                log::debug!("Processing plaintext message ..");
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
                     Ok(UserMessage::WarningUnencrypted(content))
                 } else {
@@ -161,6 +167,7 @@ impl Account {
                 }
             }
             MessageType::Tagged(versions, content) => {
+                log::debug!("Processing whitespace-tagged message ..");
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = select_version(&self.details.policy, &versions) {
                         self.initiate(&selected, INSTANCE_ZERO);
@@ -173,6 +180,7 @@ impl Account {
                 }
             }
             MessageType::Query(versions) => {
+                log::debug!("Processing query message ..");
                 if let Some(selected) = select_version(&self.details.policy, &versions) {
                     self.initiate(&selected, INSTANCE_ZERO);
                 }
@@ -186,6 +194,7 @@ impl Account {
                     message: EncodedMessageType::DHKey(_),
                 },
             ) => {
+                log::debug!("Processing OTR-encoded D-H Commit message (with possible need to transfer AKEContext) ..");
                 // When a DH-Commit message was sent with receiver tag ZERO, then we may receive
                 // any number of DH-Key messages in response. That is, a DH-Key message for each
                 // client of the account that receives the DH-Commit message. (Potentially even
@@ -212,6 +221,7 @@ impl Account {
                 instance.handle(msg)
             }
             MessageType::Encoded(msg) => {
+                log::debug!("Processing OTR-encoded message ..");
                 self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
@@ -365,9 +375,7 @@ impl Account {
         secret: &[u8],
         question: &[u8],
     ) -> Result<(), OTRError> {
-        let message = self.get_instance(instance)?.start_smp(secret, question)?;
-        self.host.inject(&message);
-        Ok(())
+        self.get_instance(instance)?.start_smp(secret, question)
     }
 
     /// `abort_smp` aborts an (in-progress) SMP session.
@@ -377,9 +385,7 @@ impl Account {
     /// Will return `OTRError` in case the specified instance is not a confidential session, i.e.
     /// encrypted OTR session, and on any violations of the OTR protocol.
     pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
-        let message = self.get_instance(instance)?.abort_smp()?;
-        self.host.inject(&message);
-        Ok(())
+        self.get_instance(instance)?.abort_smp()
     }
 
     /// `smp_ssid` returns the SSID used for verification in case of an established (encrypted) OTR
@@ -419,7 +425,7 @@ struct Instance {
     receiver: InstanceTag,
     details: Rc<AccountDetails>,
     host: Rc<dyn Host>,
-    assembler: Assembler,
+    assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
 }
@@ -434,7 +440,7 @@ impl Instance {
         Self {
             receiver,
             details,
-            assembler: Assembler::new(),
+            assembler: fragment::Assembler::new(),
             state: protocol::new_state(),
             ake: AKEContext::new(Rc::clone(&host)),
             host,
@@ -448,12 +454,7 @@ impl Instance {
     fn initiate(&mut self, version: &Version) -> UserMessage {
         assert_eq!(*version, Version::V3);
         let msg = self.ake.initiate();
-        self.host.inject(&encode_message(
-            self.ake.version(),
-            self.details.tag,
-            self.receiver,
-            msg,
-        ));
+        self.inject(self.ake.version(), msg);
         UserMessage::None
     }
 
@@ -474,24 +475,14 @@ impl Instance {
                 let response = self
                     .ake
                     .handle_dhcommit(msg).map_err(OTRError::AuthenticationError)?;
-                self.host.inject(&encode_message(
-                    self.ake.version(),
-                    self.details.tag,
-                    encoded_message.sender,
-                    response,
-                ));
+                self.inject(self.ake.version(), response);
                 Ok(UserMessage::None)
             }
             EncodedMessageType::DHKey(msg) => {
                 let response = self
                     .ake
                     .handle_dhkey(msg).map_err(OTRError::AuthenticationError)?;
-                self.host.inject(&encode_message(
-                    self.ake.version(),
-                    self.details.tag,
-                    encoded_message.sender,
-                    response,
-                ));
+                self.inject(self.ake.version(), response);
                 Ok(UserMessage::None)
             }
             EncodedMessageType::RevealSignature(msg) => {
@@ -500,12 +491,7 @@ impl Instance {
                     .handle_reveal_signature(msg).map_err(OTRError::AuthenticationError)?;
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
-                self.host.inject(&encode_message(
-                    self.ake.version(),
-                    self.details.tag,
-                    encoded_message.sender,
-                    response,
-                ));
+                self.inject(self.ake.version(), response);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::Signature(msg) => {
@@ -538,8 +524,7 @@ impl Instance {
                                     .write_byte(0)
                                     .write_tlv(reply_tlv)
                                     .to_vec())?;
-                            self.host.inject(&encode_message(self.state.version(),
-                                self.details.tag, self.receiver, otr_message));
+                            self.inject(self.state.version(), otr_message);
                         }
                         match self.state.smp().unwrap().status() {
                             SMPStatus::InProgress => Ok(UserMessage::None),
@@ -586,12 +571,7 @@ impl Instance {
             return UserMessage::None;
         }
         if let Some(msg) = abortmsg {
-            self.host.inject(&encode_message(
-                version,
-                self.details.tag,
-                self.receiver,
-                msg,
-            ));
+            self.inject(version, msg);
         }
         UserMessage::Reset(self.receiver)
     }
@@ -648,14 +628,14 @@ impl Instance {
             vec![payload]
         } else {
             // fragmentation is needed: send multiple fragments instead.
-            fragment(max_size, self.details.tag, self.receiver, &payload)
+            fragment::fragment(max_size, self.details.tag, self.receiver, &payload)
                 .iter()
                 .map(|f| OTREncoder::new().write_encodable(f).to_vec())
                 .collect()
         }
     }
 
-    fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<Vec<u8>, OTRError> {
+    fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<(), OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
         let tlv = self.state.smp_mut()?.initiate(secret, question)?;
@@ -663,19 +643,15 @@ impl Instance {
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
         )?;
-        Ok(encode_message(
-            self.state.version(),
-            self.details.tag,
-            self.receiver,
-            message,
-        ))
+        self.inject(self.state.version(), message);
+        Ok(())
     }
 
     fn smp_ssid(&self) -> Result<SSID, OTRError> {
         Ok(self.state.smp()?.ssid())
     }
 
-    fn abort_smp(&mut self) -> Result<Vec<u8>, OTRError> {
+    fn abort_smp(&mut self) -> Result<(), OTRError> {
         let smp = self.state.smp_mut();
         if smp.is_err() {
             return Err(OTRError::IncorrectState(
@@ -683,18 +659,30 @@ impl Instance {
             ));
         }
         let tlv = smp.unwrap().abort();
-        let message = encode_message(
-            self.state.version(),
-            self.details.tag,
-            self.receiver,
-            self.state
-                .prepare(
-                    MessageFlags::IGNORE_UNREADABLE,
-                    &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
-                )
-                .unwrap(),
-        );
-        Ok(message)
+        let msg = self
+            .state
+            .prepare(
+                MessageFlags::IGNORE_UNREADABLE,
+                &OTREncoder::new().write_byte(0).write_tlv(tlv).to_vec(),
+            )
+            .unwrap();
+        self.inject(self.state.version(), msg);
+        Ok(())
+    }
+
+    fn inject(&self, version: Version, message: EncodedMessageType) {
+        let content = encode_message(version, self.details.tag, self.receiver, message);
+        let max_size = self.host.message_size();
+        if content.len() <= max_size {
+            self.host.inject(&content);
+        } else {
+            for fragment in fragment::fragment(max_size, self.details.tag, self.receiver, &content)
+                .into_iter()
+                .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
+            {
+                self.host.inject(&fragment);
+            }
+        }
     }
 }
 
@@ -727,7 +715,8 @@ mod tests {
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
     use crate::{
-        crypto::DSA, instancetag::INSTANCE_ZERO, Host, Policy, ProtocolStatus, UserMessage,
+        crypto::DSA, instancetag::INSTANCE_ZERO, Host, OTRError, Policy, ProtocolStatus,
+        UserMessage,
     };
 
     use super::Account;
@@ -739,9 +728,14 @@ mod tests {
             .try_init();
     }
 
+    // TODO test to prove: multiple simultaneous instances
+    // TODO test with receiver tag in DH-Commit message. This will likely fail due to AKEContext transfer from instance 0.
+
     #[test]
     fn test_plaintext_conversation() {
         init();
+        // Communicate in plaintext with the OTR logic being involved. This demonstrates that
+        // plaintext messages can be sent regardless.
         let keypair_alice = DSA::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
@@ -750,9 +744,17 @@ mod tests {
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let host_alice: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
+        let host_alice: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_bob),
+            keypair_alice,
+            usize::MAX,
+        ));
         let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_alice),
+            keypair_bob,
+            usize::MAX,
+        ));
         let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
 
         messages_bob
@@ -768,6 +770,11 @@ mod tests {
     #[test]
     fn test_my_first_otr_session() {
         init();
+        // Verify that an OTR encrypted session can be established. Send messages to ensure
+        // communication is possible over this confidential session. One side ends the session while
+        // the other one continues communicating, to ensure that messages do not unintentionally
+        // pass through unencrypted. Finally, finalize the session on the other side to end up with
+        // two plaintext sessions, the same as we started with.
         let keypair_alice = DSA::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
@@ -776,9 +783,17 @@ mod tests {
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let host_alice: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice));
+        let host_alice: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_bob),
+            keypair_alice,
+            usize::MAX,
+        ));
         let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob));
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_alice),
+            keypair_bob,
+            usize::MAX,
+        ));
         let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
 
         alice.query().unwrap();
@@ -834,15 +849,108 @@ mod tests {
             Some(UserMessage::ConfidentialSessionFinished(_))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
+        assert!(matches!(
+            alice.send(tag_bob, b"Hey, wait up!!!"),
+            Err(OTRError::IncorrectState(_))
+        ));
         assert_eq!(Ok(UserMessage::Reset(tag_bob)), alice.end(tag_bob));
         assert_eq!(Some(ProtocolStatus::Plaintext), alice.status(tag_bob));
+        assert!(messages_bob.borrow().is_empty());
+        assert!(messages_alice.borrow().is_empty());
     }
 
-    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair);
+    #[test]
+    fn test_fragmented_otr_session() {
+        init();
+        // Verify that an OTR encrypted session can be established, even with need for
+        // fragmentation. Maximum message sizes allowed for communication are specific for each side
+        // to ensure that difference caused by length of user name, nickname, etc. are allowed.
+        // Send messages to ensure communication is possible over this confidential session. One
+        // side ends the session while the other one continues communicating, to ensure that
+        // messages do not unintentionally pass through unencrypted. Finally, finalize the session
+        // on the other side to end up with two plaintext sessions, the same as we started with.
+        let keypair_alice = DSA::Keypair::generate();
+        let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
+
+        let keypair_bob = DSA::Keypair::generate();
+        let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
+            Rc::new(RefCell::new(VecDeque::new()));
+
+        let host_alice: Rc<dyn Host> =
+            Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice, 50));
+        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob, 55));
+        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+
+        alice.query().unwrap();
+        assert_eq!(
+            None,
+            handle_messages("Alice", &mut messages_alice, &mut alice)
+        );
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
+        assert_eq!(
+            None,
+            handle_messages("Alice", &mut messages_alice, &mut alice)
+        );
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
+        let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
+        let tag_bob = match result {
+            UserMessage::ConfidentialSessionStarted(tag) => tag,
+            _ => panic!("BUG: expected confidential session to have started now."),
+        };
+        assert_eq!(Some(ProtocolStatus::Encrypted), alice.status(tag_bob));
+        messages_bob.borrow_mut().extend(
+            alice
+                .send(tag_bob, b"Hello Bob! Are we chatting confidentially now?")
+                .unwrap(),
+        );
+        let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
+        let tag_alice = match result {
+            UserMessage::ConfidentialSessionStarted(tag) => tag,
+            _ => panic!("BUG: expected confidential session to have started now."),
+        };
+        assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, &mut bob),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        messages_alice
+            .borrow_mut()
+            .extend(bob.send(tag_alice, b"Hi Alice! I think we are!").unwrap());
+        messages_alice
+            .borrow_mut()
+            .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
+        assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
+        assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::Confidential(_, _, _))
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, &mut alice),
+            Some(UserMessage::ConfidentialSessionFinished(_))
+        ));
+        assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
+        assert!(matches!(
+            alice.send(tag_bob, b"Hey, wait up!!!"),
+            Err(OTRError::IncorrectState(_))
+        ));
+        assert_eq!(Ok(UserMessage::Reset(tag_bob)), alice.end(tag_bob));
+        assert_eq!(Some(ProtocolStatus::Plaintext), alice.status(tag_bob));
+        assert!(messages_bob.borrow().is_empty());
+        assert!(messages_alice.borrow().is_empty());
+    }
+
+    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair, usize);
 
     impl Host for TestHost {
         fn message_size(&self) -> usize {
-            usize::MAX
+            self.2
         }
 
         fn inject(&self, message: &[u8]) {
@@ -891,7 +999,7 @@ mod tests {
                 println!("{}: confidential session started for instance {}", id, tag);
             }
             UserMessage::Confidential(tag, message, tlvs) => println!(
-                "{}: confidential message to {}: {} (TLVs: {:?})",
+                "{}: confidential message on {}: {} (TLVs: {:?})",
                 id,
                 tag,
                 std::str::from_utf8(message).unwrap(),

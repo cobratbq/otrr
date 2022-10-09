@@ -315,7 +315,6 @@ impl AKEContext {
                 );
                 log::trace!("X_B: {:?}", &x_b);
                 let mut decoder = OTRDecoder::new(&x_b);
-                // FIXME need to verify pub_b before use?
                 let pub_b = decoder
                     .read_public_key()
                     .or(Err(AKEError::MessageIncomplete(
