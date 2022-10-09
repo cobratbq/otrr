@@ -89,7 +89,7 @@ pub enum UserMessage {
 }
 
 /// `OTRError` is the enum containing the various errors that can occur.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),
