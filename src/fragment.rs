@@ -7,7 +7,7 @@ use regex::bytes::Regex;
 
 use crate::{
     encoding::OTREncodable,
-    instancetag::{verify_instance_tag, InstanceTag},
+    instancetag::{self, verify_instance_tag, InstanceTag},
     utils,
 };
 
@@ -20,7 +20,7 @@ const INDEX_FIRST_FRAGMENT: u16 = 1;
 // TODO for now, assumes that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
 static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([\?A-Za-z0-9:\.]+),",
+        r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
     )
     .unwrap()
 });
@@ -93,21 +93,23 @@ pub fn fragment(
         "Content must be larger than fragment size, otherwise content can be sent directly as-is."
     );
     let fragment_size: usize = max_size - OTRV3_HEADER_SIZE;
+    // TODO can we solve this more elegantly, i.e. without an if-expression?
+    let num_fragments = u16::try_from(content.len() / fragment_size).unwrap()
+        + if content.len() % fragment_size > 0 {
+            1
+        } else {
+            0
+        };
     let mut fragments = Vec::<Fragment>::new();
     for pos in (0..content.len()).step_by(fragment_size) {
         let payload = &content[pos..usize::min(pos + fragment_size, content.len())];
         fragments.push(Fragment {
             sender,
             receiver,
-            part: 0,
-            total: 0,
+            part: u16::try_from(fragments.len()).unwrap() + 1,
+            total: num_fragments,
             payload: Vec::from(payload),
         });
-    }
-    let total = fragments.len() as u16;
-    for (i, f) in fragments.iter_mut().enumerate() {
-        f.part = i as u16;
-        f.total = total;
     }
     fragments
 }
@@ -137,7 +139,7 @@ impl OTREncodable for Fragment {
         log::trace!("Fragment to encode: {:?}", &self);
         // ensure that the fragments we send are valid. (used to capture internal logic errors)
         assert_ne!(self.sender, 0);
-        assert_ne!(self.receiver, 0);
+        assert!(instancetag::verify_instance_tag(self.receiver).is_ok());
         assert_ne!(self.part, 0);
         assert_ne!(self.total, 0);
         assert!(self.part <= self.total);
@@ -362,5 +364,15 @@ mod tests {
         assert_eq!(1u16, f.part);
         assert_eq!(2u16, f.total);
         assert_eq!(b"?OTR:encoded.", f.payload.as_slice());
+    }
+
+    #[test]
+    fn test_parse_fragment_dont_be_stupid_you_know_base64_has_additional_characters() {
+        let f = parse(b"?OTR|7a38ec40|60b07b61,00026,00029,+/5b9OkBSaV3fsR=,").unwrap();
+        assert_eq!(0x7a38_ec40_u32, f.sender);
+        assert_eq!(0x60b0_7b61_u32, f.receiver);
+        assert_eq!(26u16, f.part);
+        assert_eq!(29u16, f.total);
+        assert_eq!(b"+/5b9OkBSaV3fsR=", f.payload.as_slice());
     }
 }
