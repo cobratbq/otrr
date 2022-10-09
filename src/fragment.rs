@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+use std::fmt::Debug;
+
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
@@ -118,8 +120,21 @@ pub struct Fragment {
     payload: Vec<u8>,
 }
 
+impl Debug for Fragment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fragment")
+            .field("sender", &self.sender)
+            .field("receiver", &self.receiver)
+            .field("part", &self.part)
+            .field("total", &self.total)
+            .field("payload", &std::str::from_utf8(&self.payload).unwrap())
+            .finish()
+    }
+}
+
 impl OTREncodable for Fragment {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        log::trace!("Fragment to encode: {:?}", &self);
         // ensure that the fragments we send are valid. (used to capture internal logic errors)
         assert_ne!(self.sender, 0);
         assert_ne!(self.receiver, 0);
