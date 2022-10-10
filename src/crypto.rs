@@ -185,6 +185,9 @@ pub mod OTR {
     }
 
     impl DataSecrets {
+        /// `derive` derives the secret key material used in Data messages.
+        ///
+        /// The parameter `secbytes` represents the `4+len` OTR-encoded bytes value `s`.
         pub fn derive(our_key: &BigUint, their_key: &BigUint, secbytes: &[u8]) -> DataSecrets {
             // testing keys for equality as this should be virtually impossible
             assert_ne!(our_key, their_key);
