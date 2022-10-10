@@ -218,7 +218,11 @@ pub enum FragmentError {
 
 #[cfg(test)]
 mod tests {
-    use super::{match_fragment, parse, verify, Fragment};
+    use std::cmp::Ordering;
+
+    use crate::{utils, encoding::OTREncoder};
+
+    use super::{fragment, match_fragment, parse, verify, Fragment};
 
     #[test]
     fn test_is_fragment_empty_string() {
@@ -374,5 +378,17 @@ mod tests {
         assert_eq!(26u16, f.part);
         assert_eq!(29u16, f.total);
         assert_eq!(b"+/5b9OkBSaV3fsR=", f.payload.as_slice());
+    }
+
+    #[test]
+    fn test_fragment_specified_test_case() {
+        const TESTCASE: &[u8;354] = b"?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8vjPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2ipkTtquknfx6HodLvk3RAAAAAA==.";
+        const FRAGMENT0: &[u8;199] = b"?OTR|5a73a599|27e31597,00001,00003,?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8v,";
+        const FRAGMENT1: &[u8;199] = b"?OTR|5a73a599|27e31597,00002,00003,jPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2i,";
+        const FRAGMENT2: &[u8;64] = b"?OTR|5a73a599|27e31597,00003,00003,pkTtquknfx6HodLvk3RAAAAAA==.,";
+        let result = fragment(199, 0x5a73_a599, 0x27e3_1597, TESTCASE);
+        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT0, &OTREncoder::new().write_encodable(&result[0]).to_vec()));
+        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT1, &OTREncoder::new().write_encodable(&result[1]).to_vec()));
+        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT2, &OTREncoder::new().write_encodable(&result[2]).to_vec()));
     }
 }
