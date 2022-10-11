@@ -5,6 +5,8 @@ use std::fmt::Debug;
 use once_cell::sync::Lazy;
 use ring::rand::SystemRandom;
 
+use crate::utils;
+
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 #[allow(non_snake_case)]
@@ -190,7 +192,11 @@ pub mod OTR {
         /// The parameter `secbytes` represents the `4+len` OTR-encoded bytes value `s`.
         pub fn derive(our_key: &BigUint, their_key: &BigUint, secbytes: &[u8]) -> DataSecrets {
             // testing keys for equality as this should be virtually impossible
-            assert_ne!(our_key, their_key);
+            assert!(
+                !core::ptr::eq(our_key, their_key),
+                "BUG: our_key and their_key parameters are same reference."
+            );
+            assert_ne!(our_key, their_key, "Deriving Data-message secrets with both provided public keys being exactly the same. This is highly unlikely.");
             let (sendbyte, recvbyte) = if our_key > their_key {
                 (1u8, 2u8)
             } else {
@@ -499,17 +505,23 @@ pub mod SHA256 {
 }
 
 pub mod constant {
-    use crate::utils;
-
-    use super::CryptoError;
+    use super::{verify_nonzero, CryptoError};
 
     pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
-        assert!(utils::bytes::any_nonzero(mac1));
-        assert!(utils::bytes::any_nonzero(mac2));
+        assert!(
+            !core::ptr::eq(mac1, mac2),
+            "BUG: mac1 and mac2 parameters are same reference"
+        );
+        verify_nonzero(mac1)?;
+        verify_nonzero(mac2)?;
         ring::constant_time::verify_slices_are_equal(mac1, mac2).or(Err(
             CryptoError::VerificationFailure("mac verification failed"),
         ))
     }
+}
+
+fn verify_nonzero(data: &[u8]) -> Result<(), CryptoError> {
+    utils::bytes::verify_nonzero(data, CryptoError::VerificationFailure("all zero-bytes"))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -629,7 +641,9 @@ mod tests {
 
     #[test]
     fn test_same_length_slices() {
-        constant::verify(b"Hello world", b"Hello world").unwrap();
+        let s1 = b"Hello world";
+        let s2 = *s1;
+        constant::verify(s1, &s2).unwrap();
     }
 
     #[test]

@@ -227,7 +227,7 @@ impl SMPContext {
         let D2 = mpis.pop().unwrap();
         let c2 = mpis.pop().unwrap();
         let g2a = mpis.pop().unwrap();
-        assert_eq!(mpis.len(), 0);
+        assert!(mpis.is_empty());
 
         DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
         DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
@@ -370,7 +370,7 @@ impl SMPContext {
         let c2 = mpis.pop().unwrap();
         // "`g2b`: Bob's half of the DH exchange to determine g2."
         let g2b = mpis.pop().unwrap();
-        assert_eq!(mpis.len(), 0);
+        assert!(mpis.is_empty());
 
         DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
         DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
@@ -514,7 +514,7 @@ impl SMPContext {
         let cP = mpis.pop().unwrap();
         let Qa = mpis.pop().unwrap();
         let Pa = mpis.pop().unwrap();
-        assert_eq!(mpis.len(), 0);
+        assert!(mpis.is_empty());
 
         DH::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
         DH::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
@@ -621,7 +621,7 @@ impl SMPContext {
         let D7 = mpis.pop().unwrap();
         let cR = mpis.pop().unwrap();
         let Rb = mpis.pop().unwrap();
-        assert_eq!(mpis.len(), 0);
+        assert!(mpis.is_empty());
 
         DH::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
 

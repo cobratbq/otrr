@@ -97,8 +97,6 @@ impl Account {
     /// Will panic on incorrect internal state or uses. It should not panic on any user input, as
     /// these are typically the chat network messages therefore out of the clients control.
     // REMARK fuzzing target
-    // TODO check impact of receiving error: cannot disconnect all established sessions (multiple instances)
-    // TODO check impact of receiving query: should not re-establish all active sessions (multiple instances)
     #[allow(clippy::too_many_lines)]
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         log::debug!("Processing incoming message ..");
@@ -466,6 +464,7 @@ impl Instance {
         self.ake = context;
     }
 
+    // TODO should established OTR sessions respond to query? (should not re-establish all active sessions, i.e. multiple instances)
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         // Given that we are processing an actual (OTR-)encoded message intended for this instance,
         // we should reset the assembler now.
@@ -503,7 +502,6 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::Data(msg) => {
-                // TODO verify and validate message (necessary?) before passing on to state.
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
@@ -584,9 +582,10 @@ impl Instance {
         let plaintext = utils::bytes::drop_by_value(plaintext, 0);
         match self.state.prepare(MessageFlags::empty(), &plaintext)? {
             EncodedMessageType::Unencoded(msg) => {
-                assert!(
-                    self.state.status() == ProtocolStatus::Plaintext,
-                    "BUG: received undefined message type in state {:?}",
+                assert_eq!(
+                    ProtocolStatus::Plaintext,
+                    self.state.status(),
+                    "BUG: received undefined message type in status {:?}",
                     self.state.status()
                 );
                 let versions = filter_versions(&self.details.policy, &SUPPORTED_VERSIONS);

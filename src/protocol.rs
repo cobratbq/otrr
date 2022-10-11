@@ -13,7 +13,7 @@ use crate::{
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
-    Host, OTRError, ProtocolStatus, TLVType, Version, utils,
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -245,17 +245,14 @@ impl EncryptedState {
 
     fn encrypt_message(&mut self, flags: MessageFlags, plaintext_message: &[u8]) -> DataMessage {
         let ctr = self.keys.take_counter();
-        assert!(utils::bytes::any_nonzero(&ctr));
         let (receiver_keyid, receiver_key) = self.keys.their_current();
         let (our_keyid, our_dh) = self.keys.current_keys();
         let next_dh = self.keys.next_keys().1.public.clone();
         let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        assert!(utils::bytes::any_nonzero(&secbytes));
         let secrets = OTR::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
         utils::slice::copy(&mut nonce, &ctr);
-        assert!(utils::bytes::any_nonzero(&nonce));
         let ciphertext = secrets
             .sender_crypt_key()
             .encrypt(&nonce, plaintext_message);
@@ -287,9 +284,11 @@ impl EncryptedState {
                 &data_message,
             ),
         );
-        assert!(utils::bytes::any_nonzero(&authenticator));
         data_message.authenticator = authenticator;
-
+        assert!(
+            utils::bytes::any_nonzero(&data_message.authenticator),
+            "BUG: authenticator is all zero-bytes. This is very unlikely."
+        );
         data_message
     }
 
@@ -323,7 +322,10 @@ impl EncryptedState {
         self.keys.verify_counter(&message.ctr)?;
         let mut nonce = [0u8; 16];
         utils::slice::copy(&mut nonce, &message.ctr);
-        assert!(utils::bytes::any_nonzero(&nonce));
+        utils::bytes::verify_nonzero(
+            &nonce,
+            OTRError::ProtocolViolation("Nonce contains all zero-bytes."),
+        )?;
         self.keys.acknowledge_ours(message.receiver_keyid)?;
         self.keys
             .register_their_key(message.sender_keyid + 1, message.dh_y.clone())?;

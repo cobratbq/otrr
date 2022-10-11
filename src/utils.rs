@@ -12,6 +12,14 @@ pub mod alloc {
 pub mod bytes {
     use std::cmp::Ordering;
 
+    pub fn verify_nonzero<E>(data: &[u8], error: E) -> Result<(), E> {
+        if any_nonzero(data) {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
     #[must_use]
     pub fn any_nonzero(data: &[u8]) -> bool {
         !all_zero(data)
@@ -63,7 +71,6 @@ pub mod biguint {
     use num_bigint::BigUint;
     use once_cell::sync::Lazy;
 
-    // TODO not sure that I am happy with this way of working. Would like to have constants, but that's not possible. For later consideration.
     pub static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
     pub static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
     pub static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
@@ -97,6 +104,7 @@ pub mod slice {
 }
 
 pub mod u32 {
+
     #[must_use]
     pub fn from_4byte_be(bytes: &[u8]) -> u32 {
         assert_eq!(bytes.len(), 4);
@@ -113,7 +121,14 @@ pub mod u32 {
             Some(value)
         }
     }
+
+    pub fn verify_nonzero<E>(value: u32, error: E) -> Result<(), E> {
+        if value == 0 {
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
 }
 
-pub mod ring {
-}
+pub mod ring {}

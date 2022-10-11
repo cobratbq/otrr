@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-// TODO re-check logic and remove assertions that verify user input, as this would crash the library on input data
 
 use std::rc::Rc;
 
@@ -9,7 +8,7 @@ use crate::{
         DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
         RevealSignatureMessage, SignatureMessage, SSID,
     },
-    log, Host, Version,
+    log, utils, Host, Version,
 };
 
 use num_bigint::BigUint;
@@ -317,11 +316,13 @@ impl AKEContext {
                 let pub_b = decoder.read_public_key().or(Err(AKEError::DataProcessing(
                     "Failed to read public key from X_B",
                 )))?;
-                log::trace!("Reading ...");
                 let keyid_b = decoder.read_int().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_B",
                 )))?;
-                assert_ne!(0, keyid_b);
+                utils::u32::verify_nonzero(
+                    keyid_b,
+                    AKEError::DataProcessing("keyid_b is zero, must be non-zero value"),
+                )?;
                 let sig_b = decoder.read_signature().or(Err(AKEError::DataProcessing(
                     "Failed to read signature from X_B",
                 )))?;
@@ -423,7 +424,10 @@ impl AKEContext {
                 let keyid_a = decoder.read_int().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_A",
                 )))?;
-                assert_ne!(0, keyid_a);
+                utils::u32::verify_nonzero(
+                    keyid_a,
+                    AKEError::DataProcessing("keyid_a is zero, must be a non-zero value"),
+                )?;
                 let sig_m_a = decoder.read_signature().or(Err(AKEError::DataProcessing(
                     "Failed to read signature from X_A",
                 )))?;

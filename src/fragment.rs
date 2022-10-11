@@ -17,10 +17,20 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
-// TODO for now, assumes that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
+/// OTR: "Start with the OTR message as you would normally transmit it. Break it up into
+/// sufficiently small pieces. Let the number of pieces be (`n`), and the pieces be `piece[1]`,
+/// `piece[2]`,`...`,`piece[n]`. Transmit (`n`) OTR version 3 fragmented messages with the following
+/// (printf-like) structure (as `k` runs from `1` to `n` inclusive):
+/// 
+/// > `"?OTR|%x|%x,%hu,%hu,%s," , sender_instance, receiver_instance, k , n , piece[k]`
+/// 
+/// Note that `k` and `n` are unsigned short ints (`2` bytes), and each has a maximum value of
+/// `65535`. Also, each `piece[k]` must be non-empty. The instance tags (if applicable) and the `k`
+/// and `n` values may have leading zeroes.
+// FIXME for now, assumes that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
 static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"\?OTR\|([0-9a-fA-F]{8,8})\|([0-9a-fA-F]{8,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
+        r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
     )
     .unwrap()
 });
@@ -86,11 +96,11 @@ pub fn fragment(
     const OTRV3_HEADER_SIZE: usize = 36;
     assert!(
         max_size > OTRV3_HEADER_SIZE,
-        "BUG: Maximum allowed fragment size must be larger than overhead necessary for fragmentation."
+        "BUG: Maximum allowed fragment size must be larger than the overhead necessary for fragmentation."
     );
     assert!(
         content.len() > max_size,
-        "Content must be larger than fragment size, otherwise content can be sent directly as-is."
+        "Content must be larger than fragment size, otherwise content can be sent as-is."
     );
     let fragment_size: usize = max_size - OTRV3_HEADER_SIZE;
     // TODO can we solve this more elegantly, i.e. without an if-expression?
@@ -138,6 +148,7 @@ impl OTREncodable for Fragment {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
         log::trace!("Fragment to encode: {:?}", &self);
         // ensure that the fragments we send are valid. (used to capture internal logic errors)
+        assert!(instancetag::verify_instance_tag(self.sender).is_ok());
         assert_ne!(self.sender, 0);
         assert!(instancetag::verify_instance_tag(self.receiver).is_ok());
         assert_ne!(self.part, 0);
@@ -375,6 +386,16 @@ mod tests {
         let f = parse(b"?OTR|7a38ec40|60b07b61,00026,00029,+/5b9OkBSaV3fsR=,").unwrap();
         assert_eq!(0x7a38_ec40_u32, f.sender);
         assert_eq!(0x60b0_7b61_u32, f.receiver);
+        assert_eq!(26u16, f.part);
+        assert_eq!(29u16, f.total);
+        assert_eq!(b"+/5b9OkBSaV3fsR=", f.payload.as_slice());
+    }
+
+    #[test]
+    fn test_parse_fragment_with_smaller_instance_tags() {
+        let f = parse(b"?OTR|ec40|61,26,29,+/5b9OkBSaV3fsR=,").unwrap();
+        assert_eq!(0x0000_ec40_u32, f.sender);
+        assert_eq!(0x0000_0061_u32, f.receiver);
         assert_eq!(26u16, f.part);
         assert_eq!(29u16, f.total);
         assert_eq!(b"+/5b9OkBSaV3fsR=", f.payload.as_slice());
