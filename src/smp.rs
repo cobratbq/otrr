@@ -55,6 +55,7 @@ impl Drop for SMPContext {
     }
 }
 
+// TODO improve on the extra addition of `q` that is now used to avoid negative values? (All D# values)
 #[allow(non_snake_case)]
 impl SMPContext {
     pub fn new(host: Rc<dyn Host>, ssid: SSID, their_fingerprint: Fingerprint) -> Self {
@@ -103,10 +104,8 @@ impl SMPContext {
 
         let (r2, r3) = (random(), random());
         let c2 = hash_1_mpi(1, &g1.modpow(&r2, MOD));
-        // FIXME can we add `q` to avoid negative values?
         let D2 = (&r2 + q - (&a2 * &c2).mod_floor(q)).mod_floor(q);
         let c3 = hash_1_mpi(2, &g1.modpow(&r3, MOD));
-        // FIXME can we add `q` to avoid negative values?
         let D3 = (&r3 + q - (&a3 * &c3).mod_floor(q)).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
@@ -283,12 +282,10 @@ impl SMPContext {
         // values are calculated modulo `q = (p - 1) / 2`, where `p` is the same 1536-bit prime as
         // elsewhere. The random exponents are 1536-bit numbers."
         let c2 = hash_1_mpi(3, &g1.modpow(&r2, MOD));
-        // FIXME can we add `q` to avoid negative values?
         let D2 = (&r2 + q - (&b2 * &c2).mod_floor(q)).mod_floor(q);
         // "6. Generate a zero-knowledge proof that the exponent b3 is known by setting
         // `c3 = SHA256(4, g1r3)` and `D3 = r3 - b3 c3 mod q`."
         let c3 = hash_1_mpi(4, &g1.modpow(&r3, MOD));
-        // FIXME can we add `q` to avoid negative values?
         let D3 = (&r3 + q - (&b3 * &c3).mod_floor(q)).mod_floor(q);
         // "7. Compute `g2 = g2ab2` and `g3 = g3ab3`"
         let g2 = g2a.modpow(&b2, MOD);
@@ -304,9 +301,7 @@ impl SMPContext {
             &g3.modpow(&r5, MOD),
             &(g1.modpow(&r5, MOD) * g2.modpow(&r6, MOD)).mod_floor(MOD),
         );
-        // FIXME can we add `q` to avoid negative values?
         let D5 = (&r5 + q - (&r4 * &cP).mod_floor(q)).mod_floor(q);
-        // FIXME can we add `q` to avoid negative values?
         let D6 = (&r6 + q - (&y * &cP).mod_floor(q)).mod_floor(q);
 
         let payload = OTREncoder::new()
@@ -433,10 +428,8 @@ impl SMPContext {
             &(&g1.modpow(&r5, MOD) * &g2.modpow(&r6, MOD)).mod_floor(MOD),
         );
         // "... `D5 = r5 - r4 cP mod q`, and ..."
-        // FIXME can we add `q` to avoid negative values?
         let D5 = (&r5 + q - (&r4 * &cP).mod_floor(q)).mod_floor(q);
         // "... `D6 = r6 - x cP mod q`."
-        // FIXME can we add `q` to avoid negative values?
         let D6 = (&r6 + q - (&x * &cP).mod_floor(q)).mod_floor(q);
         // "Compute `Ra = (Qa / Qb) a3`"
         let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
@@ -445,7 +438,6 @@ impl SMPContext {
         //  setting `cR = SHA256(7, g1r7, (Qa / Qb)r7)` and ..."
         let cR = hash_2_mpi(7, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
         // "... `D7 = r7 - a3 cR mod q`."
-        // FIXME can we add `q` to avoid negative values?
         let D7 = (&r7 + q - (&a3 * &cR).mod_floor(q)).mod_floor(q);
         /*
            Store the values of g3b, (Pa / Pb), (Qa / Qb) and a3 for use later in the protocol.
@@ -565,7 +557,6 @@ impl SMPContext {
         // Generate a zero-knowledge proof that Rb was created according to the protocol by setting
         // cR = SHA256(8, g1r7, (Qa / Qb)r7) and D7 = r7 - b3 cR mod q.
         let cR = hash_2_mpi(8, &g1.modpow(&r7, MOD), &QadivQb.modpow(&r7, MOD));
-        // FIXME can we add `q` to avoid negative values?
         let D7 = (&r7 + q - (&b3 * &cR).mod_floor(q)).mod_floor(q);
 
         // Check whether the protocol was successful:
