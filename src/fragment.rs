@@ -21,13 +21,12 @@ const INDEX_FIRST_FRAGMENT: u16 = 1;
 /// sufficiently small pieces. Let the number of pieces be (`n`), and the pieces be `piece[1]`,
 /// `piece[2]`,`...`,`piece[n]`. Transmit (`n`) OTR version 3 fragmented messages with the following
 /// (printf-like) structure (as `k` runs from `1` to `n` inclusive):
-/// 
+///
 /// > `"?OTR|%x|%x,%hu,%hu,%s," , sender_instance, receiver_instance, k , n , piece[k]`
-/// 
+///
 /// Note that `k` and `n` are unsigned short ints (`2` bytes), and each has a maximum value of
 /// `65535`. Also, each `piece[k]` must be non-empty. The instance tags (if applicable) and the `k`
 /// and `n` values may have leading zeroes.
-// FIXME for now, assumes that instance tag is always fully represented, i.e. all 32 bits = 8 hexadecimals.
 static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
@@ -42,12 +41,14 @@ pub fn match_fragment(content: &[u8]) -> bool {
         && content.ends_with(OTR_FRAGMENT_SUFFIX)
 }
 
-/// `parse` parses fragments. Only the `OTRv3` fragment pattern is supported. `OTRv2` fragments will not
-/// match, therefore result in a `None` result.
+/// `parse` parses fragments. Only the `OTRv3` fragment pattern is supported. `OTRv2` fragments will
+/// not match, therefore result in a `None` result.
 pub fn parse(content: &[u8]) -> Option<Fragment> {
     let captures = FRAGMENT_PATTERN.captures(content)?;
-    let sender_bytes = hex::decode(captures.get(1).unwrap().as_bytes()).unwrap();
-    let receiver_bytes = hex::decode(captures.get(2).unwrap().as_bytes()).unwrap();
+    let sender_bytes =
+        hex::decode(&as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
+    let receiver_bytes =
+        hex::decode(&as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
     return Some(Fragment {
@@ -63,6 +64,12 @@ pub fn parse(content: &[u8]) -> Option<Fragment> {
             .unwrap(),
         payload: Vec::from(captures.get(5).unwrap().as_bytes()),
     });
+}
+
+fn as_sized_hexarray<const N: usize>(data: &[u8]) -> [u8; N] {
+    let mut result = [b'0'; N];
+    result[N - data.len()..].copy_from_slice(data);
+    result
 }
 
 pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
@@ -231,132 +238,66 @@ pub enum FragmentError {
 mod tests {
     use std::cmp::Ordering;
 
-    use crate::{utils, encoding::OTREncoder};
+    use crate::{encoding::OTREncoder, utils};
 
     use super::{fragment, match_fragment, parse, verify, Fragment};
 
     #[test]
-    fn test_is_fragment_empty_string() {
+    fn test_match_fragment() {
         assert!(!match_fragment(b""));
-    }
-
-    #[test]
-    fn test_is_fragment_arbitrary_string() {
         assert!(!match_fragment(b"fda6s7d8g6sa78f76ewaf687e"));
-    }
-
-    #[test]
-    fn test_is_fragment_otrv2_fragment() {
         assert!(match_fragment(b"?OTR,"));
-    }
-
-    #[test]
-    fn test_is_fragment_otrv3_fragment_incomplete() {
         assert!(!match_fragment(b"?OTR|"));
-    }
-
-    #[test]
-    fn test_is_fragment_otrv3_fragment() {
         assert!(match_fragment(b"?OTR|,"));
-    }
-
-    #[test]
-    fn test_is_fragment_otr_partly_arbitrary() {
         assert!(!match_fragment(b"?OTRsomethingrandom,"));
-    }
-
-    #[test]
-    fn test_is_fragment_otr_encoded() {
         assert!(!match_fragment(b"?OTR:."));
-    }
-
-    #[test]
-    fn test_is_fragment_otr_encoded_mixed() {
         assert!(!match_fragment(b"?OTR:,"));
     }
 
     #[test]
-    fn test_verify_fragment_zero() {
-        let f = Fragment {
-            sender: 0,
-            receiver: 0,
-            total: 0,
-            part: 0,
-            payload: Vec::new(),
-        };
-        assert!(verify(&f).is_err());
-    }
-
-    #[test]
-    fn test_verify_fragment_correct() {
-        let f = Fragment {
+    fn test_verify_fragments() {
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 1,
             payload: Vec::from("Hello"),
-        };
-        assert!(verify(&f).is_ok());
-    }
-
-    #[test]
-    fn test_verify_fragment_zero_part() {
-        let f = Fragment {
+        }).is_ok());
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 0,
             payload: Vec::from("Hello"),
-        };
-        assert!(verify(&f).is_err());
-    }
-
-    #[test]
-    fn test_verify_fragment_zero_total() {
-        let f = Fragment {
+        }).is_err());
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 0,
             part: 1,
             payload: Vec::from("Hello"),
-        };
-        assert!(verify(&f).is_err());
-    }
-
-    #[test]
-    fn test_verify_fragment_empty_payload() {
-        let f = Fragment {
+        }).is_err());
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 1,
             payload: Vec::new(),
-        };
-        assert!(verify(&f).is_err());
-    }
-
-    #[test]
-    fn test_verify_fragment_part_larger_total() {
-        let f = Fragment {
+        }).is_err());
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 2,
             payload: Vec::from("Hello"),
-        };
-        assert!(verify(&f).is_err());
-    }
-
-    #[test]
-    fn test_verify_fragment_last_part() {
-        let f = Fragment {
+        }).is_err());
+        assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 11,
             part: 11,
             payload: Vec::from("Hello"),
-        };
-        assert!(verify(&f).is_ok());
+        }).is_ok());
     }
 
     #[test]
@@ -392,13 +333,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fragment_with_smaller_instance_tags() {
-        let f = parse(b"?OTR|ec40|61,26,29,+/5b9OkBSaV3fsR=,").unwrap();
+    fn test_parse_fragment_with_shorter_instance_tags_and_part_data() {
+        let f = parse(b"?OTR|ec40|161,26,29,ab5b9OkBSaV3fsR=,").unwrap();
         assert_eq!(0x0000_ec40_u32, f.sender);
-        assert_eq!(0x0000_0061_u32, f.receiver);
+        assert_eq!(0x0000_0161_u32, f.receiver);
         assert_eq!(26u16, f.part);
         assert_eq!(29u16, f.total);
-        assert_eq!(b"+/5b9OkBSaV3fsR=", f.payload.as_slice());
+        assert_eq!(b"ab5b9OkBSaV3fsR=", f.payload.as_slice());
     }
 
     #[test]
@@ -406,10 +347,29 @@ mod tests {
         const TESTCASE: &[u8;354] = b"?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8vjPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2ipkTtquknfx6HodLvk3RAAAAAA==.";
         const FRAGMENT0: &[u8;199] = b"?OTR|5a73a599|27e31597,00001,00003,?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8v,";
         const FRAGMENT1: &[u8;199] = b"?OTR|5a73a599|27e31597,00002,00003,jPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2i,";
-        const FRAGMENT2: &[u8;64] = b"?OTR|5a73a599|27e31597,00003,00003,pkTtquknfx6HodLvk3RAAAAAA==.,";
+        const FRAGMENT2: &[u8; 64] =
+            b"?OTR|5a73a599|27e31597,00003,00003,pkTtquknfx6HodLvk3RAAAAAA==.,";
         let result = fragment(199, 0x5a73_a599, 0x27e3_1597, TESTCASE);
-        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT0, &OTREncoder::new().write_encodable(&result[0]).to_vec()));
-        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT1, &OTREncoder::new().write_encodable(&result[1]).to_vec()));
-        assert_eq!(Ordering::Equal, utils::bytes::cmp(FRAGMENT2, &OTREncoder::new().write_encodable(&result[2]).to_vec()));
+        assert_eq!(
+            Ordering::Equal,
+            utils::bytes::cmp(
+                FRAGMENT0,
+                &OTREncoder::new().write_encodable(&result[0]).to_vec()
+            )
+        );
+        assert_eq!(
+            Ordering::Equal,
+            utils::bytes::cmp(
+                FRAGMENT1,
+                &OTREncoder::new().write_encodable(&result[1]).to_vec()
+            )
+        );
+        assert_eq!(
+            Ordering::Equal,
+            utils::bytes::cmp(
+                FRAGMENT2,
+                &OTREncoder::new().write_encodable(&result[2]).to_vec()
+            )
+        );
     }
 }
