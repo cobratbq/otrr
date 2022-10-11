@@ -195,7 +195,7 @@ impl ProtocolState for EncryptedState {
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         let plaintext = OTREncoder::new()
             .write_byte(0)
-            .write_tlv(TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
+            .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
         let optabort = Some(EncodedMessageType::Data(
             self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
@@ -343,6 +343,7 @@ fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
         .into_iter()
         .filter(|t| t.0 != TLV_TYPE_0_PADDING)
         .collect();
+    decoder.done()?;
     if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
         log::debug!("Received confidential message with type 1 TLV (DISCONNECT)");
         // TODO if the TLV-1-DISCONNECT is contained in an actual user message, then this user content is lost.

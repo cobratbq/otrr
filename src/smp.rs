@@ -220,6 +220,7 @@ impl SMPContext {
                 "Unexpected number of MPI values in SMP message 1 TLV",
             ));
         }
+        decoder.done()?;
         let D3 = mpis.pop().unwrap();
         let c3 = mpis.pop().unwrap();
         let g3a = mpis.pop().unwrap();

@@ -53,6 +53,7 @@ pub mod session;
 // TODO review all zeroing, trait drop::Drop
 // TODO review need for constant-time handling (e.g. comparisons)
 // TODO whitespace-tag is now placed at the beginning of the message. Better location?
+// TODO hunt for variables that could be defined `const`.
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.

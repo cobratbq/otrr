@@ -278,7 +278,7 @@ impl AKEContext {
                 let gxmpi = msg.key.decrypt(
                     &[0; 16],
                     &OTRDecoder::new(&state.gx_encrypted).read_data().or(Err(
-                        AKEError::MessageIncomplete("Failed to read data from gx_encrypted"),
+                        AKEError::DataProcessing("Failed to read data from gx_encrypted"),
                     ))?,
                 );
                 let gxmpihash = SHA256::digest(&gxmpi);
@@ -287,12 +287,11 @@ impl AKEContext {
                 log::debug!("gxmpi verified: correct");
 
                 // Verify acquired g^x value.
-                let gx =
-                    OTRDecoder::new(&gxmpi)
-                        .read_mpi()
-                        .or(Err(AKEError::MessageIncomplete(
-                            "Failed to read MPI from gxmpi",
-                        )))?;
+                let gx = OTRDecoder::new(&gxmpi)
+                    .read_mpi()
+                    .or(Err(AKEError::DataProcessing(
+                        "Failed to read MPI from gxmpi",
+                    )))?;
                 DH::verify_public_key(&gx).map_err(AKEError::CryptographicViolation)?;
                 log::debug!("gx verified: correct");
 
@@ -309,27 +308,23 @@ impl AKEContext {
                     &[0; 16],
                     &OTRDecoder::new(&msg.signature_encrypted)
                         .read_data()
-                        .or(Err(AKEError::MessageIncomplete(
+                        .or(Err(AKEError::DataProcessing(
                             "Failed to read data from signature_encrypted",
                         )))?,
                 );
                 log::trace!("X_B: {:?}", &x_b);
                 let mut decoder = OTRDecoder::new(&x_b);
-                let pub_b = decoder
-                    .read_public_key()
-                    .or(Err(AKEError::MessageIncomplete(
-                        "Failed to read public key from X_B",
-                    )))?;
+                let pub_b = decoder.read_public_key().or(Err(AKEError::DataProcessing(
+                    "Failed to read public key from X_B",
+                )))?;
                 log::trace!("Reading ...");
-                let keyid_b = decoder.read_int().or(Err(AKEError::MessageIncomplete(
+                let keyid_b = decoder.read_int().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_B",
                 )))?;
                 assert_ne!(0, keyid_b);
-                let sig_b = decoder
-                    .read_signature()
-                    .or(Err(AKEError::MessageIncomplete(
-                        "Failed to read signature from X_B",
-                    )))?;
+                let sig_b = decoder.read_signature().or(Err(AKEError::DataProcessing(
+                    "Failed to read signature from X_B",
+                )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
                 let m_b = SHA256::hmac(
                     &secrets.m1,
@@ -422,20 +417,19 @@ impl AKEContext {
                 let x_a = secrets.cp.decrypt(&[0; 16], &signature_encrypted);
                 log::debug!("X_A decrypted.");
                 let mut decoder = OTRDecoder::new(&x_a);
-                let pub_a = decoder
-                    .read_public_key()
-                    .or(Err(AKEError::MessageIncomplete(
-                        "Failed to read public key from X_A",
-                    )))?;
-                let keyid_a = decoder.read_int().or(Err(AKEError::MessageIncomplete(
+                let pub_a = decoder.read_public_key().or(Err(AKEError::DataProcessing(
+                    "Failed to read public key from X_A",
+                )))?;
+                let keyid_a = decoder.read_int().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_A",
                 )))?;
                 assert_ne!(0, keyid_a);
-                let sig_m_a = decoder
-                    .read_signature()
-                    .or(Err(AKEError::MessageIncomplete(
-                        "Failed to read signature from X_A",
-                    )))?;
+                let sig_m_a = decoder.read_signature().or(Err(AKEError::DataProcessing(
+                    "Failed to read signature from X_A",
+                )))?;
+                decoder
+                    .done()
+                    .or(Err(AKEError::DataProcessing("data left over in buffer")))?;
                 let m_a = SHA256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
@@ -515,8 +509,9 @@ pub enum AKEError {
     CryptographicViolation(CryptoError),
     /// AKE message ignored due to it arriving in violation of protocol.
     MessageIgnored,
-    /// AKE message is incomplete. Errors were encountered while reading out message components.
-    MessageIncomplete(&'static str),
+    /// AKE message input is incomplete or otherwise non-conforming. Errors were encountered while
+    /// reading out message components.
+    DataProcessing(&'static str),
     /// AKE completed and no response message is produced/necessary.
     Completed,
     // Incorrect AKE state for message to be handled.

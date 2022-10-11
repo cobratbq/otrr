@@ -484,8 +484,19 @@ fn encode_version(version: &Version) -> u16 {
     }
 }
 
-// TODO consider adding 'done' function to indicate/verify end of input stream
 pub struct OTRDecoder<'a>(&'a [u8]);
+
+impl Drop for OTRDecoder<'_> {
+    fn drop(&mut self) {
+        if !self.0.is_empty() {
+            // After having finished using the OTRDecoder, verify that the buffer is fully drained.
+            // If the buffer is not fully drained, this may indicate that somewhere in the
+            // implementation we went wrong, resulting in incomplete work. Or, alternatively, the
+            // input data, that originated from the other party, does not confirm to the protocol.
+            log::warn!("unread bytes remaining in buffer");
+        }
+    }
+}
 
 /// `OTRDecoder` contains the logic for reading entries from byte-buffer.
 ///
@@ -668,6 +679,16 @@ impl<'a> OTRDecoder<'a> {
         self.0 = &self.0[self.0.len()..];
         bytes
     }
+
+    /// `done` can be used to express the end of decoding. The instance is consumed.
+    /// NOTE during clean-up we verify if the buffer is fully drained.
+    pub fn done(self) -> Result<(), OTRError> {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(OTRError::ProtocolViolation("data remaining in buffer"))
+        }
+    }
 }
 
 pub trait OTREncodable {
@@ -779,10 +800,10 @@ impl OTREncoder {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    pub fn write_tlv(&mut self, tlv: TLV) -> &mut Self {
+    pub fn write_tlv(&mut self, tlv: &TLV) -> &mut Self {
         assert!(u16::try_from(tlv.1.len()).is_ok());
         self.write_short(tlv.0).write_short(tlv.1.len() as u16);
-        self.buffer.extend(tlv.1);
+        self.buffer.extend(&tlv.1);
         self
     }
 
@@ -827,3 +848,84 @@ pub type SSID = [u8; SSID_LEN];
 #[derive(Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct TLV(pub TLVType, pub Vec<u8>);
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use num_bigint::BigUint;
+
+    use crate::{utils, encoding::TLV};
+
+    use super::{OTRDecoder, OTREncoder};
+
+    #[test]
+    fn test_consume_empty() {
+        OTRDecoder::new(&[]).done().unwrap();
+    }
+
+    #[test]
+    fn test_read_all_data_types_from_empty_buffer() {
+        // This is a poor man's boundary test, as we don't try the actual boundary with only 1 byte
+        // of data short, but at least it is something.
+        let mut decoder = OTRDecoder::new(&[]);
+        assert!(decoder.read_byte().is_err());
+        assert!(decoder.read_bytes_null_terminated().is_empty());
+        assert!(decoder.read_ctr().is_err());
+        assert!(decoder.read_data().is_err());
+        assert!(decoder.read_instance_tag().is_err());
+        assert!(decoder.read_int().is_err());
+        assert!(decoder.read_mac().is_err());
+        assert!(decoder.read_mpi().is_err());
+        assert!(decoder.read_mpi_sequence().is_err());
+        assert!(decoder.read_public_key().is_err());
+        assert!(decoder.read_short().is_err());
+        assert!(decoder.read_signature().is_err());
+        assert!(decoder.read_tlv().is_err());
+        assert!(decoder.read_tlvs().unwrap().is_empty());
+        assert!(decoder.done().is_ok());
+    }
+
+    #[test]
+    fn test_consume_partial_buffer() {
+        assert!(OTRDecoder::new(b"Hello world").done().is_err());
+    }
+
+    #[test]
+    fn test_decode_encoded_static_case_1() {
+        let tlv = TLV(666, Vec::from("This is content of the TLV payload"));
+        let mpi = BigUint::from(123_456_789_009_876_543_211_234_567_890_u128);
+        let buffer = OTREncoder::new()
+            .write_byte(12)
+            .write_short(666)
+            .write_int(99999)
+            .write_ctr(&[7u8; 8])
+            .write_bytes_null_terminated(b"Hello world, how are you today?")
+            .write_data(b"Another string of data, this time stored using the DATA format")
+            .write_tlv(&tlv)
+            .write_mpi(&mpi)
+            .to_vec();
+        let mut decoder = OTRDecoder::new(&buffer);
+        assert_eq!(12, decoder.read_byte().unwrap());
+        assert_eq!(666, decoder.read_short().unwrap());
+        assert_eq!(99999, decoder.read_int().unwrap());
+        assert_eq!([7u8; 8], decoder.read_ctr().unwrap());
+        assert_eq!(
+            Ordering::Equal,
+            utils::bytes::cmp(
+                b"Hello world, how are you today?",
+                &decoder.read_bytes_null_terminated()
+            )
+        );
+        assert_eq!(
+            Ordering::Equal,
+            utils::bytes::cmp(
+                b"Another string of data, this time stored using the DATA format",
+                &decoder.read_data().unwrap()
+            )
+        );
+        assert_eq!(&tlv, &decoder.read_tlv().unwrap());
+        assert_eq!(&mpi, &decoder.read_mpi().unwrap());
+        decoder.done().unwrap();
+    }
+}
