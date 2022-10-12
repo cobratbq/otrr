@@ -841,10 +841,6 @@ pub type MAC = [u8; MAC_LEN];
 pub const FINGERPRINT_LEN: usize = 20;
 pub type Fingerprint = [u8; FINGERPRINT_LEN];
 
-const SSID_LEN: usize = 8;
-#[allow(clippy::upper_case_acronyms)]
-pub type SSID = [u8; SSID_LEN];
-
 #[derive(Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct TLV(pub TLVType, pub Vec<u8>);

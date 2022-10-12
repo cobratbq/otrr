@@ -54,7 +54,7 @@ pub mod session;
 // TODO review need for constant-time handling (e.g. comparisons)
 // TODO whitespace-tag is now placed at the beginning of the message. Better location?
 // TODO hunt for variables that could be defined `const`.
-// TODO handle stack-unwinding originating in client function implementations of `crate::Host`
+// TODO consider using something like a NonZeroU16 trait for certain datatypes to enforce correct logic.
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.
@@ -83,7 +83,7 @@ pub enum UserMessage {
     Confidential(InstanceTag, Vec<u8>, Vec<TLV>),
     /// Confidential session ended, transitioned to "finished" state. (Session ended by other
     /// party.)
-    ConfidentialSessionFinished(InstanceTag),
+    ConfidentialSessionFinished(InstanceTag, Vec<u8>),
     /// SMP process succeeded, signaling the client that authenticity is verified.
     SMPSucceeded(InstanceTag),
     /// SMP process failed, signaling the client that some final concluion was reached.
@@ -175,6 +175,9 @@ bitflags! {
 
 /// `TLV_TYPE` is an alias for an u16 value. The values are not restricted. Therefore define the type.
 pub type TLVType = u16;
+
+#[allow(clippy::upper_case_acronyms)]
+pub type SSID = [u8; 8];
 
 /// Host represents the interface to the host application, for calling back into the messaging
 /// client.

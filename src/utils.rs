@@ -103,6 +103,31 @@ pub mod slice {
     }
 }
 
+pub mod usize {
+
+    #[must_use]
+    pub fn signum(v: usize) -> usize {
+        if v == 0 {
+            0
+        } else {
+            1
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::signum;
+
+        #[test]
+        fn test_signum() {
+            assert_eq!(0, signum(0));
+            assert_eq!(1, signum(1));
+            assert_eq!(1, signum(99));
+            assert_eq!(1, signum(666));
+        }
+    }
+}
+
 pub mod u32 {
 
     #[must_use]

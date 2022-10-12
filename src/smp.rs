@@ -9,8 +9,8 @@ use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::{
     crypto::{CryptoError, DH, OTR, SHA256},
-    encoding::{Fingerprint, OTRDecoder, OTREncoder, SSID},
-    Host, OTRError, TLVType, TLV,
+    encoding::{Fingerprint, OTRDecoder, OTREncoder},
+    Host, OTRError, TLVType, TLV, SSID,
 };
 
 pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
@@ -740,9 +740,8 @@ mod tests {
 
     use crate::{
         crypto::{DSA, OTR},
-        encoding::SSID,
         smp::SMPStatus,
-        Host,
+        Host, SSID,
     };
 
     use super::SMPContext;

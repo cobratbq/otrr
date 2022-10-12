@@ -110,13 +110,10 @@ pub fn fragment(
         "Content must be larger than fragment size, otherwise content can be sent as-is."
     );
     let fragment_size: usize = max_size - OTRV3_HEADER_SIZE;
-    // TODO can we solve this more elegantly, i.e. without an if-expression?
-    let num_fragments = u16::try_from(content.len() / fragment_size).unwrap()
-        + if content.len() % fragment_size > 0 {
-            1
-        } else {
-            0
-        };
+    let num_fragments = u16::try_from(
+        content.len() / fragment_size + utils::usize::signum(content.len() % fragment_size),
+    )
+    .unwrap();
     let mut fragments = Vec::<Fragment>::new();
     for pos in (0..content.len()).step_by(fragment_size) {
         let payload = &content[pos..usize::min(pos + fragment_size, content.len())];
@@ -262,42 +259,48 @@ mod tests {
             total: 1,
             part: 1,
             payload: Vec::from("Hello"),
-        }).is_ok());
+        })
+        .is_ok());
         assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 0,
             payload: Vec::from("Hello"),
-        }).is_err());
+        })
+        .is_err());
         assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 0,
             part: 1,
             payload: Vec::from("Hello"),
-        }).is_err());
+        })
+        .is_err());
         assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 1,
             payload: Vec::new(),
-        }).is_err());
+        })
+        .is_err());
         assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 1,
             part: 2,
             payload: Vec::from("Hello"),
-        }).is_err());
+        })
+        .is_err());
         assert!(verify(&Fragment {
             sender: 256,
             receiver: 256,
             total: 11,
             part: 11,
             payload: Vec::from("Hello"),
-        }).is_ok());
+        })
+        .is_ok());
     }
 
     #[test]

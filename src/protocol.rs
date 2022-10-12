@@ -8,12 +8,12 @@ use crate::{
     crypto::{constant, DH, DSA, OTR, SHA1},
     encoding::{
         encode_authenticator_data, DataMessage, EncodedMessageType, Fingerprint, MessageFlags,
-        OTRDecoder, OTREncoder, MAC_LEN, SSID, TLV,
+        OTRDecoder, OTREncoder, MAC_LEN, TLV,
     },
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version,
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -151,7 +151,7 @@ impl ProtocolState for EncryptedState {
         }
         match self.decrypt_message(msg) {
             Ok(decrypted) => match parse_message(&decrypted) {
-                msg @ Ok(Message::ConfidentialFinished) => (msg, Some(Box::new(FinishedState {}))),
+                msg @ Ok(Message::ConfidentialFinished(_)) => (msg, Some(Box::new(FinishedState {}))),
                 msg @ Ok(_) => (msg, None),
                 err @ Err(_) => {
                     // TODO if parsing message produces error, should we transition to different state or ignore? (protocol violation) ERROR_START_AKE seems to indicate that we need to assume the session is lost if OTR Error is received.
@@ -348,8 +348,7 @@ fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
     decoder.done()?;
     if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
         log::debug!("Received confidential message with type 1 TLV (DISCONNECT)");
-        // TODO if the TLV-1-DISCONNECT is contained in an actual user message, then this user content is lost.
-        Ok(Message::ConfidentialFinished)
+        Ok(Message::ConfidentialFinished(content))
     } else {
         log::debug!("Received confidential message.");
         Ok(Message::Confidential(content, tlvs))
@@ -421,5 +420,5 @@ impl ProtocolState for FinishedState {
 
 pub enum Message {
     Confidential(Vec<u8>, Vec<TLV>),
-    ConfidentialFinished,
+    ConfidentialFinished(Vec<u8>),
 }

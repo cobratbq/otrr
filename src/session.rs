@@ -6,13 +6,13 @@ use crate::{
     ake::{AKEContext, CryptographicMaterial},
     encoding::{
         self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
-        MessageType, OTREncoder, SSID,
+        MessageType, OTREncoder,
     },
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     protocol::{self, Message},
     smp::{self, SMPStatus},
-    utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS,
+    utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SUPPORTED_VERSIONS, SSID,
 };
 
 pub struct Account {
@@ -392,6 +392,7 @@ impl Account {
     /// # Errors
     ///
     /// Will give an `OTRError::UnknownInstance` error in case of non-existing instance.
+    // TODO it is not possible to identify which half must be highlighted in the user interface.
     pub fn smp_ssid(&self, instance: InstanceTag) -> Result<SSID, OTRError> {
         self.instances
             .get(&instance)
@@ -532,7 +533,7 @@ impl Instance {
                         }
                     }
                     Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
-                    Ok(Message::ConfidentialFinished) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver)),
+                    Ok(Message::ConfidentialFinished(content)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver, content)),
                     Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
                         // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
                         // need to send an OTR Error response, to indicate to the other user that
@@ -845,7 +846,7 @@ mod tests {
         ));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, &mut alice),
-            Some(UserMessage::ConfidentialSessionFinished(_))
+            Some(UserMessage::ConfidentialSessionFinished(_, _))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
         assert!(matches!(
@@ -932,7 +933,7 @@ mod tests {
         ));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, &mut alice),
-            Some(UserMessage::ConfidentialSessionFinished(_))
+            Some(UserMessage::ConfidentialSessionFinished(_, _))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
         assert!(matches!(
@@ -1004,8 +1005,13 @@ mod tests {
                 std::str::from_utf8(message).unwrap(),
                 tlvs,
             ),
-            UserMessage::ConfidentialSessionFinished(tag) => {
-                println!("{}: confidential session finished for instance {}", id, tag);
+            UserMessage::ConfidentialSessionFinished(tag, content) => {
+                println!(
+                    "{}: confidential session finished for instance {} (\"{}\")",
+                    id,
+                    tag,
+                    std::str::from_utf8(content).unwrap()
+                );
             }
             msg => todo!(
                 "{}: [test utils: extract_readable]: To be implemented: {:?}",

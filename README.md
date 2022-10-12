@@ -76,11 +76,12 @@ __Developmental__:
   _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Account` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
 - ☐ API for managing multiple accounts, keys, policies?
 - ☐ Unit tests: too few tests, because rust syntax is that expressive
+- ☐ Resilient to faulty implementations of `Host` as provided by the client.  
+    _At this moment it is not clear how to do this: `std::panic::catch_unwind` is not guaranteed to catch and handle all panics._
 
 __Known issues__:
 
 - How to deal with multiple instances, "default instance", "selected/active instance"? Especially when dealing with incidental reception of plaintext messages while encrypted session is established for some instance.
 - The OTR specification documents that any message payload is in UTF-8 and _may contain_ HTML. However, this makes it ambiguous for how the content should be interpreted and results and risks may very per chat network.
 - There is no convention on how the Extra Symmetric Key should be used.
-- ..
 </details>

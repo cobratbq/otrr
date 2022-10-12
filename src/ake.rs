@@ -6,9 +6,9 @@ use crate::{
     crypto::{constant, CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
     encoding::{
         DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
-        RevealSignatureMessage, SignatureMessage, SSID,
+        RevealSignatureMessage, SignatureMessage,
     },
-    log, utils, Host, Version,
+    log, utils, Host, Version, SSID,
 };
 
 use num_bigint::BigUint;
