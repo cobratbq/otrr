@@ -1,0 +1,38 @@
+diff --git a/dsa/src/signing_key.rs b/dsa/src/signing_key.rs
+index a72984f..309342b 100644
+--- a/dsa/src/signing_key.rs
++++ b/dsa/src/signing_key.rs
+@@ -66,6 +66,16 @@ impl SigningKey {
+         &self.x
+     }
+ 
++    /// `sign_hash` signs a pre-hashed value.
++    #[must_use]
++    pub fn sign_hash<D>(&self, hash: &[u8]) -> Option<Signature>
++    where
++        D: Digest + BlockSizeUser + FixedOutputReset,
++    {
++        let k_kinv = crate::generate::secret_number_rfc6979::<D>(&self, hash);
++        self.sign_prehashed(k_kinv, hash)
++    }
++
+     /// Sign some pre-hashed data
+     fn sign_prehashed(&self, (k, inv_k): (BigUint, BigUint), hash: &[u8]) -> Option<Signature> {
+         let components = self.verifying_key().components();
+diff --git a/dsa/src/verifying_key.rs b/dsa/src/verifying_key.rs
+index f293538..ca338b6 100644
+--- a/dsa/src/verifying_key.rs
++++ b/dsa/src/verifying_key.rs
+@@ -47,6 +47,12 @@ impl VerifyingKey {
+         &self.y
+     }
+ 
++    /// `verify_hash` verifies a pre-hashed value using the provided signature.
++    #[must_use]
++    pub fn verify_hash(&self, hash: &[u8], signature: &Signature) -> Option<bool> {
++        self.verify_prehashed(hash, signature)
++    }
++
+     /// Verify some prehashed data
+     #[must_use]
+     fn verify_prehashed(&self, hash: &[u8], signature: &Signature) -> Option<bool> {
