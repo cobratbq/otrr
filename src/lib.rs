@@ -55,6 +55,8 @@ pub mod session;
 // TODO whitespace-tag is now placed at the beginning of the message. Better location?
 // TODO hunt for variables that could be defined `const`.
 // TODO consider using something like a NonZeroU16 trait for certain datatypes to enforce correct logic.
+// TODO review/reduce use of Vec to prevent secret from ending up on the heap.
+// TODO apply BigUint::zeroize for sensitive values
 // REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.

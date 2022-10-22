@@ -322,7 +322,13 @@ pub mod AES128 {
 pub mod DSA {
     use std::rc::Rc;
 
-    use dsa::{signature::rand_core::OsRng, Components, KeySize, SigningKey, VerifyingKey};
+    use dsa::{
+        signature::{
+            hazmat::{PrehashSigner, PrehashVerifier},
+            rand_core::OsRng,
+        },
+        Components, KeySize, SigningKey, VerifyingKey,
+    };
     use num_bigint::BigUint;
 
     use super::CryptoError;
@@ -334,8 +340,6 @@ pub mod DSA {
         sk: SigningKey,
         pk: Rc<VerifyingKey>,
     }
-
-    pub struct PublicKey(Rc<VerifyingKey>);
 
     impl Keypair {
         #[allow(deprecated)]
@@ -351,9 +355,11 @@ pub mod DSA {
         }
 
         pub fn sign(&self, hash: &[u8; 32]) -> Signature {
-            Signature(self.sk.sign_hash::<sha1::Sha1>(hash).unwrap())
+            Signature(self.sk.sign_prehash(hash).unwrap())
         }
     }
+
+    pub struct PublicKey(Rc<VerifyingKey>);
 
     impl PublicKey {
         pub fn from_components(
@@ -380,19 +386,11 @@ pub mod DSA {
         }
 
         pub fn verify(&self, signature: &Signature, hash: &[u8; 32]) -> Result<(), CryptoError> {
-            let result =
-                self.0
-                    .verify_hash(hash, &signature.0)
-                    .ok_or(CryptoError::VerificationFailure(
-                        "DSA signature or public key contains invalid data.",
-                    ))?;
-            if result {
-                Ok(())
-            } else {
-                Err(CryptoError::VerificationFailure(
-                    "DSA signature failed verification.",
-                ))
-            }
+            self.0
+                .verify_prehash(hash, &signature.0)
+                .or(Err(CryptoError::VerificationFailure(
+                    "DSA signature or public key contains invalid data.",
+                )))
         }
 
         pub fn p(&self) -> &BigUint {

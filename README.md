@@ -17,7 +17,8 @@ Tests demonstrate an established OTR session, however this only proves that any 
 
 ## Architecture
 
-- OTRv3 only (OTRv2 and earlier are not supported)
+- OTRv3 only (OTRv2 and earlier are not supported)  
+  OTRv4 anticipated: intention to implement, but development of specification seems to be suspended.
 - Structured for security:
   - security-sensitive primitives in separate module (`crypto`)
   - strictly separated states resulting in strictly separated secrets

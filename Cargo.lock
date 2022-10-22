@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "dsa"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "digest",
  "num-bigint-dig",
@@ -197,6 +197,7 @@ dependencies = [
  "pkcs8",
  "rand",
  "rfc6979",
+ "sha2",
  "signature",
  "zeroize",
 ]
@@ -527,9 +528,9 @@ dependencies = [
 
 [[package]]
 name = "signature"
-version = "1.6.0"
+version = "1.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0ea32af43239f0d353a7dd75a22d94c329c8cdaafdcb4c1c1335aa10c298a4a"
+checksum = "74233d3b3b2f6d4b006dc19dee745e73e2a6bfb6f93607cd3b02bd5b00797d7c"
 dependencies = [
  "digest",
  "rand_core",
