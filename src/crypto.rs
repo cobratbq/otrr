@@ -138,7 +138,6 @@ pub mod DH {
 #[allow(non_snake_case)]
 pub mod OTR {
     use num_bigint::{BigUint, ModInverse, ToBigInt};
-    use num_integer::Integer;
 
     use crate::encoding::OTREncoder;
 
@@ -256,12 +255,7 @@ pub mod OTR {
     /// `mod_inv` is a modular-inverse implementation.
     /// `value` and `modulus` are required to be relatively prime.
     pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
-        value
-            .mod_inverse(modulus)
-            .unwrap()
-            .mod_floor(&modulus.to_bigint().unwrap())
-            .to_biguint()
-            .unwrap()
+        value.mod_inverse(modulus).unwrap().to_biguint().unwrap()
     }
 }
 
