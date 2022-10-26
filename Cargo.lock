@@ -391,6 +391,7 @@ dependencies = [
  "sha-1",
  "sha2",
  "typenum",
+ "zeroize",
 ]
 
 [[package]]

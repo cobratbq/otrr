@@ -16,6 +16,7 @@ pub mod DH {
 
     use num_bigint::BigUint;
     use ring::rand::SecureRandom;
+    use zeroize::Zeroize;
 
     use crate::utils::{
         self,
@@ -91,6 +92,13 @@ pub mod DH {
         pub public: BigUint,
     }
 
+    impl Drop for Keypair {
+        fn drop(&mut self) {
+            self.private.zeroize();
+            self.public.zeroize();
+        }
+    }
+
     impl Keypair {
         pub fn generate() -> Self {
             // OTR-spec: "When starting a private conversation with a correspondent, generate two DH
@@ -137,7 +145,7 @@ pub mod DH {
 
 #[allow(non_snake_case)]
 pub mod OTR {
-    use num_bigint::{BigUint, ModInverse, ToBigInt};
+    use num_bigint::{BigUint, ModInverse};
 
     use crate::encoding::OTREncoder;
 

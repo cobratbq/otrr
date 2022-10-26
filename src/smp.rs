@@ -6,11 +6,12 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 use once_cell::sync::Lazy;
 use ring::rand::{SecureRandom, SystemRandom};
+use zeroize::Zeroize;
 
 use crate::{
     crypto::{CryptoError, DH, OTR, SHA256},
     encoding::{Fingerprint, OTRDecoder, OTREncoder},
-    Host, OTRError, TLVType, TLV, SSID,
+    Host, OTRError, TLVType, SSID, TLV,
 };
 
 pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
@@ -681,6 +682,45 @@ enum SMPState {
     },
 }
 
+impl Drop for SMPState {
+    fn drop(&mut self) {
+        match self {
+            Self::Expect1 => {}
+            Self::Expect2 { x, a2, a3 } => {
+                x.zeroize();
+                a2.zeroize();
+                a3.zeroize();
+            }
+            Self::Expect3 {
+                g3a,
+                g2,
+                g3,
+                b3,
+                Pb,
+                Qb,
+            } => {
+                g3a.zeroize();
+                g2.zeroize();
+                g3.zeroize();
+                b3.zeroize();
+                Pb.zeroize();
+                Qb.zeroize();
+            }
+            Self::Expect4 {
+                g3b,
+                PadivPb,
+                QadivQb,
+                a3,
+            } => {
+                g3b.zeroize();
+                PadivPb.zeroize();
+                QadivQb.zeroize();
+                a3.zeroize();
+            }
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum SMPStatus {
     /// Initial status: no SMP session, no activity.
@@ -702,13 +742,16 @@ fn compute_secret(
     ssid: &SSID,
     secret: &[u8],
 ) -> BigUint {
-    let mut buffer = Vec::<u8>::new();
+    // allocate Vec with precise capacity to avoid reallocation/relocation
+    let mut buffer = Vec::<u8>::with_capacity(1 + initiator.len() + responder.len() + ssid.len() + secret.len());
     buffer.push(SMP_VERSION);
     buffer.extend_from_slice(initiator);
     buffer.extend_from_slice(responder);
     buffer.extend_from_slice(ssid);
     buffer.extend_from_slice(secret);
-    BigUint::from_bytes_be(&SHA256::digest(&buffer))
+    let value = BigUint::from_bytes_be(&SHA256::digest(&buffer));
+    buffer.zeroize();
+    value
 }
 
 fn random() -> BigUint {
