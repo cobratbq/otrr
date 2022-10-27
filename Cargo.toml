@@ -19,12 +19,12 @@ once_cell = "1.9"
 bitflags = "1.3"
 digest = "0.10"
 # Requires changes according to `./signatures-dsa-changes.diff`.
-#dsa = "0.4.0"
+#dsa = "0.4"
 dsa = {path = "../signatures/dsa"}
 sha-1 = "0.10"
 sha2 = "0.10"
 typenum = "1.15"
-zeroize = "1.5.7"
+zeroize = "1.5"
 
 [dev-dependencies]
 env_logger = "0.9"
