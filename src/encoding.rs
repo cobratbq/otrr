@@ -69,6 +69,11 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let data = base64_decode(data)?;
     let mut decoder = OTRDecoder(&data);
     let version: Version = match decoder.read_short()? {
+        0u16 => {
+            return Err(OTRError::ProtocolViolation(
+                "A protocol version must be provided.",
+            ))
+        }
         3u16 => Version::V3,
         version => return Err(OTRError::UnsupportedVersion(version)),
     };
@@ -124,6 +129,7 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                 .iter()
                 .map(|v| {
                     match v {
+                        // TODO '1' is not actually an allowed version according to OTR, as there is a different form to express version 1.
                         // '1' is not actually allowed according to OTR-spec. (illegal)
                         // (The pattern ignores the original format for v1.)
                         b'1' => Version::Unsupported(1u16),
@@ -748,7 +754,7 @@ impl OTREncoder {
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
         self.write_int(mpis.len() as u32);
         for mpi in mpis {
-            self.write_mpi(*mpi);
+            self.write_mpi(mpi);
         }
         self
     }
@@ -819,7 +825,7 @@ impl OTREncoder {
 }
 
 fn base64_encode(content: &[u8]) -> Vec<u8> {
-    base64::encode(&content).into_bytes()
+    base64::encode(content).into_bytes()
 }
 
 fn base64_decode(content: &[u8]) -> Result<Vec<u8>, OTRError> {
@@ -851,7 +857,7 @@ mod tests {
 
     use num_bigint::BigUint;
 
-    use crate::{utils, encoding::TLV};
+    use crate::{encoding::TLV, utils};
 
     use super::{OTRDecoder, OTREncoder};
 

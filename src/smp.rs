@@ -32,13 +32,13 @@ const TLV_TYPES: [u16; 6] = [
 ];
 
 /// TLV for initiating SMP
-const TLV_TYPE_SMP_MESSAGE_1: TLVType = 2u16;
-const TLV_TYPE_SMP_MESSAGE_2: TLVType = 3u16;
-const TLV_TYPE_SMP_MESSAGE_3: TLVType = 4u16;
-const TLV_TYPE_SMP_MESSAGE_4: TLVType = 5u16;
-const TLV_TYPE_SMP_ABORT: TLVType = 6u16;
+const TLV_TYPE_SMP_MESSAGE_1: TLVType = 2;
+const TLV_TYPE_SMP_MESSAGE_2: TLVType = 3;
+const TLV_TYPE_SMP_MESSAGE_3: TLVType = 4;
+const TLV_TYPE_SMP_MESSAGE_4: TLVType = 5;
+const TLV_TYPE_SMP_ABORT: TLVType = 6;
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
-const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7u16;
+const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7;
 
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
@@ -110,7 +110,7 @@ impl SMPContext {
         let D3 = (&r3 + q - (&a3 * &c3).mod_floor(q)).mod_floor(q);
 
         let mut encoder = OTREncoder::new();
-        let typ = if question.is_empty() {
+        let typ: TLVType = if question.is_empty() {
             TLV_TYPE_SMP_MESSAGE_1
         } else {
             encoder.write_bytes_null_terminated(question);
@@ -155,7 +155,7 @@ impl SMPContext {
             }
             Err(OTRError::ProtocolViolation(msg)) => {
                 self.state = SMPState::Expect1;
-                self.status = SMPStatus::Aborted(Vec::from(format!("Protocol violation: {}", msg)));
+                self.status = SMPStatus::Aborted(Vec::from(format!("Protocol violation: {msg}")));
                 Some(TLV(TLV_TYPE_SMP_ABORT, Vec::new()))
             }
             Err(OTRError::IncompleteMessage) => {

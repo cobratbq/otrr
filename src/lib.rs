@@ -17,6 +17,7 @@ extern crate hex;
 extern crate log;
 extern crate num_bigint;
 extern crate num_integer;
+// TODO replace with `std::cell::LazyCell` once stabilized.
 extern crate once_cell;
 extern crate regex;
 extern crate ring;
@@ -43,7 +44,6 @@ pub mod session;
 // TODO support messages in backlog for sending when confidential session established?
 // TODO replace once_cell::Lazy with std::lazy::Lazy once the api is in stable.
 // TODO check API guidelines (https://rust-lang.github.io/api-guidelines/checklist.html)
-// TODO consider whether the statics using Lazy::new() should be defined as const irresp. of the warning.
 // TODO consider introducing (generally) logging to keep track of the internal process.
 // TODO currently two different RNG types in use. (See DSA for OsRng)
 // TODO global review of cleaning sensitive memory. (1. can we zeroize BigUint? for SMP, keymanager, etc. There is a cfg(zeroize) for biguint-dig crate, apparently. 2. Review existing uses of Biguint for clearing.)
@@ -56,7 +56,6 @@ pub mod session;
 // TODO hunt for variables that could be defined `const`.
 // TODO consider using something like a NonZeroU16 trait for certain datatypes to enforce correct logic.
 // TODO apply BigUint::zeroize for sensitive values
-// REMARK not currently implementing `Drop` for SMPState (multiple BigUints)
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.
 // REMARK expose TLV 0 for manual padding by client?

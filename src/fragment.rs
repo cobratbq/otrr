@@ -46,9 +46,9 @@ pub fn match_fragment(content: &[u8]) -> bool {
 pub fn parse(content: &[u8]) -> Option<Fragment> {
     let captures = FRAGMENT_PATTERN.captures(content)?;
     let sender_bytes =
-        hex::decode(&as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
+        hex::decode(as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
     let receiver_bytes =
-        hex::decode(&as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
+        hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
     return Some(Fragment {

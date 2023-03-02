@@ -55,15 +55,15 @@ pub mod DH {
     static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - &*ONE) / &*TWO);
 
     pub fn generator() -> &'static BigUint {
-        &*GENERATOR
+        &GENERATOR
     }
 
     pub fn modulus() -> &'static BigUint {
-        &*MODULUS
+        &MODULUS
     }
 
     pub fn q() -> &'static BigUint {
-        &*Q
+        &Q
     }
 
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
@@ -113,16 +113,16 @@ pub mod DH {
         }
 
         pub fn new(private: BigUint) -> Self {
-            Self::new_custom(&*GENERATOR, private)
+            Self::new_custom(&GENERATOR, private)
         }
 
         pub fn new_custom(generator: &BigUint, private: BigUint) -> Self {
-            let public = generator.modpow(&private, &*MODULUS);
+            let public = generator.modpow(&private, &MODULUS);
             Self { private, public }
         }
 
         pub fn generate_shared_secret(&self, public_key: &BigUint) -> SharedSecret {
-            public_key.modpow(&self.private, &*MODULUS)
+            public_key.modpow(&self.private, &MODULUS)
         }
     }
 
@@ -612,16 +612,16 @@ mod tests {
             k3.generate_shared_secret(&k3.public),
             k3.generate_shared_secret(&k3.public)
         );
-        assert!(DH::verify_public_key(&*ZERO).is_err());
-        assert!(DH::verify_public_key(&*ONE).is_err());
-        assert!(DH::verify_public_key(&*TWO).is_ok());
+        assert!(DH::verify_public_key(&ZERO).is_err());
+        assert!(DH::verify_public_key(&ONE).is_err());
+        assert!(DH::verify_public_key(&TWO).is_ok());
         assert!(DH::verify_public_key(&(DH::modulus() - &*TWO)).is_ok());
         assert!(DH::verify_public_key(&(DH::modulus() - &*ONE)).is_err());
         assert!(DH::verify_public_key(DH::modulus()).is_err());
         assert!(DH::verify_public_key(&(DH::modulus() + &*ONE)).is_err());
-        assert!(DH::verify_exponent(&*ZERO).is_err());
-        assert!(DH::verify_exponent(&*ONE).is_ok());
-        assert!(DH::verify_exponent(&*TWO).is_ok());
+        assert!(DH::verify_exponent(&ZERO).is_err());
+        assert!(DH::verify_exponent(&ONE).is_ok());
+        assert!(DH::verify_exponent(&TWO).is_ok());
         assert!(DH::verify_exponent(&(DH::q() - &*ONE)).is_ok());
         assert!(DH::verify_exponent(DH::q()).is_err());
         assert!(DH::verify_exponent(&(DH::q() + &*ONE)).is_err());

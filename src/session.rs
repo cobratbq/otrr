@@ -106,9 +106,7 @@ impl Account {
         }
         if fragment::match_fragment(payload) {
             log::debug!("Processing OTR fragment ..");
-            let fragment = if let Some(fragment) = fragment::parse(payload) {
-                fragment
-            } else {
+            let Some(fragment) = fragment::parse(payload) else {
                 log::debug!("Not a valid/supported fragment.");
                 return Ok(UserMessage::None);
             };
@@ -808,9 +806,8 @@ mod tests {
         );
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
         let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
-        let tag_bob = match result {
-            UserMessage::ConfidentialSessionStarted(tag) => tag,
-            _ => panic!("BUG: expected confidential session to have started now."),
+        let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
+            panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), alice.status(tag_bob));
         messages_bob.borrow_mut().extend(
@@ -819,9 +816,8 @@ mod tests {
                 .unwrap(),
         );
         let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
-        let tag_alice = match result {
-            UserMessage::ConfidentialSessionStarted(tag) => tag,
-            _ => panic!("BUG: expected confidential session to have started now."),
+        let UserMessage::ConfidentialSessionStarted(tag_alice) = result else {
+            panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
         assert!(matches!(
@@ -895,9 +891,8 @@ mod tests {
         );
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
         let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
-        let tag_bob = match result {
-            UserMessage::ConfidentialSessionStarted(tag) => tag,
-            _ => panic!("BUG: expected confidential session to have started now."),
+        let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
+            panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), alice.status(tag_bob));
         messages_bob.borrow_mut().extend(
@@ -906,9 +901,8 @@ mod tests {
                 .unwrap(),
         );
         let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
-        let tag_alice = match result {
-            UserMessage::ConfidentialSessionStarted(tag) => tag,
-            _ => panic!("BUG: expected confidential session to have started now."),
+        let UserMessage::ConfidentialSessionStarted(tag_alice) = result else {
+            panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
         assert!(matches!(
@@ -991,12 +985,12 @@ mod tests {
 
     fn extract_readable(id: &str, msg: &UserMessage) {
         match msg {
-            UserMessage::None => println!("{}: (none)", id),
+            UserMessage::None => println!("{id}: (none)"),
             UserMessage::Plaintext(msg) => {
                 println!("{}: {}", id, std::str::from_utf8(msg).unwrap());
             }
             UserMessage::ConfidentialSessionStarted(tag) => {
-                println!("{}: confidential session started for instance {}", id, tag);
+                println!("{id}: confidential session started for instance {tag}");
             }
             UserMessage::Confidential(tag, message, tlvs) => println!(
                 "{}: confidential message on {}: {} (TLVs: {:?})",

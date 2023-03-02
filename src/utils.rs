@@ -107,11 +107,7 @@ pub mod usize {
 
     #[must_use]
     pub fn signum(v: usize) -> usize {
-        if v == 0 {
-            0
-        } else {
-            1
-        }
+        usize::from(v != 0)
     }
 
     #[cfg(test)]
