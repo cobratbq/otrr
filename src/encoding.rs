@@ -38,6 +38,7 @@ const WHITESPACE_PREFIX: &[u8] = b" \t  \t\t\t\t \t \t \t  ";
 const WHITESPACE_TAG_OTRV1: &[u8] = b" \t \t  \t ";
 const WHITESPACE_TAG_OTRV2: &[u8] = b"  \t\t  \t ";
 const WHITESPACE_TAG_OTRV3: &[u8] = b"  \t\t  \t\t";
+const WHITESPACE_TAG_OTRV4: &[u8] = b"  \t\t \t  ";
 
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
@@ -135,6 +136,7 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                         b'1' => Version::Unsupported(1u16),
                         b'2' => Version::Unsupported(2u16),
                         b'3' => Version::V3,
+                        b'4' => Version::V4,
                         // NOTE to use `u16::MAX` is a bit arbitrary. I wanted to choose a value
                         // that would clearly stand out and not accidentally match on anything
                         // significant. I did not want to copy the original byte, as there are bytes
@@ -144,6 +146,7 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                 })
                 .filter(|v| match v {
                     Version::V3 => true,
+                    Version::V4 => true,
                     Version::Unsupported(_) | Version::None => false,
                 })
                 .collect(),
@@ -420,6 +423,7 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for tagging"),
                     Version::V3 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV3),
+                    Version::V4 => buffer.extend_from_slice(WHITESPACE_TAG_OTRV4),
                     Version::Unsupported(_) => {
                         panic!("BUG: unsupported versions should be avoided.")
                     }
@@ -441,6 +445,7 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
                 match v {
                     Version::None => panic!("BUG: version 0 cannot be used for query messages"),
                     Version::V3 => buffer.push(b'3'),
+                    Version::V4 => buffer.push(b'4'),
                     Version::Unsupported(_) => {
                         panic!("BUG: unsupported version should be avoided.")
                     }
@@ -486,6 +491,7 @@ fn encode_version(version: &Version) -> u16 {
     match version {
         Version::None => 0,
         Version::V3 => 3,
+        Version::V4 => 4,
         Version::Unsupported(_) => panic!("BUG: unsupported version"),
     }
 }

@@ -1364,5 +1364,9 @@ mod tests {
             assert_eq!(&self.1, question);
             Some(self.2.clone())
         }
+
+        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+            panic!("Client profile should not be needed for OTRv3 SMP")
+        }
     }
 }

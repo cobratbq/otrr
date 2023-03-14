@@ -240,7 +240,7 @@ impl Account {
                 ))
             }
             Version::Unsupported(version) => return Err(OTRError::UnsupportedVersion(version)),
-            Version::V3 => { /* This is acceptable. */ }
+            Version::V3 | Version::V4 => { /* This is acceptable. */ }
         }
         instancetag::verify_instance_tag(msg.sender).or(Err(OTRError::ProtocolViolation(
             "Sender instance tag is illegal value",
@@ -957,6 +957,11 @@ mod tests {
 
         fn query_smp_secret(&self, _question: &[u8]) -> Option<Vec<u8>> {
             todo!()
+        }
+
+        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+            // FIXME implement client profile
+            todo!("Generate valid client profile")
         }
     }
 

@@ -6,6 +6,7 @@
 
 use ake::AKEError;
 use bitflags::bitflags;
+use clientprofile::ClientProfile;
 use crypto::{CryptoError, DSA};
 use encoding::TLV;
 use instancetag::InstanceTag;
@@ -23,6 +24,7 @@ extern crate regex;
 extern crate ring;
 
 mod ake;
+mod clientprofile;
 mod crypto;
 mod encoding;
 mod fragment;
@@ -143,6 +145,7 @@ pub enum Version {
     // V1, // will not be supported.
     // V2, // will not be supported.
     V3,
+    V4,
     Unsupported(u16),
 }
 
@@ -207,4 +210,7 @@ pub trait Host {
     /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
     /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
+
+    // `client_profile` retries the client profile from the host application.
+    fn client_profile(&self) -> &ClientProfile;
 }

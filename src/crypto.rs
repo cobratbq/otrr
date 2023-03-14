@@ -361,6 +361,7 @@ pub mod DSA {
         }
     }
 
+    #[derive(Clone)]
     pub struct PublicKey(Rc<VerifyingKey>);
 
     impl PublicKey {
