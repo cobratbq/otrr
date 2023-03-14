@@ -631,7 +631,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
-    pub fn read_signature(&mut self) -> Result<Signature, OTRError> {
+    pub fn read_dsa_signature(&mut self) -> Result<Signature, OTRError> {
         const SIGNATURE_LEN: usize = Signature::size();
         const PARAM_LEN: usize = Signature::parameter_size();
         log::trace!("read signature");
@@ -882,7 +882,7 @@ mod tests {
         assert!(decoder.read_mpi_sequence().is_err());
         assert!(decoder.read_public_key().is_err());
         assert!(decoder.read_short().is_err());
-        assert!(decoder.read_signature().is_err());
+        assert!(decoder.read_dsa_signature().is_err());
         assert!(decoder.read_tlv().is_err());
         assert!(decoder.read_tlvs().unwrap().is_empty());
         assert!(decoder.done().is_ok());

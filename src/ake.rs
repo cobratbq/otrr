@@ -323,7 +323,7 @@ impl AKEContext {
                     keyid_b,
                     AKEError::DataProcessing("keyid_b is zero, must be non-zero value"),
                 )?;
-                let sig_b = decoder.read_signature().or(Err(AKEError::DataProcessing(
+                let sig_b = decoder.read_dsa_signature().or(Err(AKEError::DataProcessing(
                     "Failed to read signature from X_B",
                 )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
@@ -428,7 +428,7 @@ impl AKEContext {
                     keyid_a,
                     AKEError::DataProcessing("keyid_a is zero, must be a non-zero value"),
                 )?;
-                let sig_m_a = decoder.read_signature().or(Err(AKEError::DataProcessing(
+                let sig_m_a = decoder.read_dsa_signature().or(Err(AKEError::DataProcessing(
                     "Failed to read signature from X_A",
                 )))?;
                 decoder
