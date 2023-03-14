@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-use crate::{crypto::DH, encoding::KeyID, utils::{self, biguint::ZERO}, OTRError};
+use crate::{crypto::dh, encoding::KeyID, utils::{self, biguint::ZERO}, OTRError};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
@@ -25,7 +25,7 @@ impl Drop for KeyManager {
 }
 
 impl KeyManager {
-    pub fn new(ours: (KeyID, DH::Keypair), theirs: (KeyID, BigUint)) -> Self {
+    pub fn new(ours: (KeyID, dh::Keypair), theirs: (KeyID, BigUint)) -> Self {
         assert_ne!(0, ours.0);
         assert_ne!(0, theirs.0);
         Self {
@@ -42,15 +42,15 @@ impl KeyManager {
         }
     }
 
-    pub fn current_keys(&self) -> (KeyID, &DH::Keypair) {
+    pub fn current_keys(&self) -> (KeyID, &dh::Keypair) {
         self.ours.current()
     }
 
-    pub fn next_keys(&self) -> (KeyID, &DH::Keypair) {
+    pub fn next_keys(&self) -> (KeyID, &dh::Keypair) {
         self.ours.next()
     }
 
-    pub fn our_keys(&self, key_id: KeyID) -> Result<&DH::Keypair, OTRError> {
+    pub fn our_keys(&self, key_id: KeyID) -> Result<&dh::Keypair, OTRError> {
         self.ours.select(key_id)
     }
 
@@ -126,7 +126,7 @@ const NUM_KEYS: usize = 2;
 
 /// `KeyRotation` manages the rotation of DH-keypairs used by our own client during OTR (single instance) sessions.
 struct KeypairRotation {
-    keys: [DH::Keypair; NUM_KEYS],
+    keys: [dh::Keypair; NUM_KEYS],
     acknowledged: KeyID,
 }
 
@@ -144,10 +144,10 @@ impl Drop for KeypairRotation {
 /// a new public key is acknowledged, we can forget the old keypair.
 impl KeypairRotation {
     /// New instance of `KeyRotation` struct.
-    fn new(initial_keyid: KeyID, initial_key: DH::Keypair) -> Self {
+    fn new(initial_keyid: KeyID, initial_key: dh::Keypair) -> Self {
         assert_ne!(0, initial_keyid);
-        DH::verify_public_key(&initial_key.public).expect("BUG: public key must be valid.");
-        let mut keys: [DH::Keypair; NUM_KEYS] = [DH::Keypair::generate(), DH::Keypair::generate()];
+        dh::verify_public_key(&initial_key.public).expect("BUG: public key must be valid.");
+        let mut keys: [dh::Keypair; NUM_KEYS] = [dh::Keypair::generate(), dh::Keypair::generate()];
         keys[initial_keyid as usize % NUM_KEYS] = initial_key;
         Self {
             keys,
@@ -156,18 +156,18 @@ impl KeypairRotation {
     }
 
     /// Get current DH-key, i.e. the key that is acknowledged by the other party.
-    fn current(&self) -> (KeyID, &DH::Keypair) {
+    fn current(&self) -> (KeyID, &dh::Keypair) {
         let idx = (self.acknowledged as usize) % NUM_KEYS;
         (self.acknowledged, &self.keys[idx])
     }
 
     /// Get next DH-key (`next_dh`), rotating keys as needed.
-    fn next(&self) -> (KeyID, &DH::Keypair) {
+    fn next(&self) -> (KeyID, &dh::Keypair) {
         let idx = (self.acknowledged as usize + 1) % NUM_KEYS;
         (self.acknowledged + 1, &self.keys[idx])
     }
 
-    fn select(&self, key_id: KeyID) -> Result<&DH::Keypair, OTRError> {
+    fn select(&self, key_id: KeyID) -> Result<&dh::Keypair, OTRError> {
         assert_ne!(0, key_id);
         if key_id > 0 && self.acknowledged == key_id || self.acknowledged + 1 == key_id {
             // The message for which we request keys must either contain the acknowledged keyid,
@@ -191,7 +191,7 @@ impl KeypairRotation {
         } else if key_id == self.acknowledged + 1 {
             // this key is indeed new, so updating state
             self.acknowledged = key_id;
-            self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = DH::Keypair::generate();
+            self.keys[(self.acknowledged as usize + 1) % NUM_KEYS] = dh::Keypair::generate();
             Ok(true)
         } else {
             Err(OTRError::ProtocolViolation("unexpected keyID to confirm"))

@@ -9,7 +9,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use zeroize::Zeroize;
 
 use crate::{
-    crypto::{CryptoError, DH, OTR, SHA256},
+    crypto::{dh, otr, sha256, CryptoError},
     encoding::{Fingerprint, OTRDecoder, OTREncoder},
     Host, OTRError, TLVType, SSID, TLV,
 };
@@ -89,15 +89,15 @@ impl SMPContext {
             return Err(OTRError::SMPInProgress);
         }
         let x = compute_secret(
-            &OTR::fingerprint(&self.host.keypair().public_key()),
+            &otr::fingerprint(&self.host.keypair().public_key()),
             &self.their_fingerprint,
             &self.ssid,
             secret,
         );
 
-        let MOD = DH::modulus();
-        let q = DH::q();
-        let g1 = DH::generator();
+        let MOD = dh::modulus();
+        let q = dh::q();
+        let g1 = dh::generator();
 
         let (a2, a3) = (random(), random());
         let g2a = g1.modpow(&a2, MOD);
@@ -230,31 +230,31 @@ impl SMPContext {
         let g2a = mpis.pop().unwrap();
         assert!(mpis.is_empty());
 
-        DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
 
         // "Verify Alice's zero-knowledge proofs for g2a and g3a:"
         // "1. Check that both g2a and g3a are >= 2 and <= modulus-2."
-        DH::verify_public_key(&g2a).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&g3a).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&g2a).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&g3a).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD = DH::modulus();
-        let q = DH::q();
-        let g1 = DH::generator();
+        let MOD = dh::modulus();
+        let q = dh::q();
+        let g1 = dh::generator();
 
         // "2. Check that c2 = SHA256(1, g1D2 g2ac2)."
         let expected_c2 = hash_1_mpi(
             1,
             &(g1.modpow(&D2, MOD) * g2a.modpow(&c2, MOD)).mod_floor(MOD),
         );
-        DH::verify(&expected_c2, &c2).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&expected_c2, &c2).map_err(OTRError::CryptographicViolation)?;
 
         // "3. Check that c3 = SHA256(2, g1D3 g3ac3)."
         let expected_c3 = hash_1_mpi(
             2,
             &(g1.modpow(&D3, MOD) * g3a.modpow(&c3, MOD)).mod_floor(MOD),
         );
-        DH::verify(&expected_c3, &c3).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&expected_c3, &c3).map_err(OTRError::CryptographicViolation)?;
 
         // "Create a type 3 TLV (SMP message 2) and send it to Alice: "
         // "1. Determine Bob's secret input y, which is to be compared to Alice's secret x."
@@ -265,7 +265,7 @@ impl SMPContext {
         }
         let y = compute_secret(
             &self.their_fingerprint,
-            &OTR::fingerprint(&self.host.keypair().public_key()),
+            &otr::fingerprint(&self.host.keypair().public_key()),
             &self.ssid,
             &answer.unwrap(),
         );
@@ -373,34 +373,34 @@ impl SMPContext {
         let g2b = mpis.pop().unwrap();
         assert!(mpis.is_empty());
 
-        DH::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D2).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D3).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
 
         // "Check that `g2b`, `g3b`, `Pb` and `Qb` are `>= 2 and <= modulus-2`."
-        DH::verify_public_key(&g2b).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&g3b).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&Pb).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&Qb).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&g2b).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&g3b).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Pb).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Qb).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD = DH::modulus();
-        let q = DH::q();
-        let g1 = DH::generator();
+        let MOD = dh::modulus();
+        let q = dh::q();
+        let g1 = dh::generator();
 
         // "Check that `c2 = SHA256(3, g1D2 g2bc2)`."
         let c2_expected = hash_1_mpi(
             3,
             &(&g1.modpow(&D2, MOD) * &g2b.modpow(&c2, MOD)).mod_floor(MOD),
         );
-        DH::verify(&c2_expected, &c2).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&c2_expected, &c2).map_err(OTRError::CryptographicViolation)?;
 
         // "Check that `c3 = SHA256(4, g1D3 g3bc3)`."
         let c3_expected = hash_1_mpi(
             4,
             &(&g1.modpow(&D3, MOD) * &g3b.modpow(&c3, MOD)).mod_floor(MOD),
         );
-        DH::verify(&c3_expected, &c3).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&c3_expected, &c3).map_err(OTRError::CryptographicViolation)?;
 
         // "Compute `g2 = g2ba2` and `g3 = g3ba3`"
         let g2 = g2b.modpow(&a2, MOD);
@@ -412,7 +412,7 @@ impl SMPContext {
             &(&g3.modpow(&D5, MOD) * &Pb.modpow(&cP, MOD)).mod_floor(MOD),
             &(&g1.modpow(&D5, MOD) * &g2.modpow(&D6, MOD) * &Qb.modpow(&cP, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cP_expected, &cP).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&cP_expected, &cP).map_err(OTRError::CryptographicViolation)?;
 
         // "Create a type 4 TLV (SMP message 3) and send it to Bob:
         //  Pick random exponents `r4`, `r5`, `r6` and `r7`. These will be used to add a blinding
@@ -434,7 +434,7 @@ impl SMPContext {
         // "... `D6 = r6 - x cP mod q`."
         let D6 = (&r6 + q - (&x * &cP).mod_floor(q)).mod_floor(q);
         // "Compute `Ra = (Qa / Qb) a3`"
-        let QadivQb = (&Qa * OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
+        let QadivQb = (&Qa * otr::mod_inv(&Qb, MOD)).mod_floor(MOD);
         let Ra = QadivQb.modpow(&a3, MOD);
         // "Generate a zero-knowledge proof that Ra was created according to the protocol by
         //  setting `cR = SHA256(7, g1r7, (Qa / Qb)r7)` and ..."
@@ -451,7 +451,7 @@ impl SMPContext {
                 .write_mpi_sequence(&[&Pa, &Qa, &cP, &D5, &D6, &Ra, &cR, &D7])
                 .to_vec(),
         );
-        let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
+        let PadivPb = (&Pa * otr::mod_inv(&Pb, MOD)).mod_floor(MOD);
         // "Set smpstate to SMPSTATE_EXPECT4."
         self.state = SMPState::Expect4 {
             a3,
@@ -517,20 +517,20 @@ impl SMPContext {
         let Pa = mpis.pop().unwrap();
         assert!(mpis.is_empty());
 
-        DH::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D5).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D6).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
 
         // Verify Alice's zero-knowledge proofs for Pa, Qa and Ra:
 
         // Check that Pa, Qa and Ra are >= 2 and <= modulus-2.
-        DH::verify_public_key(&Pa).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&Qa).map_err(OTRError::CryptographicViolation)?;
-        DH::verify_public_key(&Ra).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Pa).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Qa).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Ra).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD = DH::modulus();
-        let q = DH::q();
-        let g1 = DH::generator();
+        let MOD = dh::modulus();
+        let q = dh::q();
+        let g1 = dh::generator();
 
         // Check that cP = SHA256(6, g3^D5 Pa^cP, g1^D5 g2^D6 Qa^cP).
         let expected_cP = hash_2_mpi(
@@ -538,16 +538,16 @@ impl SMPContext {
             &(g3.modpow(&D5, MOD) * Pa.modpow(&cP, MOD)).mod_floor(MOD),
             &(g1.modpow(&D5, MOD) * g2.modpow(&D6, MOD) * Qa.modpow(&cP, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cP, &expected_cP).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&cP, &expected_cP).map_err(OTRError::CryptographicViolation)?;
 
-        let QadivQb = (&Qa * &OTR::mod_inv(&Qb, MOD)).mod_floor(MOD);
+        let QadivQb = (&Qa * &otr::mod_inv(&Qb, MOD)).mod_floor(MOD);
         // Check that cR = SHA256(7, g1**D7 g3a**cR, (Qa / Qb)**D7 Ra**cR).
         let expected_cR = hash_2_mpi(
             7,
             &(&g1.modpow(&D7, MOD) * &g3a.modpow(&cR, MOD)).mod_floor(MOD),
             &(&QadivQb.modpow(&D7, MOD) * &Ra.modpow(&cR, MOD)).mod_floor(MOD),
         );
-        DH::verify(&cR, &expected_cR).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&cR, &expected_cR).map_err(OTRError::CryptographicViolation)?;
 
         // Pick a random exponent r7. This will be used to generate Bob's final zero-knowledge proof
         // that this message was created honestly.
@@ -565,7 +565,7 @@ impl SMPContext {
         // Compute Rab = Rab3.
         let Rab = Ra.modpow(&b3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
-        let PadivPb = (&Pa * OTR::mod_inv(&Pb, MOD)).mod_floor(MOD);
+        let PadivPb = (&Pa * otr::mod_inv(&Pb, MOD)).mod_floor(MOD);
 
         // Send Alice a type 5 TLV (SMP message 4) containing Rb, cR and D7 in that order.
         let tlv = TLV(
@@ -574,7 +574,7 @@ impl SMPContext {
                 .write_mpi_sequence(&[Rb, &cR, &D7])
                 .to_vec(),
         );
-        match DH::verify(&PadivPb, &Rab) {
+        match dh::verify(&PadivPb, &Rab) {
             Ok(()) => Err(OTRError::SMPSuccess(Some(tlv))),
             Err(CryptoError::VerificationFailure(_)) => Err(OTRError::SMPFailed(Some(tlv))),
         }
@@ -624,14 +624,14 @@ impl SMPContext {
         let Rb = mpis.pop().unwrap();
         assert!(mpis.is_empty());
 
-        DH::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_exponent(&D7).map_err(OTRError::CryptographicViolation)?;
 
-        let MOD = DH::modulus();
-        let g1 = DH::generator();
+        let MOD = dh::modulus();
+        let g1 = dh::generator();
 
         // Verify Bob's zero-knowledge proof for Rb:
         // Check that Rb is >= 2 and <= modulus-2.
-        DH::verify_public_key(&Rb).map_err(OTRError::CryptographicViolation)?;
+        dh::verify_public_key(&Rb).map_err(OTRError::CryptographicViolation)?;
 
         // Check that cR = SHA256(8, g1D7 g3bcR, (Qa / Qb)D7 RbcR).
         let expected_cR = hash_2_mpi(
@@ -639,12 +639,12 @@ impl SMPContext {
             &(g1.modpow(&D7, MOD) * g3b.modpow(&cR, MOD)).mod_floor(MOD),
             &(&QadivQb.modpow(&D7, MOD) * (&Rb.modpow(&cR, MOD))).mod_floor(MOD),
         );
-        DH::verify(&expected_cR, &cR).map_err(OTRError::CryptographicViolation)?;
+        dh::verify(&expected_cR, &cR).map_err(OTRError::CryptographicViolation)?;
 
         // Compute Rab = Rba3.
         let Rab = Rb.modpow(&a3, MOD);
         // Determine if x = y by checking the equivalent condition that (Pa / Pb) = Rab.
-        match DH::verify(&PadivPb, &Rab) {
+        match dh::verify(&PadivPb, &Rab) {
             Ok(()) => Err(OTRError::SMPSuccess(None)),
             Err(CryptoError::VerificationFailure(_)) => Err(OTRError::SMPFailed(None)),
         }
@@ -743,13 +743,14 @@ fn compute_secret(
     secret: &[u8],
 ) -> BigUint {
     // allocate Vec with precise capacity to avoid reallocation/relocation
-    let mut buffer = Vec::<u8>::with_capacity(1 + initiator.len() + responder.len() + ssid.len() + secret.len());
+    let mut buffer =
+        Vec::<u8>::with_capacity(1 + initiator.len() + responder.len() + ssid.len() + secret.len());
     buffer.push(SMP_VERSION);
     buffer.extend_from_slice(initiator);
     buffer.extend_from_slice(responder);
     buffer.extend_from_slice(ssid);
     buffer.extend_from_slice(secret);
-    let value = BigUint::from_bytes_be(&SHA256::digest(&buffer));
+    let value = BigUint::from_bytes_be(&sha256::digest(&buffer));
     buffer.zeroize();
     value
 }
@@ -759,18 +760,18 @@ fn random() -> BigUint {
     (*RAND)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
-    BigUint::from_bytes_be(&v).mod_floor(DH::q())
+    BigUint::from_bytes_be(&v).mod_floor(dh::q())
 }
 
 fn hash_1_mpi(version: u8, mpi1: &BigUint) -> BigUint {
-    BigUint::from_bytes_be(&SHA256::digest_with_prefix(
+    BigUint::from_bytes_be(&sha256::digest_with_prefix(
         version,
         &OTREncoder::new().write_mpi(mpi1).to_vec(),
     ))
 }
 
 fn hash_2_mpi(version: u8, mpi1: &BigUint, mpi2: &BigUint) -> BigUint {
-    BigUint::from_bytes_be(&SHA256::digest_2_with_prefix(
+    BigUint::from_bytes_be(&sha256::digest_2_with_prefix(
         version,
         &OTREncoder::new().write_mpi(mpi1).to_vec(),
         &OTREncoder::new().write_mpi(mpi2).to_vec(),
@@ -782,7 +783,7 @@ mod tests {
     use std::rc::Rc;
 
     use crate::{
-        crypto::{DSA, OTR},
+        crypto::{dsa, otr},
         smp::SMPStatus,
         Host, SSID,
     };
@@ -795,11 +796,11 @@ mod tests {
         let secret: Vec<u8> = Vec::from("World");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -847,11 +848,11 @@ mod tests {
         let secret: Vec<u8> = Vec::from("World");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -898,11 +899,11 @@ mod tests {
         let secret: Vec<u8> = Vec::from("A different, longer secret to be verified");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, Vec::new(), secret.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, Vec::new(), secret.clone()));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -949,11 +950,11 @@ mod tests {
         let secret: Vec<u8> = Vec::from("A different, longer secret to be verified");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, Vec::new(), secret.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, Vec::new(), secret.clone()));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -1041,12 +1042,12 @@ mod tests {
         let secret_bob: Vec<u8> = Vec::from("Bob's secret");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> =
             Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -1095,11 +1096,11 @@ mod tests {
         let secret_bob: Vec<u8> = Vec::from("Bob's secret");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret_alice));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> =
             Rc::new(TestHost(keypair_b, question.clone(), secret_bob.clone()));
 
@@ -1148,12 +1149,12 @@ mod tests {
         let secret_alice: Vec<u8> = Vec::from("Alice's secret");
         let secret_bob: Vec<u8> = Vec::from("Bob's secret");
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> =
             Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
 
         let mut alice =
@@ -1203,12 +1204,12 @@ mod tests {
         let secret_bob: Vec<u8> = Vec::from("Bob's secret");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let false_fingerprint = OTR::fingerprint(&DSA::Keypair::generate().public_key());
+        let false_fingerprint = otr::fingerprint(&dsa::Keypair::generate().public_key());
 
-        let keypair_a = DSA::Keypair::generate();
+        let keypair_a = dsa::Keypair::generate();
         let host_a: Rc<dyn Host> =
             Rc::new(TestHost(keypair_a, question.clone(), secret_alice.clone()));
-        let keypair_b = DSA::Keypair::generate();
+        let keypair_b = dsa::Keypair::generate();
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret_bob));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, false_fingerprint);
@@ -1256,11 +1257,11 @@ mod tests {
         let secret: Vec<u8> = Vec::from("The shared secret answer!");
         let ssid: SSID = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let keypair_a = DSA::Keypair::generate();
-        let fingerprint_a = OTR::fingerprint(&keypair_a.public_key());
+        let keypair_a = dsa::Keypair::generate();
+        let fingerprint_a = otr::fingerprint(&keypair_a.public_key());
         let host_a: Rc<dyn Host> = Rc::new(TestHost(keypair_a, question.clone(), secret.clone()));
-        let keypair_b = DSA::Keypair::generate();
-        let fingerprint_b = OTR::fingerprint(&keypair_b.public_key());
+        let keypair_b = dsa::Keypair::generate();
+        let fingerprint_b = otr::fingerprint(&keypair_b.public_key());
         let host_b: Rc<dyn Host> = Rc::new(TestHost(keypair_b, question.clone(), secret.clone()));
 
         let mut alice = SMPContext::new(Rc::clone(&host_a), ssid, fingerprint_b);
@@ -1345,7 +1346,7 @@ mod tests {
         }
     }
 
-    struct TestHost(DSA::Keypair, Vec<u8>, Vec<u8>);
+    struct TestHost(dsa::Keypair, Vec<u8>, Vec<u8>);
 
     impl Host for TestHost {
         fn message_size(&self) -> usize {
@@ -1356,7 +1357,7 @@ mod tests {
             todo!("not implemented: not necessary for tests")
         }
 
-        fn keypair(&self) -> &DSA::Keypair {
+        fn keypair(&self) -> &dsa::Keypair {
             &self.0
         }
 

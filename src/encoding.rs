@@ -10,8 +10,8 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::{DSA, Ed448},
-    crypto::{AES128, DSA::Signature},
+    crypto::{dsa, ed448},
+    crypto::{aes128, dsa::Signature},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
 };
@@ -281,7 +281,7 @@ impl OTREncodable for DHKeyMessage {
 
 #[derive(Clone)]
 pub struct RevealSignatureMessage {
-    pub key: AES128::Key,
+    pub key: aes128::Key,
     pub signature_encrypted: Vec<u8>,
     pub signature_mac: MAC,
 }
@@ -296,7 +296,7 @@ impl Drop for RevealSignatureMessage {
 impl RevealSignatureMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<RevealSignatureMessage, OTRError> {
         Ok(RevealSignatureMessage {
-            key: AES128::Key(decoder.read_data()?.try_into().or(Err(
+            key: aes128::Key(decoder.read_data()?.try_into().or(Err(
                 OTRError::ProtocolViolation("Invalid format for 128-bit AES key."),
             ))?),
             signature_encrypted: decoder.read_data()?,
@@ -621,7 +621,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_public_key` reads a DSA public key from the buffer.
-    pub fn read_public_key(&mut self) -> Result<DSA::PublicKey, OTRError> {
+    pub fn read_public_key(&mut self) -> Result<dsa::PublicKey, OTRError> {
         log::trace!("read DSA public key");
         let pktype = self.read_short()?;
         if pktype != 0u16 {
@@ -633,7 +633,7 @@ impl<'a> OTRDecoder<'a> {
         let q = self.read_mpi()?;
         let g = self.read_mpi()?;
         let y = self.read_mpi()?;
-        DSA::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
+        dsa::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
     }
 
     /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
@@ -691,14 +691,14 @@ impl<'a> OTRDecoder<'a> {
         bytes
     }
 
-    pub fn read_ed448_signature(&mut self) -> Result<Ed448::Signature, OTRError> {
+    pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
         const LENGTH: usize = 114;
-        Ok(Ed448::Signature::from(self.read(LENGTH)?))
+        Ok(ed448::Signature::from(self.read(LENGTH)?))
     }
 
-    pub fn read_ed448_public_key(&mut self) -> Result<Ed448::PublicKey, OTRError> {
+    pub fn read_ed448_public_key(&mut self) -> Result<ed448::PublicKey, OTRError> {
         const LENGTH: usize = 57;
-        Ok(Ed448::PublicKey::from(self.read(LENGTH)?))
+        Ok(ed448::PublicKey::from(self.read(LENGTH)?))
     }
 
     fn read(&mut self, n: usize) -> Result<Vec<u8>, OTRError> {
@@ -812,7 +812,7 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_public_key(&mut self, key: &DSA::PublicKey) -> &mut Self {
+    pub fn write_public_key(&mut self, key: &dsa::PublicKey) -> &mut Self {
         self.write_short(0)
             .write_mpi(key.p())
             .write_mpi(key.q())
@@ -848,11 +848,11 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_ed448_public_key(&mut self, pk: &Ed448::PublicKey) -> &mut Self {
+    pub fn write_ed448_public_key(&mut self, pk: &ed448::PublicKey) -> &mut Self {
         todo!("Implement ED448 public key encoding")
     }
 
-    pub fn write_ed448_signature(&mut self, sig: &Ed448::Signature) -> &mut Self {
+    pub fn write_ed448_signature(&mut self, sig: &ed448::Signature) -> &mut Self {
         todo!("Implement ED448 signature encoding")
     }
 

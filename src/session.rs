@@ -713,7 +713,7 @@ mod tests {
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
     use crate::{
-        crypto::DSA, instancetag::INSTANCE_ZERO, Host, OTRError, Policy, ProtocolStatus,
+        crypto::dsa, instancetag::INSTANCE_ZERO, Host, OTRError, Policy, ProtocolStatus,
         UserMessage,
     };
 
@@ -734,11 +734,11 @@ mod tests {
         init();
         // Communicate in plaintext with the OTR logic being involved. This demonstrates that
         // plaintext messages can be sent regardless.
-        let keypair_alice = DSA::Keypair::generate();
+        let keypair_alice = dsa::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let keypair_bob = DSA::Keypair::generate();
+        let keypair_bob = dsa::Keypair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
@@ -773,11 +773,11 @@ mod tests {
         // the other one continues communicating, to ensure that messages do not unintentionally
         // pass through unencrypted. Finally, finalize the session on the other side to end up with
         // two plaintext sessions, the same as we started with.
-        let keypair_alice = DSA::Keypair::generate();
+        let keypair_alice = dsa::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let keypair_bob = DSA::Keypair::generate();
+        let keypair_bob = dsa::Keypair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
@@ -865,11 +865,11 @@ mod tests {
         // side ends the session while the other one continues communicating, to ensure that
         // messages do not unintentionally pass through unencrypted. Finally, finalize the session
         // on the other side to end up with two plaintext sessions, the same as we started with.
-        let keypair_alice = DSA::Keypair::generate();
+        let keypair_alice = dsa::Keypair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let keypair_bob = DSA::Keypair::generate();
+        let keypair_bob = dsa::Keypair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
@@ -940,7 +940,7 @@ mod tests {
         assert!(messages_alice.borrow().is_empty());
     }
 
-    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, DSA::Keypair, usize);
+    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, dsa::Keypair, usize);
 
     impl Host for TestHost {
         fn message_size(&self) -> usize {
@@ -951,7 +951,7 @@ mod tests {
             self.0.borrow_mut().push_back(Vec::from(message));
         }
 
-        fn keypair(&self) -> &DSA::Keypair {
+        fn keypair(&self) -> &dsa::Keypair {
             &self.1
         }
 

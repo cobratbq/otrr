@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::{
-    crypto::{constant, CryptoError, AES128, DH, DSA, OTR::AKESecrets, SHA256},
+    crypto::{constant, CryptoError, aes128, dh, dsa, otr::AKESecrets, sha256},
     encoding::{
         DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
         RevealSignatureMessage, SignatureMessage,
@@ -34,13 +34,13 @@ impl AKEContext {
 
     pub fn initiate(&mut self) -> EncodedMessageType {
         log::info!("Initiating AKE.");
-        let keypair = DH::Keypair::generate();
-        let r = AES128::Key::generate();
+        let keypair = dh::Keypair::generate();
+        let r = aes128::Key::generate();
         let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
         let gx_encrypted = OTREncoder::new()
             .write_data(&r.encrypt(&[0; 16], &gxmpi))
             .to_vec();
-        let gx_hashed = SHA256::digest(&gxmpi).to_vec();
+        let gx_hashed = sha256::digest(&gxmpi).to_vec();
         // Send D-H Commit message and await D-H Key message.
         self.state = AKEState::AwaitingDHKey(AwaitingDHKey {
             our_dh_keypair: Rc::new(keypair),
@@ -88,7 +88,7 @@ impl AKEContext {
                 let gxmpi = OTREncoder::new()
                     .write_mpi(&state.our_dh_keypair.public)
                     .to_vec();
-                let our_gxmpi_hashed = SHA256::digest(&gxmpi);
+                let our_gxmpi_hashed = sha256::digest(&gxmpi);
                 let our_hash = BigUint::from_bytes_be(&our_gxmpi_hashed);
                 let their_hash = BigUint::from_bytes_be(&msg.gx_hashed);
                 if our_hash > their_hash {
@@ -134,7 +134,7 @@ impl AKEContext {
             AKEState::AwaitingSignature(_) => {
                 // Reply with a new D-H Key message, and transition authstate to
                 // AUTHSTATE_AWAITING_REVEALSIG.
-                let our_dh_keypair = DH::Keypair::generate();
+                let our_dh_keypair = dh::Keypair::generate();
                 let dhkey = EncodedMessageType::DHKey(DHKeyMessage {
                     gy: our_dh_keypair.public.clone(),
                 });
@@ -160,7 +160,7 @@ impl AKEContext {
         msg: DHCommitMessage,
     ) -> (Result<EncodedMessageType, AKEError>, Option<AKEState>) {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
-        let keypair = DH::Keypair::generate();
+        let keypair = dh::Keypair::generate();
         let dhkey = EncodedMessageType::DHKey(DHKeyMessage {
             gy: keypair.public.clone(),
         });
@@ -184,14 +184,14 @@ impl AKEContext {
             }
             AKEState::AwaitingDHKey(state) => {
                 const KEYID_B: u32 = 1;
-                DH::verify_public_key(&msg.gy).map_err(AKEError::CryptographicViolation)?;
+                dh::verify_public_key(&msg.gy).map_err(AKEError::CryptographicViolation)?;
                 // Reply with a Reveal Signature Message and transition authstate to
                 // `AUTHSTATE_AWAITING_SIG`.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
                 let dsa_keypair = self.host.keypair();
                 let pub_b = dsa_keypair.public_key();
-                let m_b = SHA256::hmac(
+                let m_b = sha256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
                         .write_mpi(&state.our_dh_keypair.public)
@@ -215,7 +215,7 @@ impl AKEContext {
                 let enc_b = OTREncoder::new()
                     .write_data(&secrets.c.encrypt(&[0; 16], &x_b))
                     .to_vec();
-                let mac_enc_b = SHA256::hmac160(&secrets.m2, &enc_b);
+                let mac_enc_b = sha256::hmac160(&secrets.m2, &enc_b);
                 let reveal_sig_message = RevealSignatureMessage {
                     key: state.r.clone(),
                     signature_encrypted: enc_b,
@@ -280,7 +280,7 @@ impl AKEContext {
                         AKEError::DataProcessing("Failed to read data from gx_encrypted"),
                     ))?,
                 );
-                let gxmpihash = SHA256::digest(&gxmpi);
+                let gxmpihash = sha256::digest(&gxmpi);
                 constant::verify(&gxmpihash, &state.gx_hashed)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("gxmpi verified: correct");
@@ -291,13 +291,13 @@ impl AKEContext {
                     .or(Err(AKEError::DataProcessing(
                         "Failed to read MPI from gxmpi",
                     )))?;
-                DH::verify_public_key(&gx).map_err(AKEError::CryptographicViolation)?;
+                dh::verify_public_key(&gx).map_err(AKEError::CryptographicViolation)?;
                 log::debug!("gx verified: correct");
 
                 // Validate encrypted signature using MAC based on m2, ensuring signature content is unchanged.
                 let s = state.our_dh_keypair.generate_shared_secret(&gx);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
-                let expected_signature_mac = SHA256::hmac160(&secrets.m2, &msg.signature_encrypted);
+                let expected_signature_mac = sha256::hmac160(&secrets.m2, &msg.signature_encrypted);
                 constant::verify(&expected_signature_mac, &msg.signature_mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("signature MAC verified: correct");
@@ -327,7 +327,7 @@ impl AKEContext {
                     "Failed to read signature from X_B",
                 )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
-                let m_b = SHA256::hmac(
+                let m_b = sha256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
                         .write_mpi(&gx)
@@ -344,7 +344,7 @@ impl AKEContext {
                 log::debug!("M_B verified: correct");
 
                 let keypair = self.host.keypair();
-                let m_a = SHA256::hmac(
+                let m_a = sha256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
                         .write_mpi(&state.our_dh_keypair.public)
@@ -361,7 +361,7 @@ impl AKEContext {
                     .write_signature(&sig_m_a)
                     .to_vec();
                 let encrypted_signature = secrets.cp.encrypt(&[0; 16], &x_a);
-                let encrypted_mac = SHA256::hmac160(
+                let encrypted_mac = sha256::hmac160(
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&encrypted_signature).to_vec(),
                 );
@@ -409,7 +409,7 @@ impl AKEContext {
                 // - Transition msgstate to MSGSTATE_ENCRYPTED.
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&state.s).to_vec());
-                let mac = SHA256::hmac160(
+                let mac = sha256::hmac160(
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
@@ -434,7 +434,7 @@ impl AKEContext {
                 decoder
                     .done()
                     .or(Err(AKEError::DataProcessing("data left over in buffer")))?;
-                let m_a = SHA256::hmac(
+                let m_a = sha256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
                         .write_mpi(&state.gy)
@@ -471,9 +471,9 @@ impl AKEContext {
 pub struct CryptographicMaterial {
     pub version: Version,
     pub ssid: SSID,
-    pub our_dh: DH::Keypair,
+    pub our_dh: dh::Keypair,
     pub their_dh: BigUint,
-    pub their_dsa: DSA::PublicKey,
+    pub their_dsa: dsa::PublicKey,
 }
 
 /// `AKEState` represents available/recognized AKE states.
@@ -489,20 +489,20 @@ enum AKEState {
 }
 
 struct AwaitingDHKey {
-    r: AES128::Key,
-    our_dh_keypair: Rc<DH::Keypair>,
+    r: aes128::Key,
+    our_dh_keypair: Rc<dh::Keypair>,
 }
 
 struct AwaitingRevealSignature {
-    our_dh_keypair: Rc<DH::Keypair>,
+    our_dh_keypair: Rc<dh::Keypair>,
     gx_encrypted: Vec<u8>,
     gx_hashed: Vec<u8>,
 }
 
 struct AwaitingSignature {
-    our_dh_keypair: Rc<DH::Keypair>,
+    our_dh_keypair: Rc<dh::Keypair>,
     gy: BigUint,
-    s: DH::SharedSecret,
+    s: dh::SharedSecret,
     previous_message: RevealSignatureMessage,
 }
 

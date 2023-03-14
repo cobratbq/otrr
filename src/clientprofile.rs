@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{Ed448, DSA},
+    crypto::{ed448, dsa},
     encoding::{OTRDecoder, OTREncodable},
     instancetag::InstanceTag,
     OTRError, Version,
@@ -8,11 +8,11 @@ use crate::{
 pub struct ClientProfile {
     // FIXME how to implement client profile with useable fields? Follow otr4j pattern?
     owner: InstanceTag,
-    publicKey: Ed448::PublicKey,
-    forgingKey: Ed448::PublicKey,
+    publicKey: ed448::PublicKey,
+    forgingKey: ed448::PublicKey,
     versions: Vec<Version>,
     expiration: i64,
-    legacyPublicKey: Option<DSA::PublicKey>,
+    legacyPublicKey: Option<dsa::PublicKey>,
 }
 
 impl ClientProfile {
@@ -41,12 +41,12 @@ impl ClientProfile {
 
 pub struct ClientProfilePayload {
     owner: Option<InstanceTag>,
-    publicKey: Option<Ed448::PublicKey>,
-    forgingKey: Option<Ed448::PublicKey>,
+    publicKey: Option<ed448::PublicKey>,
+    forgingKey: Option<ed448::PublicKey>,
     versions: Vec<Version>,
     expiration: Option<i64>,
-    legacyPublicKey: Option<DSA::PublicKey>,
-    transitionalSig: Option<DSA::Signature>,
+    legacyPublicKey: Option<dsa::PublicKey>,
+    transitionalSig: Option<dsa::Signature>,
 }
 
 impl ClientProfilePayload {
@@ -83,7 +83,7 @@ impl ClientProfilePayload {
 
     fn validate(
         payload: ClientProfilePayload,
-        signature: Ed448::Signature,
+        signature: ed448::Signature,
     ) -> Result<Self, OTRError> {
         // FIXME perform verification of payload and validation against signature
         todo!("perform field validation of payload");
@@ -105,12 +105,12 @@ fn parse_versions(data: &[u8]) -> Vec<Version> {
 
 pub enum ClientProfileField {
     OwnerInstanceTag(InstanceTag),
-    Ed448PublicKey(Ed448::PublicKey),
-    Ed448ForgingKey(Ed448::PublicKey),
+    Ed448PublicKey(ed448::PublicKey),
+    Ed448ForgingKey(ed448::PublicKey),
     Versions(Vec<u8>),
     ProfileExpiration(i64),
-    DSAPublicKey(DSA::PublicKey),
-    TransitionalSignature(DSA::Signature),
+    DSAPublicKey(dsa::PublicKey),
+    TransitionalSignature(dsa::Signature),
 }
 
 const DEFAULT_EXPIRATION: i64 = 7*24*3600;

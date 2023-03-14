@@ -5,7 +5,7 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{constant, DH, DSA, OTR, SHA1},
+    crypto::{constant, dh, dsa, otr, sha1},
     encoding::{
         encode_authenticator_data, DataMessage, EncodedMessageType, Fingerprint, MessageFlags,
         OTRDecoder, OTREncoder, MAC_LEN, TLV,
@@ -39,9 +39,9 @@ pub trait ProtocolState {
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
-        our_dh: DH::Keypair,
+        our_dh: dh::Keypair,
         their_dh: BigUint,
-        their_dsa: DSA::PublicKey,
+        their_dsa: dsa::PublicKey,
     ) -> Box<EncryptedState>;
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
@@ -83,11 +83,11 @@ impl ProtocolState for PlaintextState {
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
-        our_dh: DH::Keypair,
+        our_dh: dh::Keypair,
         their_dh: BigUint,
-        their_dsa: DSA::PublicKey,
+        their_dsa: dsa::PublicKey,
     ) -> Box<EncryptedState> {
-        let their_fingerprint = OTR::fingerprint(&their_dsa);
+        let their_fingerprint = otr::fingerprint(&their_dsa);
         Box::new(EncryptedState::new(
             host,
             version,
@@ -172,11 +172,11 @@ impl ProtocolState for EncryptedState {
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
-        our_dh: DH::Keypair,
+        our_dh: dh::Keypair,
         their_dh: BigUint,
-        their_dsa: DSA::PublicKey,
+        their_dsa: dsa::PublicKey,
     ) -> Box<EncryptedState> {
-        let their_fingerprint = OTR::fingerprint(&their_dsa);
+        let their_fingerprint = otr::fingerprint(&their_dsa);
         // There is no indication in the OTRv3 spec that there are issues with re-transitioning into
         // `MSGSTATE_ENCRYPTED`. There does not seem to be an issue, and it also means that AKEs
         // during `MSGSTATE_ENCRYPTED` are possible as well.
@@ -230,7 +230,7 @@ impl EncryptedState {
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
-        our_dh: DH::Keypair,
+        our_dh: dh::Keypair,
         their_dh: BigUint,
         their_fingerprint: Fingerprint,
     ) -> Self {
@@ -250,7 +250,7 @@ impl EncryptedState {
         let next_dh = self.keys.next_keys().1.public.clone();
         let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        let secrets = OTR::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
         utils::slice::copy(&mut nonce, &ctr);
         let ciphertext = secrets
@@ -275,7 +275,7 @@ impl EncryptedState {
 
         // Generate authenticator for data message, then update data message with correct
         // authenticator.
-        let authenticator = SHA1::hmac(
+        let authenticator = sha1::hmac(
             &secrets.sender_mac_key(),
             &encode_authenticator_data(
                 &self.version,
@@ -302,10 +302,10 @@ impl EncryptedState {
         let secbytes = OTREncoder::new()
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
-        let secrets = OTR::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
         // "Uses mk to verify MACmk(TA)."
         let receiving_mac_key = secrets.receiver_mac_key();
-        let authenticator = SHA1::hmac(
+        let authenticator = sha1::hmac(
             &receiving_mac_key,
             &encode_authenticator_data(
                 &self.version,
@@ -380,11 +380,11 @@ impl ProtocolState for FinishedState {
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
-        our_dh: DH::Keypair,
+        our_dh: dh::Keypair,
         their_dh: BigUint,
-        their_dsa: DSA::PublicKey,
+        their_dsa: dsa::PublicKey,
     ) -> Box<EncryptedState> {
-        let their_fingerprint = OTR::fingerprint(&their_dsa);
+        let their_fingerprint = otr::fingerprint(&their_dsa);
         Box::new(EncryptedState::new(
             host,
             version,

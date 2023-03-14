@@ -10,7 +10,7 @@ use crate::utils;
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 #[allow(non_snake_case)]
-pub mod DH {
+pub mod dh {
 
     use once_cell::sync::Lazy;
 
@@ -144,17 +144,17 @@ pub mod DH {
 }
 
 #[allow(non_snake_case)]
-pub mod OTR {
+pub mod otr {
     use num_bigint::{BigUint, ModInverse};
 
     use crate::encoding::OTREncoder;
 
-    use super::{AES128, DSA, SHA1, SHA256};
+    use super::{aes128, dsa, sha1, sha256};
 
     pub struct AKESecrets {
         pub ssid: [u8; 8],
-        pub c: AES128::Key,
-        pub cp: AES128::Key,
+        pub c: aes128::Key,
+        pub cp: aes128::Key,
         pub m1: [u8; 32],
         pub m1p: [u8; 32],
         pub m2: [u8; 32],
@@ -178,8 +178,8 @@ pub mod OTR {
             let h2secret1 = h2(0x01, secbytes);
             AKESecrets {
                 ssid: h2secret0[..8].try_into().unwrap(),
-                c: AES128::Key(h2secret1[..16].try_into().unwrap()),
-                cp: AES128::Key(h2secret1[16..].try_into().unwrap()),
+                c: aes128::Key(h2secret1[..16].try_into().unwrap()),
+                cp: aes128::Key(h2secret1[16..].try_into().unwrap()),
                 m1: h2(0x02, secbytes),
                 m2: h2(0x03, secbytes),
                 m1p: h2(0x04, secbytes),
@@ -189,8 +189,8 @@ pub mod OTR {
     }
 
     pub struct DataSecrets {
-        sendkey: AES128::Key,
-        recvkey: AES128::Key,
+        sendkey: aes128::Key,
+        recvkey: aes128::Key,
     }
 
     impl DataSecrets {
@@ -216,48 +216,48 @@ pub mod OTR {
             let mut recvkey = [0u8; 16];
             recvkey.copy_from_slice(&h1(recvbyte, secbytes)[..16]);
             DataSecrets {
-                sendkey: AES128::Key(sendkey),
-                recvkey: AES128::Key(recvkey),
+                sendkey: aes128::Key(sendkey),
+                recvkey: aes128::Key(recvkey),
             }
         }
 
-        pub fn sender_crypt_key(&self) -> &AES128::Key {
+        pub fn sender_crypt_key(&self) -> &aes128::Key {
             &self.sendkey
         }
 
         pub fn sender_mac_key(&self) -> [u8; 20] {
-            SHA1::digest(&self.sendkey.0)
+            sha1::digest(&self.sendkey.0)
         }
 
-        pub fn receiver_crypt_key(&self) -> &AES128::Key {
+        pub fn receiver_crypt_key(&self) -> &aes128::Key {
             &self.recvkey
         }
 
         pub fn receiver_mac_key(&self) -> [u8; 20] {
-            SHA1::digest(&self.recvkey.0)
+            sha1::digest(&self.recvkey.0)
         }
     }
 
     fn h1(b: u8, secbytes: &[u8]) -> [u8; 20] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
-        SHA1::digest(&bytes)
+        sha1::digest(&bytes)
     }
 
     fn h2(b: u8, secbytes: &[u8]) -> [u8; 32] {
         let mut bytes = vec![b];
         bytes.extend_from_slice(secbytes);
-        SHA256::digest(&bytes)
+        sha256::digest(&bytes)
     }
 
-    pub fn fingerprint(pk: &DSA::PublicKey) -> [u8; 20] {
+    pub fn fingerprint(pk: &dsa::PublicKey) -> [u8; 20] {
         // "The fingerprint is calculated by taking the SHA-1 hash of the byte-level representation
         //  of the public key. However, there is an exception for backwards compatibility: if the
         //  pubkey type is 0x0000, those two leading 0x00 bytes are omitted from the data to be
         //  hashed. The encoding assures that, assuming the hash function itself has no useful
         //  collisions, and DSA keys have length less than 524281 bits (500 times larger than most
         //  DSA keys), no two public keys will have the same fingerprint."
-        SHA1::digest(&OTREncoder::new().write_public_key(pk).to_vec()[2..])
+        sha1::digest(&OTREncoder::new().write_public_key(pk).to_vec()[2..])
     }
 
     /// `mod_inv` is a modular-inverse implementation.
@@ -268,7 +268,7 @@ pub mod OTR {
 }
 
 #[allow(non_snake_case)]
-pub mod AES128 {
+pub mod aes128 {
     use aes_ctr::{
         cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
         Aes128Ctr,
@@ -321,7 +321,7 @@ pub mod AES128 {
 }
 
 #[allow(non_snake_case)]
-pub mod DSA {
+pub mod dsa {
     use std::rc::Rc;
 
     use dsa::{
@@ -440,7 +440,7 @@ pub mod DSA {
 }
 
 #[allow(non_snake_case)]
-pub mod SHA1 {
+pub mod sha1 {
     type Digest = [u8; 20];
 
     pub fn digest(data: &[u8]) -> Digest {
@@ -460,7 +460,7 @@ pub mod SHA1 {
 }
 
 #[allow(non_snake_case)]
-pub mod SHA256 {
+pub mod sha256 {
     type Digest = [u8; 32];
 
     pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
@@ -505,7 +505,7 @@ pub mod SHA256 {
     }
 }
 
-pub mod Ed448 {
+pub mod ed448 {
     const LENGTH: usize = 57;
 
     pub struct PublicKey(Point);
@@ -557,27 +557,27 @@ mod tests {
     use crate::utils::biguint::{ONE, TWO, ZERO};
     use num_bigint::BigUint;
 
-    use super::{constant, DH};
+    use super::{constant, dh};
 
     #[test]
     fn test_dh_verify_homogenous() {
         let v1 = BigUint::from(7u8);
         let v2 = BigUint::from(7u8);
         let v3 = BigUint::from(9u8);
-        assert!(DH::verify(&v1, &v2).is_ok());
-        assert!(DH::verify(&v2, &v1).is_ok());
-        assert!(DH::verify(&v1, &v3).is_err());
-        assert!(DH::verify(&v2, &v3).is_err());
-        assert!(DH::verify(&v3, &v1).is_err());
-        assert!(DH::verify(&v3, &v2).is_err());
+        assert!(dh::verify(&v1, &v2).is_ok());
+        assert!(dh::verify(&v2, &v1).is_ok());
+        assert!(dh::verify(&v1, &v3).is_err());
+        assert!(dh::verify(&v2, &v3).is_err());
+        assert!(dh::verify(&v3, &v1).is_err());
+        assert!(dh::verify(&v3, &v2).is_err());
     }
 
     #[test]
     fn test_dh_verify_heterogenous() {
         let v1 = BigUint::from(7u8);
         let v2 = BigUint::from(7u16);
-        assert!(DH::verify(&v1, &v2).is_ok());
-        assert!(DH::verify(&v2, &v1).is_ok());
+        assert!(dh::verify(&v1, &v2).is_ok());
+        assert!(dh::verify(&v2, &v1).is_ok());
     }
 
     #[test]
@@ -585,24 +585,24 @@ mod tests {
     #[allow(unused_must_use)]
     fn test_dh_verify_panic_on_same() {
         let v1 = BigUint::from(7u8);
-        DH::verify(&v1, &v1);
+        dh::verify(&v1, &v1);
     }
 
     #[test]
     fn test_dh_general_expectations() {
-        assert_eq!(DH::generator(), DH::generator());
-        assert_eq!(DH::modulus(), DH::modulus());
-        assert_eq!(DH::q(), DH::q());
-        let k1 = DH::Keypair::generate();
-        assert!(DH::verify_public_key(&k1.public).is_ok());
-        let k2 = DH::Keypair::generate();
-        assert!(DH::verify_public_key(&k2.public).is_ok());
-        let k3 = DH::Keypair::generate();
-        assert!(DH::verify_public_key(&k3.public).is_ok());
-        let k4 = DH::Keypair::generate();
-        assert!(DH::verify_public_key(&k4.public).is_ok());
-        let k5 = DH::Keypair::generate();
-        assert!(DH::verify_public_key(&k5.public).is_ok());
+        assert_eq!(dh::generator(), dh::generator());
+        assert_eq!(dh::modulus(), dh::modulus());
+        assert_eq!(dh::q(), dh::q());
+        let k1 = dh::Keypair::generate();
+        assert!(dh::verify_public_key(&k1.public).is_ok());
+        let k2 = dh::Keypair::generate();
+        assert!(dh::verify_public_key(&k2.public).is_ok());
+        let k3 = dh::Keypair::generate();
+        assert!(dh::verify_public_key(&k3.public).is_ok());
+        let k4 = dh::Keypair::generate();
+        assert!(dh::verify_public_key(&k4.public).is_ok());
+        let k5 = dh::Keypair::generate();
+        assert!(dh::verify_public_key(&k5.public).is_ok());
         assert_ne!(k1.public, k2.public);
         assert_ne!(k2.public, k3.public);
         assert_ne!(k3.public, k4.public);
@@ -635,19 +635,19 @@ mod tests {
             k3.generate_shared_secret(&k3.public),
             k3.generate_shared_secret(&k3.public)
         );
-        assert!(DH::verify_public_key(&ZERO).is_err());
-        assert!(DH::verify_public_key(&ONE).is_err());
-        assert!(DH::verify_public_key(&TWO).is_ok());
-        assert!(DH::verify_public_key(&(DH::modulus() - &*TWO)).is_ok());
-        assert!(DH::verify_public_key(&(DH::modulus() - &*ONE)).is_err());
-        assert!(DH::verify_public_key(DH::modulus()).is_err());
-        assert!(DH::verify_public_key(&(DH::modulus() + &*ONE)).is_err());
-        assert!(DH::verify_exponent(&ZERO).is_err());
-        assert!(DH::verify_exponent(&ONE).is_ok());
-        assert!(DH::verify_exponent(&TWO).is_ok());
-        assert!(DH::verify_exponent(&(DH::q() - &*ONE)).is_ok());
-        assert!(DH::verify_exponent(DH::q()).is_err());
-        assert!(DH::verify_exponent(&(DH::q() + &*ONE)).is_err());
+        assert!(dh::verify_public_key(&ZERO).is_err());
+        assert!(dh::verify_public_key(&ONE).is_err());
+        assert!(dh::verify_public_key(&TWO).is_ok());
+        assert!(dh::verify_public_key(&(dh::modulus() - &*TWO)).is_ok());
+        assert!(dh::verify_public_key(&(dh::modulus() - &*ONE)).is_err());
+        assert!(dh::verify_public_key(dh::modulus()).is_err());
+        assert!(dh::verify_public_key(&(dh::modulus() + &*ONE)).is_err());
+        assert!(dh::verify_exponent(&ZERO).is_err());
+        assert!(dh::verify_exponent(&ONE).is_ok());
+        assert!(dh::verify_exponent(&TWO).is_ok());
+        assert!(dh::verify_exponent(&(dh::q() - &*ONE)).is_ok());
+        assert!(dh::verify_exponent(dh::q()).is_err());
+        assert!(dh::verify_exponent(&(dh::q() + &*ONE)).is_err());
     }
 
     #[test]

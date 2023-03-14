@@ -7,7 +7,7 @@
 use ake::AKEError;
 use bitflags::bitflags;
 use clientprofile::ClientProfile;
-use crypto::{CryptoError, DSA};
+use crypto::{CryptoError, dsa};
 use encoding::TLV;
 use instancetag::InstanceTag;
 
@@ -205,7 +205,7 @@ pub trait Host {
     /// Acquire the long-term DSA keypair from the host application. The long-term keypair, that is
     /// used for authentication purposes, is requested from the host application. This allows the
     /// host control over which keypair to provide for which account.
-    fn keypair(&self) -> &DSA::Keypair;
+    fn keypair(&self) -> &dsa::Keypair;
 
     /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
     /// secret answer that is necessary to continue the SMP.
