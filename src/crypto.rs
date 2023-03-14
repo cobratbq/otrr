@@ -504,6 +504,28 @@ pub mod SHA256 {
     }
 }
 
+pub mod Ed448 {
+    const LENGTH: usize = 57;
+
+    pub struct PublicKey(Point);
+
+    impl PublicKey {
+        pub fn from(data: Vec<u8>) -> PublicKey {
+            todo!("implement conversion from raw bytes")
+        }
+    }
+
+    pub struct Signature([u8; 2 * LENGTH]);
+
+    impl Signature {
+        pub fn from(data: Vec<u8>) -> Signature {
+            todo!("implement conversion from raw bytes")
+        }
+    }
+
+    pub type Point = [u8; LENGTH];
+}
+
 pub mod constant {
     use super::{verify_nonzero, CryptoError};
 

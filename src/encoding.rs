@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::DSA,
+    crypto::{DSA, Ed448},
     crypto::{AES128, DSA::Signature},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
@@ -562,8 +562,8 @@ impl<'a> OTRDecoder<'a> {
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
-        let data = Vec::from(&self.0[..len]);
-        self.0 = &self.0[len..];
+        let mut data = Vec::with_capacity(len);
+        self.transfer(len, &mut data);
         Ok(data)
     }
 
@@ -663,8 +663,8 @@ impl<'a> OTRDecoder<'a> {
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
-        let data = Vec::from(&self.0[..len]);
-        self.0 = &self.0[len..];
+        let mut data = Vec::with_capacity(len);
+        self.transfer(len, &mut data);
         Ok(TLV(typ, data))
     }
     /// `read_bytes_null_terminated` reads bytes until a NULL-byte is found or the buffer is empty.
@@ -676,14 +676,37 @@ impl<'a> OTRDecoder<'a> {
         let mut bytes = Vec::new();
         for i in 0..self.0.len() {
             if self.0[i] == 0 {
-                bytes.extend_from_slice(&self.0[..i]);
-                self.0 = &self.0[i + 1..];
+                self.transfer(i, &mut bytes);
+                self.0 = &self.0[1..];
                 return bytes;
             }
         }
-        bytes.extend_from_slice(self.0);
-        self.0 = &self.0[self.0.len()..];
+        self.transfer(self.0.len(), &mut bytes);
         bytes
+    }
+
+    pub fn read_ed448_signature(&mut self) -> Result<Ed448::Signature, OTRError> {
+        const LENGTH: usize = 114;
+        Ok(Ed448::Signature::from(self.read(LENGTH)?))
+    }
+
+    pub fn read_ed448_public_key(&mut self) -> Result<Ed448::PublicKey, OTRError> {
+        const LENGTH: usize = 57;
+        Ok(Ed448::PublicKey::from(self.read(LENGTH)?))
+    }
+
+    fn read(&mut self, n: usize) -> Result<Vec<u8>, OTRError> {
+        if self.0.len() < n {
+            return Err(OTRError::IncompleteMessage)
+        }
+        let mut buffer = Vec::with_capacity(n);
+        self.transfer(n, &mut buffer);
+        Ok(buffer)
+    }
+
+    fn transfer(&mut self, n: usize, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(&self.0[..n]);
+        self.0 = &self.0[n..];
     }
 
     /// `done` can be used to express the end of decoding. The instance is consumed.
@@ -817,6 +840,14 @@ impl OTREncoder {
         self.buffer.extend_from_slice(data);
         self.buffer.push(0u8);
         self
+    }
+
+    pub fn write_ed448_public_key(&mut self, pk: &Ed448::PublicKey) -> &mut Self {
+        todo!("Implement ED448 public key encoding")
+    }
+
+    pub fn write_ed448_signature(&mut self, sig: &Ed448::Signature) -> &mut Self {
+        todo!("Implement ED448 signature encoding")
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
