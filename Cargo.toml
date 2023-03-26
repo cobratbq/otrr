@@ -23,6 +23,7 @@ dsa = "0.4.2"
 #dsa = {path = "../signatures/dsa"}
 sha-1 = "0.10"
 sha2 = "0.10"
+sha3 = "0.10"
 typenum = "1.15"
 zeroize = "1.5"
 
