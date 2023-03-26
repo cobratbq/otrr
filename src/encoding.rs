@@ -10,8 +10,8 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::{dsa, ed448},
     crypto::{aes128, dsa::Signature},
+    crypto::{dsa, ed448},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
 };
@@ -69,7 +69,7 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let data = base64_decode(data)?;
     let mut decoder = OTRDecoder(&data);
-    let version: Version = match decoder.read_short()? {
+    let version: Version = match decoder.read_u16()? {
         0u16 => {
             return Err(OTRError::ProtocolViolation(
                 "A protocol version must be provided.",
@@ -78,7 +78,7 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
         3u16 => Version::V3,
         version => return Err(OTRError::UnsupportedVersion(version)),
     };
-    let message_type = decoder.read_byte()?;
+    let message_type = decoder.read_u8()?;
     let sender: InstanceTag = decoder.read_instance_tag()?;
     let receiver: InstanceTag = decoder.read_instance_tag()?;
     let encoded = parse_encoded_content(message_type, decoder)?;
@@ -195,8 +195,8 @@ pub struct EncodedMessage {
 impl OTREncodable for EncodedMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
-            .write_short(encode_version(&self.version))
-            .write_byte(match self.message {
+            .write_u16(encode_version(&self.version))
+            .write_u8(match self.message {
                 EncodedMessageType::Unencoded(_) => panic!(
                     "BUG: 'Unencoded' message-type must be reprocessed. It cannot be sent as-is."
                 ),
@@ -206,8 +206,8 @@ impl OTREncodable for EncodedMessage {
                 EncodedMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
                 EncodedMessageType::Data(_) => OTR_DATA_TYPE_CODE,
             })
-            .write_int(self.sender)
-            .write_int(self.receiver)
+            .write_u32(self.sender)
+            .write_u32(self.receiver)
             .write_encodable(match &self.message {
                 EncodedMessageType::Unencoded(_) => panic!(
                     "BUG: 'Unencoded' message-type must be reprocessed. It cannot be sent as-is."
@@ -360,11 +360,11 @@ pub type KeyID = u32;
 impl DataMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<DataMessage, OTRError> {
         Ok(DataMessage {
-            flags: MessageFlags::from_bits(decoder.read_byte()?)
+            flags: MessageFlags::from_bits(decoder.read_u8()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
-            sender_keyid: utils::u32::nonzero(decoder.read_int()?)
+            sender_keyid: utils::u32::nonzero(decoder.read_u32()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
-            receiver_keyid: utils::u32::nonzero(decoder.read_int()?)
+            receiver_keyid: utils::u32::nonzero(decoder.read_u32()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
             dh_y: decoder.read_mpi()?,
             ctr: decoder.read_ctr()?,
@@ -378,9 +378,9 @@ impl DataMessage {
 impl OTREncodable for DataMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
         encoder
-            .write_byte(self.flags.bits())
-            .write_int(self.sender_keyid)
-            .write_int(self.receiver_keyid)
+            .write_u8(self.flags.bits())
+            .write_u32(self.sender_keyid)
+            .write_u32(self.receiver_keyid)
             .write_mpi(&self.dh_y)
             .write_ctr(&self.ctr)
             .write_data(&self.encrypted)
@@ -474,13 +474,13 @@ pub fn encode_authenticator_data(
     message: &DataMessage,
 ) -> Vec<u8> {
     OTREncoder::new()
-        .write_short(encode_version(version))
-        .write_byte(OTR_DATA_TYPE_CODE)
-        .write_int(sender)
-        .write_int(receiver)
-        .write_byte(message.flags.bits())
-        .write_int(message.sender_keyid)
-        .write_int(message.receiver_keyid)
+        .write_u16(encode_version(version))
+        .write_u8(OTR_DATA_TYPE_CODE)
+        .write_u32(sender)
+        .write_u32(receiver)
+        .write_u8(message.flags.bits())
+        .write_u32(message.sender_keyid)
+        .write_u32(message.receiver_keyid)
         .write_mpi(&message.dh_y)
         .write_ctr(&message.ctr)
         .write_data(&message.encrypted)
@@ -520,7 +520,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_byte` reads a single byte from buffer.
-    pub fn read_byte(&mut self) -> Result<u8, OTRError> {
+    pub fn read_u8(&mut self) -> Result<u8, OTRError> {
         log::trace!("read byte");
         if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
@@ -531,7 +531,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_short` reads a short value (2 bytes, big-endian) from buffer.
-    pub fn read_short(&mut self) -> Result<u16, OTRError> {
+    pub fn read_u16(&mut self) -> Result<u16, OTRError> {
         log::trace!("read short");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
@@ -542,7 +542,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
-    pub fn read_int(&mut self) -> Result<u32, OTRError> {
+    pub fn read_u32(&mut self) -> Result<u32, OTRError> {
         log::trace!("read int");
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
@@ -555,16 +555,24 @@ impl<'a> OTRDecoder<'a> {
         Ok(value)
     }
 
+    pub fn read_i64(&mut self) -> Result<i64, OTRError> {
+        let bytes = self.read(8)?;
+        assert_eq!(8, bytes.len());
+        Ok(i64::from_be_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]))
+    }
+
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
         log::trace!("read instance tag");
-        verify_instance_tag(self.read_int()?)
+        verify_instance_tag(self.read_u32()?)
             .or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
     /// `read_data` reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
         log::trace!("read DATA");
-        let len = self.read_int()? as usize;
+        let len = self.read_u32()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
@@ -576,7 +584,7 @@ impl<'a> OTRDecoder<'a> {
     /// `read_mpi` reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
         log::trace!("read MPI");
-        let len = self.read_int()? as usize;
+        let len = self.read_u32()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
@@ -588,7 +596,7 @@ impl<'a> OTRDecoder<'a> {
     /// Read sequence of MPI values as defined by SMP.
     pub fn read_mpi_sequence(&mut self) -> Result<Vec<BigUint>, OTRError> {
         log::trace!("read sequence of MPIs");
-        let len = self.read_int()? as usize;
+        let len = self.read_u32()? as usize;
         let mut mpis = Vec::new();
         for _ in 0..len {
             mpis.push(self.read_mpi()?);
@@ -623,7 +631,7 @@ impl<'a> OTRDecoder<'a> {
     /// `read_public_key` reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<dsa::PublicKey, OTRError> {
         log::trace!("read DSA public key");
-        let pktype = self.read_short()?;
+        let pktype = self.read_u16()?;
         if pktype != 0u16 {
             return Err(OTRError::ProtocolViolation(
                 "Unsupported/invalid public key type.",
@@ -664,8 +672,8 @@ impl<'a> OTRDecoder<'a> {
     /// `read_tlv` reads a type-length-value record from the content.
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
         log::trace!("read TLV");
-        let typ = self.read_short()?;
-        let len = self.read_short()? as usize;
+        let typ = self.read_u16()?;
+        let len = self.read_u16()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }
@@ -703,7 +711,7 @@ impl<'a> OTRDecoder<'a> {
 
     fn read(&mut self, n: usize) -> Result<Vec<u8>, OTRError> {
         if self.0.len() < n {
-            return Err(OTRError::IncompleteMessage)
+            return Err(OTRError::IncompleteMessage);
         }
         let mut buffer = Vec::with_capacity(n);
         self.transfer(n, &mut buffer);
@@ -734,6 +742,7 @@ pub struct OTREncoder {
     buffer: Vec<u8>,
 }
 
+// TODO change API to accept references to primitive types? (See e.g. clientprofile expiration)
 impl OTREncoder {
     pub fn new() -> Self {
         Self { buffer: Vec::new() }
@@ -749,19 +758,19 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_byte(&mut self, v: u8) -> &mut Self {
+    pub fn write_u8(&mut self, v: u8) -> &mut Self {
         self.buffer.push(v);
         self
     }
 
-    pub fn write_short(&mut self, v: u16) -> &mut Self {
+    pub fn write_u16(&mut self, v: u16) -> &mut Self {
         let b = v.to_be_bytes();
         self.buffer.push(b[0]);
         self.buffer.push(b[1]);
         self
     }
 
-    pub fn write_int(&mut self, v: u32) -> &mut Self {
+    pub fn write_u32(&mut self, v: u32) -> &mut Self {
         let b = v.to_be_bytes();
         self.buffer.push(b[0]);
         self.buffer.push(b[1]);
@@ -770,10 +779,16 @@ impl OTREncoder {
         self
     }
 
+    pub fn write_i64(&mut self, v: i64) -> &mut Self {
+        let bytes: [u8; 8] = v.to_be_bytes();
+        self.buffer.extend_from_slice(&bytes);
+        self
+    }
+
     #[allow(clippy::cast_possible_truncation)]
     pub fn write_data(&mut self, v: &[u8]) -> &mut Self {
         assert!(u32::try_from(v.len()).is_ok());
-        self.write_int(v.len() as u32);
+        self.write_u32(v.len() as u32);
         self.buffer.extend_from_slice(v);
         self
     }
@@ -781,7 +796,7 @@ impl OTREncoder {
     /// Write sequence of MPI values in format defined in SMP: `num_mpis`, `mpi1`, `mpi2`, `...`
     #[allow(clippy::cast_possible_truncation)]
     pub fn write_mpi_sequence(&mut self, mpis: &[&BigUint]) -> &mut Self {
-        self.write_int(mpis.len() as u32);
+        self.write_u32(mpis.len() as u32);
         for mpi in mpis {
             self.write_mpi(mpi);
         }
@@ -798,7 +813,7 @@ impl OTREncoder {
             0, encoded[0],
             "Assertion checking for minimum-length encoding has failed."
         );
-        self.write_int(encoded.len() as u32);
+        self.write_u32(encoded.len() as u32);
         self.write(&encoded)
     }
 
@@ -813,7 +828,7 @@ impl OTREncoder {
     }
 
     pub fn write_public_key(&mut self, key: &dsa::PublicKey) -> &mut Self {
-        self.write_short(0)
+        self.write_u16(0)
             .write_mpi(key.p())
             .write_mpi(key.q())
             .write_mpi(key.g())
@@ -837,7 +852,7 @@ impl OTREncoder {
     #[allow(clippy::cast_possible_truncation)]
     pub fn write_tlv(&mut self, tlv: &TLV) -> &mut Self {
         assert!(u16::try_from(tlv.1.len()).is_ok());
-        self.write_short(tlv.0).write_short(tlv.1.len() as u16);
+        self.write_u16(tlv.0).write_u16(tlv.1.len() as u16);
         self.buffer.extend(&tlv.1);
         self
     }
@@ -908,17 +923,17 @@ mod tests {
         // This is a poor man's boundary test, as we don't try the actual boundary with only 1 byte
         // of data short, but at least it is something.
         let mut decoder = OTRDecoder::new(&[]);
-        assert!(decoder.read_byte().is_err());
+        assert!(decoder.read_u8().is_err());
         assert!(decoder.read_bytes_null_terminated().is_empty());
         assert!(decoder.read_ctr().is_err());
         assert!(decoder.read_data().is_err());
         assert!(decoder.read_instance_tag().is_err());
-        assert!(decoder.read_int().is_err());
+        assert!(decoder.read_u32().is_err());
         assert!(decoder.read_mac().is_err());
         assert!(decoder.read_mpi().is_err());
         assert!(decoder.read_mpi_sequence().is_err());
         assert!(decoder.read_public_key().is_err());
-        assert!(decoder.read_short().is_err());
+        assert!(decoder.read_u16().is_err());
         assert!(decoder.read_dsa_signature().is_err());
         assert!(decoder.read_tlv().is_err());
         assert!(decoder.read_tlvs().unwrap().is_empty());
@@ -935,9 +950,9 @@ mod tests {
         let tlv = TLV(666, Vec::from("This is content of the TLV payload"));
         let mpi = BigUint::from(123_456_789_009_876_543_211_234_567_890_u128);
         let buffer = OTREncoder::new()
-            .write_byte(12)
-            .write_short(666)
-            .write_int(99999)
+            .write_u8(12)
+            .write_u16(666)
+            .write_u32(99999)
             .write_ctr(&[7u8; 8])
             .write_bytes_null_terminated(b"Hello world, how are you today?")
             .write_data(b"Another string of data, this time stored using the DATA format")
@@ -945,9 +960,9 @@ mod tests {
             .write_mpi(&mpi)
             .to_vec();
         let mut decoder = OTRDecoder::new(&buffer);
-        assert_eq!(12, decoder.read_byte().unwrap());
-        assert_eq!(666, decoder.read_short().unwrap());
-        assert_eq!(99999, decoder.read_int().unwrap());
+        assert_eq!(12, decoder.read_u8().unwrap());
+        assert_eq!(666, decoder.read_u16().unwrap());
+        assert_eq!(99999, decoder.read_u32().unwrap());
         assert_eq!([7u8; 8], decoder.read_ctr().unwrap());
         assert_eq!(
             Ordering::Equal,

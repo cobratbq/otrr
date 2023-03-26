@@ -518,7 +518,7 @@ impl Instance {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
-                                    .write_byte(0)
+                                    .write_u8(0)
                                     .write_tlv(&reply_tlv)
                                     .to_vec())?;
                             self.inject(self.state.version(), otr_message);
@@ -639,7 +639,7 @@ impl Instance {
         let tlv = self.state.smp_mut()?.initiate(secret, question)?;
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,
-            &OTREncoder::new().write_byte(0).write_tlv(&tlv).to_vec(),
+            &OTREncoder::new().write_u8(0).write_tlv(&tlv).to_vec(),
         )?;
         self.inject(self.state.version(), message);
         Ok(())
@@ -661,7 +661,7 @@ impl Instance {
             .state
             .prepare(
                 MessageFlags::IGNORE_UNREADABLE,
-                &OTREncoder::new().write_byte(0).write_tlv(&tlv).to_vec(),
+                &OTREncoder::new().write_u8(0).write_tlv(&tlv).to_vec(),
             )
             .unwrap();
         self.inject(self.state.version(), msg);

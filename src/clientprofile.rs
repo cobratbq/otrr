@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{ed448, dsa},
+    crypto::{dsa, ed448},
     encoding::{OTRDecoder, OTREncodable},
     instancetag::InstanceTag,
     OTRError, Version,
@@ -8,77 +8,116 @@ use crate::{
 pub struct ClientProfile {
     // FIXME how to implement client profile with useable fields? Follow otr4j pattern?
     owner: InstanceTag,
-    publicKey: ed448::PublicKey,
-    forgingKey: ed448::PublicKey,
+    public_key: ed448::PublicKey,
+    forging_key: ed448::PublicKey,
     versions: Vec<Version>,
     expiration: i64,
-    legacyPublicKey: Option<dsa::PublicKey>,
+    legacy_public_key: Option<dsa::PublicKey>,
 }
 
 impl ClientProfile {
     fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
         let ClientProfilePayload {
             owner: Some(owner),
-            publicKey: Some(publicKey),
-            forgingKey: Some(forgingKey),
+            public_key: Some(public_key),
+            forging_key: Some(forging_key),
             versions,
             expiration: Some(expiration),
-            legacyPublicKey,
-            transitionalSig: _,
+            legacy_public_key,
+            transitional_sig: _,
         } = payload else {
             return Err(OTRError::ProtocolViolation("Some components from the client profile are missing"))
         };
         Ok(Self {
             owner,
-            publicKey,
-            forgingKey,
+            public_key,
+            forging_key,
             versions,
             expiration,
-            legacyPublicKey,
+            legacy_public_key,
         })
     }
 }
 
 pub struct ClientProfilePayload {
     owner: Option<InstanceTag>,
-    publicKey: Option<ed448::PublicKey>,
-    forgingKey: Option<ed448::PublicKey>,
+    public_key: Option<ed448::PublicKey>,
+    forging_key: Option<ed448::PublicKey>,
     versions: Vec<Version>,
     expiration: Option<i64>,
-    legacyPublicKey: Option<dsa::PublicKey>,
-    transitionalSig: Option<dsa::Signature>,
+    legacy_public_key: Option<dsa::PublicKey>,
+    transitional_sig: Option<dsa::Signature>,
+}
+
+impl OTREncodable for ClientProfilePayload {
+    fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        // TODO assumes payload is valid, i.e. unwrap will produce panics
+        encoder.write_u32(self.count_fields() as u32);
+        {
+            let tag = self.owner.unwrap();
+            encoder.write_u16(TYPE_OWNERINSTANCETAG);
+            encoder.write_u32(tag);
+        }
+        {
+            let pk = self.public_key.unwrap();
+            encoder.write_u16(TYPE_ED448_PUBLIC_KEY);
+            encoder.write_ed448_public_key(&pk);
+        }
+        {
+            let pk = self.forging_key.unwrap();
+            encoder.write_u16(TYPE_ED448_FORGING_KEY);
+            encoder.write_ed448_public_key(&pk);
+        }
+        {
+            encoder.write_u16(TYPE_VERSIONS);
+            encoder.write_data(&encode_versions(&self.versions));
+        }
+        {
+            let timestamp = self.expiration.unwrap();
+            encoder.write_u16(TYPE_CLIENTPROFILE_EXPIRATION);
+            encoder.write_i64(timestamp);
+        }
+        if let Some(pk) = &self.legacy_public_key {
+            encoder.write_u16(TYPE_DSA_PUBLIC_KEY);
+            encoder.write_public_key(pk);
+        }
+        if let Some(sig) = &self.transitional_sig {
+            encoder.write_u16(TYPE_TRANSITIONAL_SIGNATURE);
+            encoder.write_signature(sig);
+        }
+    }
 }
 
 impl ClientProfilePayload {
     fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
-        let n = decoder.read_int()? as usize;
+        let n = decoder.read_u32()? as usize;
         let mut payload = Self {
             owner: Option::None,
-            publicKey: Option::None,
-            forgingKey: Option::None,
+            public_key: Option::None,
+            forging_key: Option::None,
             versions: Vec::new(),
             expiration: Option::None,
-            legacyPublicKey: Option::None,
-            transitionalSig: Option::None,
+            legacy_public_key: Option::None,
+            transitional_sig: Option::None,
         };
         for _ in 0..n {
             match ClientProfileField::decode(decoder)? {
                 ClientProfileField::OwnerInstanceTag(tag) => payload.owner = Option::Some(tag),
-                ClientProfileField::Ed448PublicKey(pk) => payload.publicKey = Option::Some(pk),
-                ClientProfileField::Ed448ForgingKey(pk) => payload.forgingKey = Option::Some(pk),
+                ClientProfileField::Ed448PublicKey(pk) => payload.public_key = Option::Some(pk),
+                ClientProfileField::Ed448ForgingKey(pk) => payload.forging_key = Option::Some(pk),
                 ClientProfileField::Versions(data) => payload.versions = parse_versions(&data),
                 ClientProfileField::ProfileExpiration(timestamp) => {
-                    payload.expiration = Option::Some(timestamp)
+                    payload.expiration = Option::Some(timestamp);
                 }
-                ClientProfileField::DSAPublicKey(pk) => payload.legacyPublicKey = Option::Some(pk),
+                ClientProfileField::DSAPublicKey(pk) => payload.legacy_public_key = Option::Some(pk),
                 ClientProfileField::TransitionalSignature(sig) => {
-                    payload.transitionalSig = Option::Some(sig)
+                    payload.transitional_sig = Option::Some(sig);
                 }
             }
         }
         let signature = decoder.read_ed448_signature()?;
         // FIXME need to verify signature before reading payload?
-        Ok(Self::validate(payload, signature)?)
+        Self::validate(payload, signature)
     }
 
     fn validate(

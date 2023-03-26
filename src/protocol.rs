@@ -194,7 +194,7 @@ impl ProtocolState for EncryptedState {
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         let plaintext = OTREncoder::new()
-            .write_byte(0)
+            .write_u8(0)
             .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
         let optabort = Some(EncodedMessageType::Data(

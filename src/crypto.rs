@@ -512,6 +512,7 @@ pub mod ed448 {
 
     impl PublicKey {
         pub fn from(data: Vec<u8>) -> PublicKey {
+            // FIXME implement `from` for deserializing Ed448 public key
             todo!("implement conversion from raw bytes")
         }
     }
@@ -520,6 +521,7 @@ pub mod ed448 {
 
     impl Signature {
         pub fn from(data: Vec<u8>) -> Signature {
+            // FIXME implement `from` for deserializing Ed448 signature
             todo!("implement conversion from raw bytes")
         }
     }

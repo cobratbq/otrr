@@ -197,7 +197,7 @@ impl AKEContext {
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_mpi(&msg.gy)
                         .write_public_key(&pub_b)
-                        .write_int(KEYID_B)
+                        .write_u32(KEYID_B)
                         .to_vec(),
                 );
                 // "This is the signature, using the private part of the key pubB, of the 32-byte MB
@@ -208,7 +208,7 @@ impl AKEContext {
                 log::trace!("M_B: {:?}", &m_b);
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
-                    .write_int(KEYID_B)
+                    .write_u32(KEYID_B)
                     .write_signature(&sig_b)
                     .to_vec();
                 log::trace!("X_B: {:?}", &x_b);
@@ -316,7 +316,7 @@ impl AKEContext {
                 let pub_b = decoder.read_public_key().or(Err(AKEError::DataProcessing(
                     "Failed to read public key from X_B",
                 )))?;
-                let keyid_b = decoder.read_int().or(Err(AKEError::DataProcessing(
+                let keyid_b = decoder.read_u32().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_B",
                 )))?;
                 utils::u32::verify_nonzero(
@@ -333,7 +333,7 @@ impl AKEContext {
                         .write_mpi(&gx)
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_public_key(&pub_b)
-                        .write_int(keyid_b)
+                        .write_u32(keyid_b)
                         .to_vec(),
                 );
                 log::trace!("Sig_B: {:?}", &sig_b);
@@ -350,14 +350,14 @@ impl AKEContext {
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_mpi(&gx)
                         .write_public_key(&keypair.public_key())
-                        .write_int(KEYID_A)
+                        .write_u32(KEYID_A)
                         .to_vec(),
                 );
                 let sig_m_a = keypair.sign(&m_a);
                 log::debug!("M_A constructed and signed.");
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
-                    .write_int(KEYID_A)
+                    .write_u32(KEYID_A)
                     .write_signature(&sig_m_a)
                     .to_vec();
                 let encrypted_signature = secrets.cp.encrypt(&[0; 16], &x_a);
@@ -421,7 +421,7 @@ impl AKEContext {
                 let pub_a = decoder.read_public_key().or(Err(AKEError::DataProcessing(
                     "Failed to read public key from X_A",
                 )))?;
-                let keyid_a = decoder.read_int().or(Err(AKEError::DataProcessing(
+                let keyid_a = decoder.read_u32().or(Err(AKEError::DataProcessing(
                     "Failed to read keyid from X_A",
                 )))?;
                 utils::u32::verify_nonzero(
@@ -440,7 +440,7 @@ impl AKEContext {
                         .write_mpi(&state.gy)
                         .write_mpi(&state.our_dh_keypair.public)
                         .write_public_key(&pub_a)
-                        .write_int(keyid_a)
+                        .write_u32(keyid_a)
                         .to_vec(),
                 );
                 pub_a
