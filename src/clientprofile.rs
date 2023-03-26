@@ -59,14 +59,14 @@ impl OTREncodable for ClientProfilePayload {
             encoder.write_u32(tag);
         }
         {
-            let pk = self.public_key.unwrap();
+            let pk = self.public_key.as_ref().unwrap();
             encoder.write_u16(TYPE_ED448_PUBLIC_KEY);
-            encoder.write_ed448_public_key(&pk);
+            encoder.write_ed448_public_key(pk);
         }
         {
-            let pk = self.forging_key.unwrap();
+            let pk = self.forging_key.as_ref().unwrap();
             encoder.write_u16(TYPE_ED448_FORGING_KEY);
-            encoder.write_ed448_public_key(&pk);
+            encoder.write_ed448_public_key(pk);
         }
         {
             encoder.write_u16(TYPE_VERSIONS);
@@ -101,17 +101,28 @@ impl ClientProfilePayload {
             transitional_sig: Option::None,
         };
         for _ in 0..n {
-            match ClientProfileField::decode(decoder)? {
-                ClientProfileField::OwnerInstanceTag(tag) => payload.owner = Option::Some(tag),
-                ClientProfileField::Ed448PublicKey(pk) => payload.public_key = Option::Some(pk),
-                ClientProfileField::Ed448ForgingKey(pk) => payload.forging_key = Option::Some(pk),
-                ClientProfileField::Versions(data) => payload.versions = parse_versions(&data),
-                ClientProfileField::ProfileExpiration(timestamp) => {
-                    payload.expiration = Option::Some(timestamp);
+            match decoder.read_u16()? {
+                TYPE_OWNERINSTANCETAG => payload.owner = Some(decoder.read_u32()?),
+                TYPE_ED448_PUBLIC_KEY => {
+                    payload.public_key = Some(decoder.read_ed448_public_key()?)
                 }
-                ClientProfileField::DSAPublicKey(pk) => payload.legacy_public_key = Option::Some(pk),
-                ClientProfileField::TransitionalSignature(sig) => {
-                    payload.transitional_sig = Option::Some(sig);
+                TYPE_ED448_FORGING_KEY => {
+                    payload.forging_key = Some(decoder.read_ed448_public_key()?)
+                }
+                TYPE_VERSIONS => {
+                    payload
+                        .versions
+                        .extend(parse_versions(&decoder.read_data()?));
+                }
+                TYPE_CLIENTPROFILE_EXPIRATION => payload.expiration = Some(decoder.read_i64()?),
+                TYPE_DSA_PUBLIC_KEY => payload.legacy_public_key = Some(decoder.read_public_key()?),
+                TYPE_TRANSITIONAL_SIGNATURE => {
+                    payload.transitional_sig = Some(decoder.read_dsa_signature()?)
+                }
+                _ => {
+                    return Err(OTRError::ProtocolViolation(
+                        "Unknown client profile field-type",
+                    ))
                 }
             }
         }
@@ -128,6 +139,17 @@ impl ClientProfilePayload {
         todo!("perform field validation of payload");
         Ok(payload)
     }
+
+    fn count_fields(&self) -> u8 {
+        let mut count = 5u8;
+        if self.legacy_public_key.is_some() {
+            count += 1;
+        }
+        if self.transitional_sig.is_some() {
+            count += 1;
+        }
+        count
+    }
 }
 
 fn parse_versions(data: &[u8]) -> Vec<Version> {
@@ -142,81 +164,19 @@ fn parse_versions(data: &[u8]) -> Vec<Version> {
     versions
 }
 
-pub enum ClientProfileField {
-    OwnerInstanceTag(InstanceTag),
-    Ed448PublicKey(ed448::PublicKey),
-    Ed448ForgingKey(ed448::PublicKey),
-    Versions(Vec<u8>),
-    ProfileExpiration(i64),
-    DSAPublicKey(dsa::PublicKey),
-    TransitionalSignature(dsa::Signature),
-}
-
-const DEFAULT_EXPIRATION: i64 = 7*24*3600;
-
-impl OTREncodable for ClientProfileField {
-    fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-        match self {
-            Self::OwnerInstanceTag(tag) => {
-                encoder.write_short(TYPE_OWNERINSTANCETAG);
-                // TODO change API to accept reference?
-                encoder.write_int(*tag);
-            }
-            Self::Ed448PublicKey(pk) => {
-                encoder.write_short(TYPE_ED448_PUBLIC_KEY);
-                encoder.write_ed448_public_key(pk);
-            }
-            Self::Ed448ForgingKey(pk) => {
-                encoder.write_short(TYPE_ED448_FORGING_KEY);
-                encoder.write_ed448_public_key(pk);
-            }
-            Self::Versions(versions) => {
-                encoder.write_short(TYPE_VERSIONS);
-                encoder.write_data(versions);
-            }
-            Self::ProfileExpiration(timestamp) => {
-                encoder.write_short(TYPE_CLIENTPROFILE_EXPIRATION);
-                // FIXME implement Client Profile expiration encoding
-                todo!("implement encoding of Client Profile expiration")
-            }
-            Self::DSAPublicKey(pk) => {
-                encoder.write_short(TYPE_DSA_PUBLIC_KEY);
-                encoder.write_public_key(pk);
-            }
-            Self::TransitionalSignature(sig) => {
-                encoder.write_short(TYPE_TRANSITIONAL_SIGNATURE);
-                encoder.write_signature(sig);
-            }
-        }
+fn encode_versions(versions: &[Version]) -> Vec<u8> {
+    let mut data = Vec::<u8>::new();
+    for v in versions {
+        data.push(match v {
+            Version::V3 => b'3',
+            Version::V4 => b'4',
+            _ => panic!("Illegal version"),
+        })
     }
+    data
 }
 
-impl ClientProfileField {
-    fn decode(decoder: &mut OTRDecoder) -> Result<ClientProfileField, OTRError> {
-        let fieldtype = decoder.read_short()?;
-        match fieldtype {
-            TYPE_OWNERINSTANCETAG => Ok(ClientProfileField::OwnerInstanceTag(decoder.read_int()?)),
-            TYPE_ED448_PUBLIC_KEY => Ok(ClientProfileField::Ed448PublicKey(
-                decoder.read_ed448_public_key()?,
-            )),
-            TYPE_ED448_FORGING_KEY => Ok(ClientProfileField::Ed448ForgingKey(
-                decoder.read_ed448_public_key()?,
-            )),
-            TYPE_VERSIONS => Ok(ClientProfileField::Versions(decoder.read_data()?)),
-            // FIXME implement Client Profile expiration timestamp
-            TYPE_CLIENTPROFILE_EXPIRATION => {
-                todo!("Implement decoding of Client Profile expiration")
-            }
-            TYPE_DSA_PUBLIC_KEY => Ok(ClientProfileField::DSAPublicKey(decoder.read_public_key()?)),
-            TYPE_TRANSITIONAL_SIGNATURE => Ok(ClientProfileField::TransitionalSignature(
-                decoder.read_dsa_signature()?,
-            )),
-            _ => Err(OTRError::ProtocolViolation(
-                "Unknown client profile field-type",
-            )),
-        }
-    }
-}
+const DEFAULT_EXPIRATION: i64 = 7 * 24 * 3600;
 
 const TYPE_OWNERINSTANCETAG: u16 = 1;
 const TYPE_ED448_PUBLIC_KEY: u16 = 2;
