@@ -15,7 +15,21 @@ pub struct ClientProfile {
     legacy_public_key: Option<dsa::PublicKey>,
 }
 
+// TODO consider method for including and signing with legacy DSA public key for transitional signature.
 impl ClientProfile {
+
+    fn new(tag: InstanceTag, public_key: ed448::PublicKey, forging_key: ed448::PublicKey, versions: Vec<Version>, expiration: i64) -> Result<Self,OTRError> {
+        let profile = Self{
+            owner: tag,
+            public_key,
+            forging_key,
+            versions,
+            expiration,
+            legacy_public_key: None,
+        };
+        Self::validate(profile)
+    }
+
     fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
         let ClientProfilePayload {
             owner: Some(owner),
@@ -36,6 +50,11 @@ impl ClientProfile {
             expiration,
             legacy_public_key,
         })
+    }
+
+    fn validate(profile: Self) -> Result<Self,OTRError> {
+        // FIXME continue here
+        Ok(profile)
     }
 }
 
