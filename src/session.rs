@@ -18,6 +18,42 @@ use crate::{
 pub struct Account {
     host: Rc<dyn Host>,
     details: Rc<AccountDetails>,
+    sessions: collections::HashMap<Vec<u8>, Session>,
+}
+
+impl Account {
+    // FIXME need method for acquiring session for specified address (create or retrieve)
+    pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
+        let details = Rc::new(AccountDetails {
+            policy,
+            tag: instancetag::random_tag(),
+        });
+        let sessions = collections::HashMap::new();
+        Self { host, details, sessions }
+    }
+
+    #[must_use]
+    pub fn instance_tag(&self) -> InstanceTag {
+        self.details.tag
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> Policy {
+        self.details.policy
+    }
+
+    #[must_use]
+    pub fn session(&mut self, address: &[u8]) -> &mut Session {
+        return self.sessions.entry(Vec::from(address)).or_insert(Session::new(
+            Rc::clone(&self.host), Rc::clone(&self.details), Vec::from(address)));
+    }
+}
+
+pub struct Session {
+    host: Rc<dyn Host>,
+    details: Rc<AccountDetails>,
+    /// address contains the address of the remote party (chat account).
+    address: Vec<u8>,
     /// instances contains all individual instances (clients) that have been
     /// encountered. Instance 0 is used for clients that have not yet announced
     /// their instance tag. Typically, before or during initial stages of OTR.
@@ -31,41 +67,28 @@ pub struct Account {
     whitespace_tagged: bool,
 }
 
-impl Account {
-    pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
-        let details = Rc::new(AccountDetails {
-            policy,
-            tag: instancetag::random_tag(),
-        });
+impl Session {
+    fn new(host: Rc<dyn Host>, details: Rc<AccountDetails>, address: Vec<u8>) -> Session {
         let mut instances = collections::HashMap::new();
         instances.insert(
             INSTANCE_ZERO,
-            Instance::new(INSTANCE_ZERO, Rc::clone(&details), Rc::clone(&host)),
+            Instance::new(Rc::clone(&details), Rc::clone(&host), address.clone(), INSTANCE_ZERO),
         );
         Self {
             host,
             details,
+            address,
             instances,
             whitespace_tagged: false,
         }
     }
 
-    #[must_use]
-    pub fn get_instance_tag(&self) -> InstanceTag {
-        self.details.tag
-    }
-
-    #[must_use]
-    pub fn get_policy(&self) -> Policy {
-        self.details.policy
-    }
-
-    /// `sessions` returns a list of known instance tags (i.e. sessions). The session may be in any
+    /// `instances` returns a list of known instance tags. The session may be in any
     /// state of the protocol, i.e. `MSGSTATE_PLAINTEXT`, `MSGSTATE_ENCRYPTED`, `MSGSTATE_FINISHED`.
     /// However, the fact that a session (known by instance tag) exists, means that this instance
     /// tag was once revealed.
     #[must_use]
-    pub fn sessions(&self) -> Vec<InstanceTag> {
+    pub fn instances(&self) -> Vec<InstanceTag> {
         let mut sessions = Vec::<InstanceTag>::new();
         for k in self.instances.keys() {
             if *k == INSTANCE_ZERO {
@@ -120,7 +143,8 @@ impl Account {
             let instance = self
                 .instances
                 .entry(fragment.sender)
-                .or_insert_with(|| Instance::new(fragment.sender, details, Rc::clone(&self.host)));
+                .or_insert_with(|| Instance::new(details, Rc::clone(&self.host),
+                self.address.clone(), fragment.sender));
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
@@ -207,7 +231,8 @@ impl Account {
                     .unwrap()
                     .transfer_akecontext();
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
-                    Instance::new(msg.sender, Rc::clone(&self.details), Rc::clone(&self.host))
+                    Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
+                    self.address.clone(), msg.sender)
                 });
                 if let Ok(context) = result_context {
                     // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
@@ -225,7 +250,8 @@ impl Account {
                 self.instances
                     .entry(msg.sender)
                     .or_insert_with(|| {
-                        Instance::new(msg.sender, Rc::clone(&self.details), Rc::clone(&self.host))
+                        Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
+                        self.address.clone(), msg.sender)
                     })
                     .handle(msg)
             }
@@ -233,6 +259,7 @@ impl Account {
     }
 
     fn verify_encoded_message_header(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
+        // FIXME move to Session? (seems to be non-dependent)
         match msg.version {
             Version::None => {
                 return Err(OTRError::ProtocolViolation(
@@ -321,67 +348,10 @@ impl Account {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
-                Instance::new(receiver, Rc::clone(&self.details), Rc::clone(&self.host))
+                Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
+                self.address.clone(), receiver)
             })
             .initiate(version)
-    }
-
-    /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
-    /// confidential communication ends and any subsequent message will be sent as plain text, i.e.
-    /// unencrypted. This function should only be called as a result of _direct user interaction_.
-    ///
-    /// In the case the other party ended/aborted the session, the session would transition to
-    /// `MSGSTATE_FINISHED`. In that case, too, `end` resets the session back to
-    /// `MSGSTATE_PLAINTEXT`
-    ///
-    /// # Errors
-    ///
-    /// Will return an error in case the specified instance does not exist.
-    pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
-        Ok(self.get_instance(instance)?.reset())
-    }
-
-    /// `query` sends a OTR query-message over the host's communication network in order to probe
-    /// for other parties that are willing to initiate an OTR session.
-    ///
-    /// # Errors
-    ///
-    /// Will return an error in case of no compatible errors.
-    pub fn query(&mut self) -> Result<(), OTRError> {
-        let accepted_versions = filter_versions(&self.details.policy, &SUPPORTED_VERSIONS);
-        if accepted_versions.is_empty() {
-            return Err(OTRError::UserError("No supported versions available."));
-        }
-        self.host
-            .inject(&serialize_message(&MessageType::Query(accepted_versions)));
-        Ok(())
-    }
-
-    /// `start_smp` initiates the Socialist Millionaires' Protocol for the specified instance. The
-    /// initiator immediately supplies a question (`question`, which is optional so may be
-    /// zero-length) and a `secret` which is the secret value that tested for in the SMP execution.
-    ///
-    /// # Errors
-    ///
-    /// Will return `OTRError` in case the instance does not exist, or the protocol is in an
-    /// incorrect state. An established encrypted OTR session is necessary to start SMP.
-    pub fn start_smp(
-        &mut self,
-        instance: InstanceTag,
-        secret: &[u8],
-        question: &[u8],
-    ) -> Result<(), OTRError> {
-        self.get_instance(instance)?.start_smp(secret, question)
-    }
-
-    /// `abort_smp` aborts an (in-progress) SMP session.
-    ///
-    /// # Errors
-    ///
-    /// Will return `OTRError` in case the specified instance is not a confidential session, i.e.
-    /// encrypted OTR session, and on any violations of the OTR protocol.
-    pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
-        self.get_instance(instance)?.abort_smp()
     }
 
     /// `smp_ssid` returns the SSID used for verification in case of an established (encrypted) OTR
@@ -415,13 +385,72 @@ impl Account {
             i.1.status() == ProtocolStatus::Encrypted || i.1.status() == ProtocolStatus::Finished
         })
     }
+
+    /// `end` ends the specified OTR session and resets the state back to plaintext. This means that
+    /// confidential communication ends and any subsequent message will be sent as plain text, i.e.
+    /// unencrypted. This function should only be called as a result of _direct user interaction_.
+    ///
+    /// In the case the other party ended/aborted the session, the session would transition to
+    /// `MSGSTATE_FINISHED`. In that case, too, `end` resets the session back to
+    /// `MSGSTATE_PLAINTEXT`
+    ///
+    /// # Errors
+    ///
+    /// Will return an error in case the specified instance does not exist.
+    pub fn end(&mut self, instance: InstanceTag) -> Result<UserMessage, OTRError> {
+        Ok(self.get_instance(instance)?.reset())
+    }
+
+    /// `query` sends a OTR query-message over the host's communication network in order to probe
+    /// for other parties that are willing to initiate an OTR session.
+    ///
+    /// # Errors
+    ///
+    /// Will return an error in case of no compatible errors.
+    pub fn query(&mut self) -> Result<(), OTRError> {
+        let accepted_versions = filter_versions(&self.details.policy, &SUPPORTED_VERSIONS);
+        if accepted_versions.is_empty() {
+            return Err(OTRError::UserError("No supported versions available."));
+        }
+        self.host
+            .inject(&self.address, &serialize_message(&MessageType::Query(accepted_versions)));
+        Ok(())
+    }
+
+    /// `start_smp` initiates the Socialist Millionaires' Protocol for the specified instance. The
+    /// initiator immediately supplies a question (`question`, which is optional so may be
+    /// zero-length) and a `secret` which is the secret value that tested for in the SMP execution.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` in case the instance does not exist, or the protocol is in an
+    /// incorrect state. An established encrypted OTR session is necessary to start SMP.
+    pub fn start_smp(
+        &mut self,
+        instance: InstanceTag,
+        secret: &[u8],
+        question: &[u8],
+    ) -> Result<(), OTRError> {
+        self.get_instance(instance)?.start_smp(secret, question)
+    }
+
+    /// `abort_smp` aborts an (in-progress) SMP session.
+    ///
+    /// # Errors
+    ///
+    /// Will return `OTRError` in case the specified instance is not a confidential session, i.e.
+    /// encrypted OTR session, and on any violations of the OTR protocol.
+    pub fn abort_smp(&mut self, instance: InstanceTag) -> Result<(), OTRError> {
+        self.get_instance(instance)?.abort_smp()
+    }
 }
 
 /// Instance serves a single communication session, ensuring that messages always travel between the same two clients.
 struct Instance {
-    receiver: InstanceTag,
     details: Rc<AccountDetails>,
     host: Rc<dyn Host>,
+    address: Vec<u8>,
+    receiver: InstanceTag,
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
@@ -433,14 +462,15 @@ struct Instance {
 /// `Instance` expects to receive (as much as possible) preselected values to be used: selection,
 /// validation to be performed in `Session` if possible.
 impl Instance {
-    fn new(receiver: InstanceTag, details: Rc<AccountDetails>, host: Rc<dyn Host>) -> Self {
+    fn new(details: Rc<AccountDetails>, host: Rc<dyn Host>, address: Vec<u8>, receiver: InstanceTag) -> Self {
         Self {
-            receiver,
+            ake: AKEContext::new(Rc::clone(&host)),
             details,
+            host,
+            address,
+            receiver,
             assembler: fragment::Assembler::new(),
             state: protocol::new_state(),
-            ake: AKEContext::new(Rc::clone(&host)),
-            host,
         }
     }
 
@@ -536,13 +566,13 @@ impl Instance {
                         // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
                         // need to send an OTR Error response, to indicate to the other user that
                         // we no longer have a correctly established OTR session.
-                        self.host.inject(&serialize_message(&MessageType::Error(
+                        self.host.inject(&self.address, &serialize_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Ok(UserMessage::None)
                     }
                     Err(OTRError::UnreadableMessage(_)) => {
-                        self.host.inject(&serialize_message(&MessageType::Error(
+                        self.host.inject(&self.address, &serialize_message(&MessageType::Error(
                             Vec::from("unreadable message")
                         )));
                         Err(OTRError::UnreadableMessage(self.receiver))
@@ -672,13 +702,13 @@ impl Instance {
         let content = encode_message(version, self.details.tag, self.receiver, message);
         let max_size = self.host.message_size();
         if content.len() <= max_size {
-            self.host.inject(&content);
+            self.host.inject(&self.address, &content);
         } else {
             for fragment in fragment::fragment(max_size, self.details.tag, self.receiver, &content)
                 .into_iter()
                 .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
             {
-                self.host.inject(&fragment);
+                self.host.inject(&self.address, &fragment);
             }
         }
     }
@@ -717,7 +747,7 @@ mod tests {
         UserMessage,
     };
 
-    use super::Account;
+    use super::{Account, Session};
 
     fn init() {
         let _ = env_logger::builder()
@@ -747,13 +777,15 @@ mod tests {
             keypair_alice,
             usize::MAX,
         ));
-        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
         ));
-        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut bob = account_bob.session(b"alice");
 
         messages_bob
             .borrow_mut()
@@ -786,13 +818,15 @@ mod tests {
             keypair_alice,
             usize::MAX,
         ));
-        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
         ));
-        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
         assert_eq!(
@@ -875,9 +909,11 @@ mod tests {
 
         let host_alice: Rc<dyn Host> =
             Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice, 50));
-        let mut alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob, 55));
-        let mut bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
         assert_eq!(
@@ -947,7 +983,7 @@ mod tests {
             self.2
         }
 
-        fn inject(&self, message: &[u8]) {
+        fn inject(&self, address: &[u8], message: &[u8]) {
             self.0.borrow_mut().push_back(Vec::from(message));
         }
 
@@ -968,7 +1004,7 @@ mod tests {
     fn handle_messages(
         id: &str,
         channel: &mut Rc<RefCell<VecDeque<Vec<u8>>>>,
-        session: &mut Account,
+        session: &mut Session,
     ) -> Option<UserMessage> {
         println!("Messages available: {}", channel.borrow_mut().len());
         while let Some(m) = channel.borrow_mut().pop_front() {

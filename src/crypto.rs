@@ -356,7 +356,11 @@ pub mod dsa {
             PublicKey(Rc::clone(&self.pk))
         }
 
-        pub fn sign(&self, hash: &[u8; 32]) -> Signature {
+        pub fn get_q(&self) -> &BigUint {
+            self.pk.components().q()
+        }
+
+        pub fn sign(&self, hash: &[u8; 20]) -> Signature {
             Signature(self.sk.sign_prehash(hash).unwrap())
         }
     }
@@ -388,7 +392,7 @@ pub mod dsa {
             )))
         }
 
-        pub fn verify(&self, signature: &Signature, hash: &[u8; 32]) -> Result<(), CryptoError> {
+        pub fn verify(&self, signature: &Signature, hash: &[u8; 20]) -> Result<(), CryptoError> {
             self.0
                 .verify_prehash(hash, &signature.0)
                 .or(Err(CryptoError::VerificationFailure(

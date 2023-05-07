@@ -12,6 +12,7 @@ use crate::{
 };
 
 use num_bigint::BigUint;
+use num_integer::Integer;
 
 pub struct AKEContext {
     version: Version,
@@ -37,9 +38,7 @@ impl AKEContext {
         let keypair = dh::Keypair::generate();
         let r = aes128::Key::generate();
         let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
-        let gx_encrypted = OTREncoder::new()
-            .write_data(&r.encrypt(&[0; 16], &gxmpi))
-            .to_vec();
+        let gx_encrypted = r.encrypt(&[0; 16], &gxmpi);
         let gx_hashed = sha256::digest(&gxmpi).to_vec();
         // Send D-H Commit message and await D-H Key message.
         self.state = AKEState::AwaitingDHKey(AwaitingDHKey {
@@ -203,7 +202,9 @@ impl AKEContext {
                 // "This is the signature, using the private part of the key pubB, of the 32-byte MB
                 //  (taken modulo q instead of being truncated (as described in FIPS-186), and not
                 //  hashed again)."
-                let sig_b = dsa_keypair.sign(&m_b);
+                let mb_prehash: [u8;20] = BigUint::from_bytes_be(&m_b).mod_floor(dsa_keypair.get_q()).to_bytes_be().try_into()
+                    .or(Err(AKEError::DataProcessing("Failed to convert prehash into 20-byte array")))?;
+                let sig_b = dsa_keypair.sign(&mb_prehash);
                 log::trace!("Sig_B: {:?}", &sig_b);
                 log::trace!("M_B: {:?}", &m_b);
                 let x_b = OTREncoder::new()
@@ -212,10 +213,8 @@ impl AKEContext {
                     .write_signature(&sig_b)
                     .to_vec();
                 log::trace!("X_B: {:?}", &x_b);
-                let enc_b = OTREncoder::new()
-                    .write_data(&secrets.c.encrypt(&[0; 16], &x_b))
-                    .to_vec();
-                let mac_enc_b = sha256::hmac160(&secrets.m2, &enc_b);
+                let enc_b = secrets.c.encrypt(&[0; 16], &x_b);
+                let mac_enc_b = sha256::hmac160(&secrets.m2, &OTREncoder::new().write_data(&enc_b).to_vec());
                 let reveal_sig_message = RevealSignatureMessage {
                     key: state.r.clone(),
                     signature_encrypted: enc_b,
@@ -274,12 +273,7 @@ impl AKEContext {
                 // - If there is a recent stored message, encrypt it and send it as a Data Message.
 
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
-                let gxmpi = msg.key.decrypt(
-                    &[0; 16],
-                    &OTRDecoder::new(&state.gx_encrypted).read_data().or(Err(
-                        AKEError::DataProcessing("Failed to read data from gx_encrypted"),
-                    ))?,
-                );
+                let gxmpi = msg.key.decrypt(&[0; 16], &state.gx_encrypted);
                 let gxmpihash = sha256::digest(&gxmpi);
                 constant::verify(&gxmpihash, &state.gx_hashed)
                     .map_err(AKEError::CryptographicViolation)?;
@@ -297,20 +291,13 @@ impl AKEContext {
                 // Validate encrypted signature using MAC based on m2, ensuring signature content is unchanged.
                 let s = state.our_dh_keypair.generate_shared_secret(&gx);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
-                let expected_signature_mac = sha256::hmac160(&secrets.m2, &msg.signature_encrypted);
+                let expected_signature_mac = sha256::hmac160(&secrets.m2, &OTREncoder::new().write_data(&msg.signature_encrypted).to_vec());
                 constant::verify(&expected_signature_mac, &msg.signature_mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("signature MAC verified: correct");
 
                 // Acquire Bob's identity material from the encrypted x_b.
-                let x_b = secrets.c.decrypt(
-                    &[0; 16],
-                    &OTRDecoder::new(&msg.signature_encrypted)
-                        .read_data()
-                        .or(Err(AKEError::DataProcessing(
-                            "Failed to read data from signature_encrypted",
-                        )))?,
-                );
+                let x_b = secrets.c.decrypt(&[0; 16], &msg.signature_encrypted);
                 log::trace!("X_B: {:?}", &x_b);
                 let mut decoder = OTRDecoder::new(&x_b);
                 let pub_b = decoder.read_public_key().or(Err(AKEError::DataProcessing(
@@ -323,7 +310,7 @@ impl AKEContext {
                     keyid_b,
                     AKEError::DataProcessing("keyid_b is zero, must be non-zero value"),
                 )?;
-                let sig_b = decoder.read_dsa_signature().or(Err(AKEError::DataProcessing(
+                let sig_m_b = decoder.read_dsa_signature().or(Err(AKEError::DataProcessing(
                     "Failed to read signature from X_B",
                 )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
@@ -336,10 +323,12 @@ impl AKEContext {
                         .write_u32(keyid_b)
                         .to_vec(),
                 );
-                log::trace!("Sig_B: {:?}", &sig_b);
+                log::trace!("Sig_B: {:?}", &sig_m_b);
                 log::trace!("M_B: {:?}", &m_b);
+                let mb_prehash: [u8;20] = BigUint::from_bytes_be(&m_b).mod_floor(pub_b.q()).to_bytes_be().try_into()
+                    .or(Err(AKEError::DataProcessing("Failed to convert prehash into 20-byte array")))?;
                 pub_b
-                    .verify(&sig_b, &m_b)
+                    .verify(&sig_m_b, &mb_prehash)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("M_B verified: correct");
 
@@ -353,7 +342,9 @@ impl AKEContext {
                         .write_u32(KEYID_A)
                         .to_vec(),
                 );
-                let sig_m_a = keypair.sign(&m_a);
+                let ma_prehash: [u8;20] = BigUint::from_bytes_be(&m_a).mod_floor(keypair.get_q()).to_bytes_be().try_into()
+                    .or(Err(AKEError::DataProcessing("Failed to convert prehash into 20-byte array")))?;
+                let sig_m_a = keypair.sign(&ma_prehash);
                 log::debug!("M_A constructed and signed.");
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
@@ -443,8 +434,10 @@ impl AKEContext {
                         .write_u32(keyid_a)
                         .to_vec(),
                 );
+                let ma_prehash: [u8;20] = BigUint::from_bytes_be(&m_a).mod_floor(pub_a.q()).to_bytes_be().try_into()
+                    .or(Err(AKEError::DataProcessing("Failed to convert prehash into 20-byte array")))?;
                 pub_a
-                    .verify(&sig_m_a, &m_a)
+                    .verify(&sig_m_a, &ma_prehash)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("M_A signature verified.");
                 (

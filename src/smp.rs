@@ -1353,7 +1353,7 @@ mod tests {
             usize::MAX
         }
 
-        fn inject(&self, _message: &[u8]) {
+        fn inject(&self, _address: &[u8], _message: &[u8]) {
             todo!("not implemented: not necessary for tests")
         }
 
@@ -1367,7 +1367,7 @@ mod tests {
         }
 
         fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
-            panic!("Client profile should not be needed for OTRv3 SMP")
+            panic!("BUG: client profile should not be needed for OTRv3 SMP")
         }
     }
 }

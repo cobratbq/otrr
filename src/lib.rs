@@ -24,8 +24,6 @@ extern crate regex;
 extern crate ring;
 
 mod ake;
-mod clientprofile;
-mod crypto;
 mod encoding;
 mod fragment;
 mod keymanager;
@@ -33,6 +31,9 @@ mod protocol;
 mod smp;
 mod utils;
 
+// TODO evaluate for each `pub mod` members whether to expose outside of crate
+pub mod clientprofile;
+pub mod crypto;
 pub mod instancetag;
 pub mod session;
 
@@ -200,7 +201,7 @@ pub trait Host {
     /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not
     /// relevant to return to the client.)
     /// NOTE: `otrr` assumes that injection of the provided message into the transport succeeds.
-    fn inject(&self, message: &[u8]);
+    fn inject(&self, account: &[u8], message: &[u8]);
 
     /// Acquire the long-term DSA keypair from the host application. The long-term keypair, that is
     /// used for authentication purposes, is requested from the host application. This allows the
