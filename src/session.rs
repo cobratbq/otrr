@@ -749,6 +749,7 @@ mod tests {
 
     use super::{Account, Session};
 
+    #[allow(clippy::let_underscore_untyped)]
     fn init() {
         let _ = env_logger::builder()
             .is_test(true)
@@ -778,23 +779,23 @@ mod tests {
             usize::MAX,
         ));
         let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let mut alice = account_alice.session(b"bob");
+        let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
         ));
         let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
-        let mut bob = account_bob.session(b"alice");
+        let bob = account_bob.session(b"alice");
 
         messages_bob
             .borrow_mut()
             .extend(alice.send(INSTANCE_ZERO, b"Hello bob!").unwrap());
-        handle_messages("Bob", &mut messages_bob, &mut bob);
+        handle_messages("Bob", &mut messages_bob, bob);
         messages_alice
             .borrow_mut()
             .extend(bob.send(INSTANCE_ZERO, b"Hello Alice!").unwrap());
-        handle_messages("Alice", &mut messages_alice, &mut alice);
+        handle_messages("Alice", &mut messages_alice, alice);
     }
 
     #[test]
@@ -819,27 +820,27 @@ mod tests {
             usize::MAX,
         ));
         let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let mut alice = account_alice.session(b"bob");
+        let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
         ));
         let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
-        let mut bob = account_bob.session(b"alice");
+        let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
         assert_eq!(
             None,
-            handle_messages("Alice", &mut messages_alice, &mut alice)
+            handle_messages("Alice", &mut messages_alice, alice)
         );
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
         assert_eq!(
             None,
-            handle_messages("Alice", &mut messages_alice, &mut alice)
+            handle_messages("Alice", &mut messages_alice, alice)
         );
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
-        let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
+        let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
         };
@@ -849,13 +850,13 @@ mod tests {
                 .send(tag_bob, b"Hello Bob! Are we chatting confidentially now?")
                 .unwrap(),
         );
-        let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
+        let result = handle_messages("Bob", &mut messages_bob, bob).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_alice) = result else {
             panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
         assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, &mut bob),
+            handle_messages("Bob", &mut messages_bob, bob),
             Some(UserMessage::Confidential(_, _, _))
         ));
         messages_alice
@@ -867,15 +868,15 @@ mod tests {
         assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
         assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
         ));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
         ));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::ConfidentialSessionFinished(_, _))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
@@ -910,23 +911,23 @@ mod tests {
         let host_alice: Rc<dyn Host> =
             Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice, 50));
         let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
-        let mut alice = account_alice.session(b"bob");
+        let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob, 55));
         let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
-        let mut bob = account_bob.session(b"alice");
+        let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
         assert_eq!(
             None,
-            handle_messages("Alice", &mut messages_alice, &mut alice)
+            handle_messages("Alice", &mut messages_alice, alice)
         );
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
         assert_eq!(
             None,
-            handle_messages("Alice", &mut messages_alice, &mut alice)
+            handle_messages("Alice", &mut messages_alice, alice)
         );
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, &mut bob));
-        let result = handle_messages("Alice", &mut messages_alice, &mut alice).unwrap();
+        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
+        let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
         };
@@ -936,13 +937,13 @@ mod tests {
                 .send(tag_bob, b"Hello Bob! Are we chatting confidentially now?")
                 .unwrap(),
         );
-        let result = handle_messages("Bob", &mut messages_bob, &mut bob).unwrap();
+        let result = handle_messages("Bob", &mut messages_bob, bob).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_alice) = result else {
             panic!("BUG: expected confidential session to have started now.")
         };
         assert_eq!(Some(ProtocolStatus::Encrypted), bob.status(tag_alice));
         assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, &mut bob),
+            handle_messages("Bob", &mut messages_bob, bob),
             Some(UserMessage::Confidential(_, _, _))
         ));
         messages_alice
@@ -954,15 +955,15 @@ mod tests {
         assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
         assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
         ));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
         ));
         assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, &mut alice),
+            handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::ConfidentialSessionFinished(_, _))
         ));
         assert_eq!(Some(ProtocolStatus::Finished), alice.status(tag_bob));
@@ -983,7 +984,7 @@ mod tests {
             self.2
         }
 
-        fn inject(&self, address: &[u8], message: &[u8]) {
+        fn inject(&self, _address: &[u8], message: &[u8]) {
             self.0.borrow_mut().push_back(Vec::from(message));
         }
 

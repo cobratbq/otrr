@@ -54,18 +54,28 @@ pub mod dh {
     // "D values are calculated modulo `q = (p - 1) / 2`"
     static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - &*ONE) / &*TWO);
 
+    /// `generator` returns the generator (`g`)
+    #[must_use]
     pub fn generator() -> &'static BigUint {
         &GENERATOR
     }
 
+    /// `modulus` returns the  modulus.
+    #[must_use]
     pub fn modulus() -> &'static BigUint {
         &MODULUS
     }
 
+    /// `q` returns the prime order.
+    #[must_use]
     pub fn q() -> &'static BigUint {
         &Q
     }
 
+    /// `verify_public_key` verifies the provided public key.
+    ///
+    /// # Errors
+    /// `CryptError` in case public key is illegal..
     pub fn verify_public_key(public_key: &BigUint) -> Result<(), CryptoError> {
         if public_key >= &*GENERATOR && public_key <= &*MODULUS_MINUS_TWO {
             Ok(())
@@ -76,6 +86,10 @@ pub mod dh {
         }
     }
 
+    /// `verify_exponent` verifies a MPI value to be used as exponent.
+    ///
+    /// # Errors
+    /// `CryptError` in case the provided MPI value is illegal.
     pub fn verify_exponent(component: &BigUint) -> Result<(), CryptoError> {
         if component >= &*ONE && component < &*Q {
             Ok(())
@@ -100,6 +114,11 @@ pub mod dh {
     }
 
     impl Keypair {
+        /// `generate` generates a new keypair from secure random data.
+        ///
+        /// # Panics
+        /// In case we fail to produce random data.
+        #[must_use]
         pub fn generate() -> Self {
             // OTR-spec: "When starting a private conversation with a correspondent, generate two DH
             //   key pairs for yourself, and set our_keyid = 2. Note that all DH key pairs should
@@ -112,15 +131,21 @@ pub mod dh {
             Self::new(BigUint::from_bytes_be(&v))
         }
 
+        /// `new` constructs a new DH keypair from provided private scalar value.
+        #[must_use]
         pub fn new(private: BigUint) -> Self {
             Self::new_custom(&GENERATOR, private)
         }
 
+        /// `new_custom` creates a new keypair using provided custom generator value and private scalar.
+        #[must_use]
         pub fn new_custom(generator: &BigUint, private: BigUint) -> Self {
             let public = generator.modpow(&private, &MODULUS);
             Self { private, public }
         }
 
+        /// `generate_shared_secret` generates a shared secret from its own keypair and the provided public key.
+        #[must_use]
         pub fn generate_shared_secret(&self, public_key: &BigUint) -> SharedSecret {
             public_key.modpow(&self.private, &MODULUS)
         }
@@ -128,6 +153,13 @@ pub mod dh {
 
     pub type SharedSecret = BigUint;
 
+    /// `verify` verifies provided MPI value against an (also provided) expected MPI value.
+    ///
+    /// # Errors
+    /// `CryptError` in case of verification failure.
+    ///
+    /// # Panics
+    /// In case expected and actual MPIs are same instance.
     pub fn verify(expected: &BigUint, actual: &BigUint) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(expected, actual),
@@ -173,6 +205,10 @@ pub mod otr {
 
     impl AKESecrets {
         /// Derive the shared secrets used by OTR version 3 that are based on the shared secret from the DH key exchange.
+        ///
+        /// # Panics
+        /// Panics if secret values cannot be coerced into 16-byte arrays (AES-key containers).
+        #[must_use]
         pub fn derive(secbytes: &[u8]) -> AKESecrets {
             let h2secret0 = h2(0x00, secbytes);
             let h2secret1 = h2(0x01, secbytes);
@@ -197,6 +233,10 @@ pub mod otr {
         /// `derive` derives the secret key material used in Data messages.
         ///
         /// The parameter `secbytes` represents the `4+len` OTR-encoded bytes value `s`.
+        ///
+        /// # Panics
+        /// Panics if `our_key` and `their_key` are the same instance.
+        #[must_use]
         pub fn derive(our_key: &BigUint, their_key: &BigUint, secbytes: &[u8]) -> DataSecrets {
             // testing keys for equality as this should be virtually impossible
             assert!(
@@ -221,18 +261,22 @@ pub mod otr {
             }
         }
 
+        #[must_use]
         pub fn sender_crypt_key(&self) -> &aes128::Key {
             &self.sendkey
         }
 
+        #[must_use]
         pub fn sender_mac_key(&self) -> [u8; 20] {
             sha1::digest(&self.sendkey.0)
         }
 
+        #[must_use]
         pub fn receiver_crypt_key(&self) -> &aes128::Key {
             &self.recvkey
         }
 
+        #[must_use]
         pub fn receiver_mac_key(&self) -> [u8; 20] {
             sha1::digest(&self.recvkey.0)
         }
@@ -250,6 +294,7 @@ pub mod otr {
         sha256::digest(&bytes)
     }
 
+    #[must_use]
     pub fn fingerprint(pk: &dsa::PublicKey) -> [u8; 20] {
         // "The fingerprint is calculated by taking the SHA-1 hash of the byte-level representation
         //  of the public key. However, there is an exception for backwards compatibility: if the
@@ -262,6 +307,10 @@ pub mod otr {
 
     /// `mod_inv` is a modular-inverse implementation.
     /// `value` and `modulus` are required to be relatively prime.
+    ///
+    /// # Panics
+    /// Panics in case `BigUint` computations fail (not expected).
+    #[must_use]
     pub fn mod_inv(value: &BigUint, modulus: &BigUint) -> BigUint {
         value.mod_inverse(modulus).unwrap().to_biguint().unwrap()
     }
@@ -294,10 +343,12 @@ pub mod aes128 {
             Key(key)
         }
 
+        #[must_use]
         pub fn encrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
             self.crypt(nonce, data)
         }
 
+        #[must_use]
         pub fn decrypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
             self.crypt(nonce, data)
         }
@@ -352,16 +403,23 @@ pub mod dsa {
             Self { sk, pk }
         }
 
+        #[must_use]
         pub fn public_key(&self) -> PublicKey {
             PublicKey(Rc::clone(&self.pk))
         }
 
+        #[must_use]
         pub fn get_q(&self) -> &BigUint {
             self.pk.components().q()
         }
 
-        pub fn sign(&self, hash: &[u8; 20]) -> Signature {
-            Signature(self.sk.sign_prehash(hash).unwrap())
+        /// `sign` signs a provided prehash value with the private key.
+        ///
+        /// # Panics
+        /// Panics if result unexpectedly cannot be unpacked.
+        #[must_use]
+        pub fn sign(&self, prehash: &[u8; 20]) -> Signature {
+            Signature(self.sk.sign_prehash(prehash).unwrap())
         }
     }
 
@@ -369,6 +427,11 @@ pub mod dsa {
     pub struct PublicKey(Rc<VerifyingKey>);
 
     impl PublicKey {
+
+        /// `from_components` recreates a DSA public key from individual components.
+        ///
+        /// # Errors
+        /// `CryptError` in case it fails to recreate the public key, e.g. because of illegal values among the components.
         pub fn from_components(
             p: BigUint,
             q: BigUint,
@@ -392,26 +455,34 @@ pub mod dsa {
             )))
         }
 
-        pub fn verify(&self, signature: &Signature, hash: &[u8; 20]) -> Result<(), CryptoError> {
+        /// `verify` verifies a signature using a prehash value as defined in FIPS-186 and specified in OTR 3 spec.
+        ///
+        /// # Errors
+        /// `CryptError` in case signature verification fails, meaning either the signature or the prehash value is invalid. (Or the public key itself.)
+        pub fn verify(&self, signature: &Signature, prehash: &[u8; 20]) -> Result<(), CryptoError> {
             self.0
-                .verify_prehash(hash, &signature.0)
+                .verify_prehash(prehash, &signature.0)
                 .or(Err(CryptoError::VerificationFailure(
                     "DSA signature or public key contains invalid data.",
                 )))
         }
 
+        #[must_use]
         pub fn p(&self) -> &BigUint {
             self.0.components().p()
         }
 
+        #[must_use]
         pub fn q(&self) -> &BigUint {
             self.0.components().q()
         }
 
+        #[must_use]
         pub fn g(&self) -> &BigUint {
             self.0.components().g()
         }
 
+        #[must_use]
         pub fn y(&self) -> &BigUint {
             self.0.y()
         }
@@ -421,22 +492,27 @@ pub mod dsa {
     pub struct Signature(dsa::Signature);
 
     impl Signature {
+        #[must_use]
         pub const fn size() -> usize {
             2 * PARAM_Q_LENGTH_BYTES
         }
 
+        #[must_use]
         pub const fn parameter_size() -> usize {
             PARAM_Q_LENGTH_BYTES
         }
 
+        #[must_use]
         pub fn from_components(r: BigUint, s: BigUint) -> Self {
             Self(dsa::Signature::from_components(r, s))
         }
 
+        #[must_use]
         pub fn r(&self) -> &BigUint {
             self.0.r()
         }
 
+        #[must_use]
         pub fn s(&self) -> &BigUint {
             self.0.s()
         }
@@ -447,6 +523,7 @@ pub mod dsa {
 pub mod sha1 {
     type Digest = [u8; 20];
 
+    #[must_use]
     pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, data);
         let mut result: Digest = [0u8; 20];
@@ -454,6 +531,7 @@ pub mod sha1 {
         result
     }
 
+    #[must_use]
     pub fn hmac(mk: &[u8], data: &[u8]) -> Digest {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, mk);
         let digest = ring::hmac::sign(&key, data);
@@ -467,6 +545,7 @@ pub mod sha1 {
 pub mod sha256 {
     type Digest = [u8; 32];
 
+    #[must_use]
     pub fn digest_with_prefix(b: u8, data: &[u8]) -> Digest {
         let mut payload: Vec<u8> = Vec::with_capacity(data.len() + 1);
         payload.push(b);
@@ -474,6 +553,7 @@ pub mod sha256 {
         digest(&payload)
     }
 
+    #[must_use]
     pub fn digest_2_with_prefix(b: u8, data: &[u8], data2: &[u8]) -> Digest {
         let mut payload: Vec<u8> = Vec::with_capacity(1 + data.len() + data2.len());
         payload.push(b);
@@ -483,6 +563,7 @@ pub mod sha256 {
     }
 
     /// digest calculates the SHA256 digest value.
+    #[must_use]
     pub fn digest(data: &[u8]) -> Digest {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         let mut result = [0u8; 32];
@@ -491,6 +572,7 @@ pub mod sha256 {
     }
 
     /// hmac calculates the SHA256-HMAC value, using key 'm1' as documented in OTR version 3 spec.
+    #[must_use]
     pub fn hmac(m1: &[u8], data: &[u8]) -> Digest {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m1);
         let digest = ring::hmac::sign(&key, data);
@@ -500,6 +582,7 @@ pub mod sha256 {
     }
 
     /// hmac160 calculates the first 160 bits of the SHA256-HMAC value, using key 'm2' as documented in OTR version 3 spec.
+    #[must_use]
     pub fn hmac160(m2: &[u8], data: &[u8]) -> [u8; 20] {
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, m2);
         let digest = ring::hmac::sign(&key, data);
@@ -561,6 +644,7 @@ pub mod ed448 {
     pub struct PublicKey(Point);
 
     impl PublicKey {
+        #[must_use]
         pub fn from(data: Vec<u8>) -> PublicKey {
             // FIXME implement `from` for deserializing Ed448 public key
             todo!("implement conversion from raw bytes")
@@ -570,6 +654,7 @@ pub mod ed448 {
     pub struct Signature([u8; 2 * LENGTH]);
 
     impl Signature {
+        #[must_use]
         pub fn from(data: Vec<u8>) -> Signature {
             // FIXME implement `from` for deserializing Ed448 signature
             todo!("implement conversion from raw bytes")
@@ -579,9 +664,17 @@ pub mod ed448 {
     pub type Point = [u8; LENGTH];
 }
 
+/// `constant` module provides constant-time operations.
 pub mod constant {
     use super::{verify_nonzero, CryptoError};
 
+    /// `verify` verifies two same-length byte-slices in constant-time.
+    ///
+    /// # Errors
+    /// `CryptoError` in case verification fails.
+    ///
+    /// # Panics
+    /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
     pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(mac1, mac2),

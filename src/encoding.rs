@@ -145,8 +145,7 @@ fn parse_plain_message(data: &[u8]) -> MessageType {
                     }
                 })
                 .filter(|v| match v {
-                    Version::V3 => true,
-                    Version::V4 => true,
+                    Version::V3 | Version::V4 => true,
                     Version::Unsupported(_) | Version::None => false,
                 })
                 .collect(),

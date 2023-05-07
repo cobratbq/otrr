@@ -257,7 +257,7 @@ impl AKEContext {
         result
     }
 
-    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value, clippy::similar_names)]
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
