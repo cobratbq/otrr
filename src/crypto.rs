@@ -509,6 +509,52 @@ pub mod sha256 {
     }
 }
 
+pub mod otr4 {
+    // TODO consider if we want to keep 3 functions (kdf, hwc, hcmac) if they have same logic. (see spec)
+
+    use super::shake256;
+
+    const PREFIX: [u8;5] = [b'O', b'T', b'R', b'v', b'4'];
+
+    pub fn kdf(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
+        let mut buffer = Vec::with_capacity(5+usage_id.len() + values.len());
+        buffer.extend_from_slice(&PREFIX);
+        buffer.extend_from_slice(usage_id);
+        buffer.extend_from_slice(values);
+        shake256::digest(output, &buffer);
+    }
+
+    pub fn hwc(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
+        let mut buffer = Vec::with_capacity(5+usage_id.len() + values.len());
+        buffer.extend_from_slice(&PREFIX);
+        buffer.extend_from_slice(usage_id);
+        buffer.extend_from_slice(values);
+        shake256::digest(output, &buffer);
+    }
+
+    pub fn hcmac(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
+        let mut buffer = Vec::with_capacity(5+usage_id.len() + values.len());
+        buffer.extend_from_slice(&PREFIX);
+        buffer.extend_from_slice(usage_id);
+        buffer.extend_from_slice(values);
+        shake256::digest(output, &buffer);
+    }
+}
+
+pub mod shake256 {
+    use digest::{ExtendableOutput, Update, XofReader};
+    use sha3::Shake256;
+
+    /// digest hashes `data` and produces an output digest in `output`, taking into account the size
+    /// of the buffer.
+    pub fn digest(output: &mut [u8], data: &[u8]) {
+        let mut hasher = Shake256::default();
+        hasher.update(data);
+        let mut reader = hasher.finalize_xof();
+        reader.read(output);
+    }
+}
+
 pub mod ed448 {
     const LENGTH: usize = 57;
 
