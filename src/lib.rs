@@ -29,6 +29,7 @@ mod fragment;
 mod keymanager;
 mod protocol;
 mod smp;
+mod smp4;
 mod utils;
 
 // TODO evaluate for each `pub mod` members whether to expose outside of crate

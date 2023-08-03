@@ -5,8 +5,7 @@
 			"path": "."
 		},
 		{
-			"name": "utils",
-			"path": "../utils"
+			"path": "../rust-utils"
 		}
 	],
 	"settings": {

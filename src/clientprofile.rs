@@ -123,10 +123,10 @@ impl ClientProfilePayload {
             match decoder.read_u16()? {
                 TYPE_OWNERINSTANCETAG => payload.owner = Some(decoder.read_u32()?),
                 TYPE_ED448_PUBLIC_KEY => {
-                    payload.public_key = Some(decoder.read_ed448_public_key()?)
+                    payload.public_key = Some(decoder.read_ed448_public_key()?);
                 }
                 TYPE_ED448_FORGING_KEY => {
-                    payload.forging_key = Some(decoder.read_ed448_public_key()?)
+                    payload.forging_key = Some(decoder.read_ed448_public_key()?);
                 }
                 TYPE_VERSIONS => {
                     payload
@@ -136,7 +136,7 @@ impl ClientProfilePayload {
                 TYPE_CLIENTPROFILE_EXPIRATION => payload.expiration = Some(decoder.read_i64()?),
                 TYPE_DSA_PUBLIC_KEY => payload.legacy_public_key = Some(decoder.read_public_key()?),
                 TYPE_TRANSITIONAL_SIGNATURE => {
-                    payload.transitional_sig = Some(decoder.read_dsa_signature()?)
+                    payload.transitional_sig = Some(decoder.read_dsa_signature()?);
                 }
                 _ => {
                     return Err(OTRError::ProtocolViolation(

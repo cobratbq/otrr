@@ -1,0 +1,116 @@
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8">
+<style type=text/css>.invisible{display:none}pre{font-size:large;}</style>
+</head>
+<title>EFD / Genus-1 large-characteristic / Edwards curves</title>
+<body>
+<a href="../index.html">Explicit-Formulas Database</a>
+<br><a href="index.html">Genus-1 curves over large-characteristic fields</a>
+<h1>Edwards curves</h1>
+An elliptic curve in Edwards form
+[<a href="data/edwards/coordinates">database entry</a>;
+<a href="auto-sage/edwards/coordinates.sage">Sage verification script</a>;
+<a href="auto-sage/edwards/coordinates.out">Sage output</a>]
+has parameters
+c
+d
+and coordinates
+x
+y
+satisfying the following equations:
+<pre>
+  x<span class="invisible">^</span><sup>2</sup>+y<span class="invisible">^</span><sup>2</sup>=c<span class="invisible">^</span><sup>2</sup>*(1+d*x<span class="invisible">^</span><sup>2</sup>*y<span class="invisible">^</span><sup>2</sup>)
+</pre>
+Affine addition formulas: (x1,y1)+(x2,y2)=(x3,y3) where
+<pre>
+  x3 = (x1*y2+y1*x2)/(c*(1+d*x1*x2*y1*y2))
+  y3 = (y1*y2-x1*x2)/(c*(1-d*x1*x2*y1*y2))
+</pre>
+Affine doubling formulas: 2(x1,y1)=(x3,y3) where
+<pre>
+  x3 = (x1*y1+y1*x1)/(c*(1+d*x1*x1*y1*y1))
+  y3 = (y1*y1-x1*x1)/(c*(1-d*x1*x1*y1*y1))
+</pre>
+Affine negation formulas: -(x1,y1)=(-x1,y1).
+<p>
+This curve shape was introduced by 2007 Edwards for the case d=1.
+<p>
+Technically, an Edwards curve is not elliptic, because it has singularities;
+but resolving those singularities produces an elliptic curve.
+<p>
+The neutral element of the curve is the point (0,c).
+The point (0,-c) has order 2.
+The points (c,0) and (-c,0) have order 4.
+<p>
+<h2>Representations for fast computations</h2>
+Inverted coordinates
+<a href="auto-edwards-inverted.html">[more information]</a>
+represent
+x
+y
+as
+X
+Y
+Z
+satisfying the following equations:
+<pre>
+  x=Z/X
+  y=Z/Y
+</pre>
+<p>
+Projective coordinates
+<a href="auto-edwards-projective.html">[more information]</a>
+represent
+x
+y
+as
+X
+Y
+Z
+satisfying the following equations:
+<pre>
+  x=X/Z
+  y=Y/Z
+</pre>
+<p>
+YZ coordinates with square d
+<a href="auto-edwards-yz.html">[more information]</a>
+make the additional assumptions
+<pre>
+  c=1
+  d=r<span class="invisible">^</span><sup>2</sup>
+</pre>
+and
+represent
+x
+y
+as
+Y
+Z
+satisfying the following equations:
+<pre>
+  r*y=Y/Z
+</pre>
+<p>
+Squared YZ coordinates with square d
+<a href="auto-edwards-yzsquared.html">[more information]</a>
+make the additional assumptions
+<pre>
+  c=1
+  d=r<span class="invisible">^</span><sup>2</sup>
+</pre>
+and
+represent
+x
+y
+as
+Y
+Z
+satisfying the following equations:
+<pre>
+  r*y<span class="invisible">^</span><sup>2</sup>=Y/Z
+</pre>
+<p>
+</body>
+</html>
