@@ -74,6 +74,7 @@ pub mod biguint {
     pub static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
     pub static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
     pub static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    pub static FOUR: Lazy<BigUint> = Lazy::new(|| BigUint::from(4u8));
 
     pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8; N] {
         let mut buffer = [0u8; N];
@@ -86,6 +87,13 @@ pub mod biguint {
         assert!(dst.len() >= bytes.len());
         let start = dst.len() - bytes.len();
         dst[start..].copy_from_slice(&bytes);
+    }
+
+    // TODO assuming u64-sized limbs, but should be checked because it can be influenced with a flag
+    pub fn bit(v: &BigUint, i: usize) -> bool {
+        let (limb_idx,bit_idx) = (i / 64, i % 64);
+        let limb = v.get_limb(limb_idx);
+        (limb & 1 << bit_idx) != 0
     }
 }
 

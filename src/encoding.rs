@@ -700,12 +700,20 @@ impl<'a> OTRDecoder<'a> {
 
     pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
         const LENGTH: usize = 114;
-        Ok(ed448::Signature::from(self.read(LENGTH)?))
+        Ok(ed448::Signature::from(&self.read(LENGTH)?))
     }
 
     pub fn read_ed448_public_key(&mut self) -> Result<ed448::PublicKey, OTRError> {
         const LENGTH: usize = 57;
-        Ok(ed448::PublicKey::from(self.read(LENGTH)?))
+        Ok(ed448::PublicKey::from(&self.read(LENGTH)?))
+    }
+
+    pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
+        todo!("To be implemented")
+    }
+
+    pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
+        todo!("To be implemented")
     }
 
     fn read(&mut self, n: usize) -> Result<Vec<u8>, OTRError> {
@@ -868,6 +876,26 @@ impl OTREncoder {
 
     pub fn write_ed448_signature(&mut self, sig: &ed448::Signature) -> &mut Self {
         todo!("Implement ED448 signature encoding")
+    }
+
+    pub fn write_ed448_point(&mut self, point: &ed448::Point) -> &mut Self {
+        todo!("Implement writing ed448 point")
+    }
+
+    pub fn write_ed448_scalar(&mut self, scalar: &BigUint) -> &mut Self {
+        todo!("Implement writing ed448 scalar")
+    }
+
+    pub fn write_ed448_fingerprint(&mut self, fingerprint: &[u8]) -> &mut Self {
+        // FIXME make fingerprint a type?
+        assert_eq!(56, fingerprint.len());
+        todo!("Implement writing ed448 fingerprint")
+    }
+
+    pub fn write_ssid(&mut self, ssid: &[u8]) -> &mut Self {
+        // FIXME make ssid a type?
+        assert_eq!(8, ssid.len());
+        todo!("Implement writing ssid");
     }
 
     pub fn to_vec(&self) -> Vec<u8> {

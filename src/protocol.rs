@@ -13,7 +13,7 @@ use crate::{
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, smp4::SMP4Context,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -31,6 +31,7 @@ pub trait ProtocolState {
         &mut self,
         msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
+    // TODO consider defining a common EncryptedState trait to be shared with OTR2/OTR3 and OTR4.
     #[allow(clippy::too_many_arguments)]
     fn secure(
         &self,
@@ -42,7 +43,7 @@ pub trait ProtocolState {
         our_dh: dh::Keypair,
         their_dh: BigUint,
         their_dsa: dsa::PublicKey,
-    ) -> Box<EncryptedState>;
+    ) -> Box<dyn ProtocolState>;
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
     fn prepare(
@@ -86,9 +87,9 @@ impl ProtocolState for PlaintextState {
         our_dh: dh::Keypair,
         their_dh: BigUint,
         their_dsa: dsa::PublicKey,
-    ) -> Box<EncryptedState> {
+    ) -> Box<dyn ProtocolState> {
         let their_fingerprint = otr::fingerprint(&their_dsa);
-        Box::new(EncryptedState::new(
+        Box::new(EncryptedOTR3State::new(
             host,
             version,
             our_instance,
@@ -123,7 +124,7 @@ impl ProtocolState for PlaintextState {
     }
 }
 
-pub struct EncryptedState {
+pub struct EncryptedOTR3State {
     version: Version,
     our_instance: InstanceTag,
     their_instance: InstanceTag,
@@ -131,7 +132,7 @@ pub struct EncryptedState {
     smp: SMPContext,
 }
 
-impl ProtocolState for EncryptedState {
+impl ProtocolState for EncryptedOTR3State {
     fn status(&self) -> ProtocolStatus {
         ProtocolStatus::Encrypted
     }
@@ -175,12 +176,12 @@ impl ProtocolState for EncryptedState {
         our_dh: dh::Keypair,
         their_dh: BigUint,
         their_dsa: dsa::PublicKey,
-    ) -> Box<EncryptedState> {
+    ) -> Box<dyn ProtocolState> {
         let their_fingerprint = otr::fingerprint(&their_dsa);
         // There is no indication in the OTRv3 spec that there are issues with re-transitioning into
         // `MSGSTATE_ENCRYPTED`. There does not seem to be an issue, and it also means that AKEs
         // during `MSGSTATE_ENCRYPTED` are possible as well.
-        Box::new(EncryptedState::new(
+        Box::new(Self::new(
             host,
             version,
             our_instance,
@@ -222,7 +223,7 @@ impl ProtocolState for EncryptedState {
     }
 }
 
-impl EncryptedState {
+impl EncryptedOTR3State {
     #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     fn new(
         host: Rc<dyn Host>,
@@ -355,6 +356,72 @@ fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
     }
 }
 
+pub struct EncryptedOTR4State {
+    our_instance: InstanceTag,
+    their_instance: InstanceTag,
+    smp: SMP4Context,
+}
+
+impl ProtocolState for EncryptedOTR4State {
+    fn status(&self) -> ProtocolStatus {
+        todo!()
+    }
+
+    fn version(&self) -> Version {
+        todo!()
+    }
+
+    fn handle(
+        &mut self,
+        msg: &DataMessage,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        todo!()
+    }
+
+    fn secure(
+        &self,
+        host: Rc<dyn Host>,
+        version: Version,
+        our_instance: InstanceTag,
+        their_instance: InstanceTag,
+        ssid: SSID,
+        our_dh: dh::Keypair,
+        their_dh: BigUint,
+        their_dsa: dsa::PublicKey,
+    ) -> Box<dyn ProtocolState> {
+        // FIXME to be implemented
+        Box::new(EncryptedOTR4State{
+            our_instance,
+            their_instance,
+            smp: SMP4Context::new(&[0u8;0], &[0u8;0], [0u8;8])
+        })
+    }
+
+    fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
+        todo!()
+    }
+
+    fn prepare(
+        &mut self,
+        flags: MessageFlags,
+        content: &[u8],
+    ) -> Result<EncodedMessageType, OTRError> {
+        todo!()
+    }
+
+    fn smp(&self) -> Result<&SMPContext, OTRError> {
+        todo!()
+    }
+
+    fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
+        todo!()
+    }
+}
+
+impl EncryptedOTR4State {
+
+}
+
 pub struct FinishedState {}
 
 impl ProtocolState for FinishedState {
@@ -383,9 +450,9 @@ impl ProtocolState for FinishedState {
         our_dh: dh::Keypair,
         their_dh: BigUint,
         their_dsa: dsa::PublicKey,
-    ) -> Box<EncryptedState> {
+    ) -> Box<dyn ProtocolState> {
         let their_fingerprint = otr::fingerprint(&their_dsa);
-        Box::new(EncryptedState::new(
+        Box::new(EncryptedOTR3State::new(
             host,
             version,
             our_instance,

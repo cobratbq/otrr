@@ -598,37 +598,48 @@ pub mod otr4 {
 
     use num_bigint::BigUint;
 
-    use super::shake256;
+    use super::{shake256, ed448::{Point, self}};
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
-    pub fn kdf(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
-        let mut buffer = Vec::with_capacity(5 + usage_id.len() + values.len());
+    pub fn hwc(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
+        kdf(output, usage_id, values);
+    }
+
+    pub fn hcmac(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
+        kdf(output, usage_id, values);
+    }
+
+    pub fn kdf(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
+        let usage: u8 = match usage_id {
+            UsageID::Fingerprint => 0x00,
+            UsageID::ThirdBraceKey => 0x01,
+            UsageID::BraceKey => 0x02,
+            UsageID::SharedSecret => 0x03,
+            UsageID::SSID => 0x04,
+            UsageID::SMPSecret => 0x19,
+        };
+        let mut buffer = Vec::with_capacity(6 + values.len());
         buffer.extend_from_slice(&PREFIX);
-        buffer.extend_from_slice(usage_id);
+        buffer.push(usage);
         buffer.extend_from_slice(values);
         shake256::digest(output, &buffer);
     }
 
-    pub fn hwc(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
-        let mut buffer = Vec::with_capacity(5 + usage_id.len() + values.len());
-        buffer.extend_from_slice(&PREFIX);
-        buffer.extend_from_slice(usage_id);
-        buffer.extend_from_slice(values);
-        shake256::digest(output, &buffer);
-    }
-
-    pub fn hcmac(output: &mut [u8], usage_id: &[u8], values: &[u8]) {
-        let mut buffer = Vec::with_capacity(5 + usage_id.len() + values.len());
-        buffer.extend_from_slice(&PREFIX);
-        buffer.extend_from_slice(usage_id);
-        buffer.extend_from_slice(values);
-        shake256::digest(output, &buffer);
-    }
-
-    #[must_use]
-    pub fn hash_to_scalar(purpose: u8, data: &[u8]) -> BigUint {
-        todo!("implement hash_to_scalar")
+    pub enum UsageID {
+        Fingerprint,
+        ThirdBraceKey,
+        BraceKey,
+        SharedSecret,
+        SSID,
+        SMPSecret,
+        //AuthRClientProfileBob,
+        //AuthRClientProfileAlice,
+        //AuthRPhi,
+        //AuthIClientProfileBob,
+        //AuthIClientProfileAlice,
+        //AuthIPhi,
+        //FirstRootKey,
     }
 }
 
@@ -647,16 +658,26 @@ pub mod shake256 {
 }
 
 pub mod ed448 {
-    use std::str::FromStr;
+    use std::{
+        ops::{Add, Mul, Neg},
+        str::FromStr,
+    };
 
-    use num_bigint::BigUint;
+    use num_bigint::{BigInt, BigUint, ModInverse, ToBigInt};
     use num_integer::Integer;
     use once_cell::sync::Lazy;
     use ring::rand::SecureRandom;
 
-    use crate::{crypto::RAND, utils::bytes};
+    use crate::{
+        crypto::RAND,
+        utils::{
+            self,
+            biguint::{self, FOUR, ONE, ZERO},
+            bytes,
+        },
+    };
 
-    use super::shake256;
+    use super::{shake256, CryptoError};
 
     const LENGTH: usize = 57;
 
@@ -665,10 +686,14 @@ pub mod ed448 {
     //      y=29881921007848149267601793044393067343754404015408024209592824137233
     //        1506189835876003536878655418784733982303233503462500531545062832660)
     static G: Lazy<Point> = Lazy::new(|| {
-        (
-        BigUint::from_str("224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710").unwrap(),
-        BigUint::from_str("298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660").unwrap()
-    )
+        Point{
+        x: BigUint::from_str("224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710").unwrap(),
+        y: BigUint::from_str("298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660").unwrap(),
+    }
+    });
+
+    static P: Lazy<BigUint> = Lazy::new(|| {
+        BigUint::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
     });
 
     /// q, the prime order
@@ -676,10 +701,23 @@ pub mod ed448 {
         BigUint::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
     });
 
+    // FIXME double-check that this is a valid alternative to using BigInt (need for the sign)
+    static D: Lazy<BigUint> = Lazy::new(|| {
+        BigInt::from_str("-39081")
+            .unwrap()
+            .mod_floor(&(*Q).to_bigint().unwrap())
+            .to_biguint()
+            .unwrap()
+    });
+
     /// generator returns the Ed448 base-point.
     #[must_use]
     pub fn generator() -> &'static Point {
         &G
+    }
+
+    pub fn modulus() -> &'static BigUint {
+        &P
     }
 
     /// prime_order provides the prime order value `q`.
@@ -692,7 +730,7 @@ pub mod ed448 {
 
     impl PublicKey {
         #[must_use]
-        pub fn from(data: Vec<u8>) -> PublicKey {
+        pub fn from(data: &[u8]) -> PublicKey {
             // FIXME implement `from` for deserializing Ed448 public key
             todo!("implement conversion from raw bytes")
         }
@@ -702,28 +740,162 @@ pub mod ed448 {
 
     impl Signature {
         #[must_use]
-        pub fn from(data: Vec<u8>) -> Signature {
+        pub fn from(data: &[u8]) -> Signature {
             // FIXME implement `from` for deserializing Ed448 signature
             todo!("implement conversion from raw bytes")
         }
     }
 
-    // TODO implement as *-operator
-    pub fn multiply(p: &Point, s: &BigUint) -> Point {
-        todo!("Implement scalar multiplication for points")
+    pub fn verify(p: &Point) -> Result<(), CryptoError> {
+        // note: in the correct group, do not degenerate
+        todo!("implement point verification")
     }
 
-    // TODO implement as +-operator
-    pub fn add(p1: &Point, p2: &Point) -> Point {
-        todo!("Implement point addition for Ed448")
+    #[must_use]
+    pub fn hash_to_scalar(purpose: u8, data: &Point) -> BigUint {
+        todo!("implement hash_to_scalar")
     }
 
+    #[must_use]
+    pub fn hash_to_scalar2(purpose: u8, data1: &Point, data2: &Point) -> BigUint {
+        todo!("implement hash_to_scalar")
+    }
+
+    #[must_use]
     pub fn double(p: &Point) -> Point {
-        todo!("Implement point doubling for Ed448")
+        let result_x: BigUint =
+            (&p.x * &p.y + &p.y * &p.x) * -((&*ONE) + (&*D) * &p.x * &p.x * &p.y * &p.y);
+        let result_y: BigUint =
+            (&p.y * &p.y - &p.x * &p.x) * -((&*ONE) - (&*D) * &p.x * &p.x * &p.y * &p.y);
+        Point {
+            x: result_x.mod_floor(&Q),
+            y: result_y.mod_floor(&Q),
+        }
     }
 
-    pub type Point = (BigUint, BigUint);
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Point {
+        x: BigUint,
+        y: BigUint,
+    }
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
+    impl<'a, 'b> Mul<&'b BigUint> for &'a Point {
+        type Output = Point;
+
+        fn mul(self, scalar: &'b BigUint) -> Point {
+            // TODO implementation of scalar multiplication is not constant-time
+            // ECPoint result = ECPoint.POINT_INFINITY;
+            // ECPoint temp = point;
+            // for (int i = 0; i < scalar.bitLength(); i++) {
+            //     if (scalar.testBit(i)) {
+            //         result = add(result, temp);
+            //     }
+            //     temp = doubling(temp);
+            // }
+            // return result;
+            let mut result = Point {
+                x: utils::biguint::ZERO.clone(),
+                y: utils::biguint::ONE.clone(),
+            };
+            let mut temp: Point = self.clone();
+            for i in 0..scalar.bits() {
+                if biguint::bit(scalar, i) {
+                    result = &result + &temp;
+                }
+                temp = double(&temp);
+            }
+            result.clone()
+        }
+    }
+
+    // FIXME SMP4 can be simplified (less parentheses) if we can automatically use &Point if adder is Point
+    impl<'a, 'b> Add<&'b Point> for &'a Point {
+        type Output = Point;
+
+        fn add(self, rhs: &'b Point) -> Point {
+            // FIXME add short-hand for IDENTITY either self or rhs
+            let result_x: BigUint = (&self.x * &rhs.y + &self.y * &rhs.x)
+                * -((&*ONE) + (&*D) * &self.x * &rhs.x * &self.y * &rhs.y);
+            let result_y: BigUint = (&self.y * &rhs.y - &self.x * &rhs.x)
+                * -((&*ONE) - (&*D) * &self.x * &rhs.x * &self.y * &rhs.y);
+            Point {
+                x: result_x.mod_floor(&Q),
+                y: result_y.mod_floor(&Q),
+            }
+        }
+    }
+
+    impl Neg for Point {
+        type Output = Self;
+
+        fn neg(self) -> Self {
+            Point {
+                x: -self.x,
+                y: self.y,
+            }
+        }
+    }
+
+    impl Point {
+        const ENCODED_LENGTH_BYTES: usize = 57;
+
+        pub fn decode(encoded: &[u8]) -> Result<Point, CryptoError> {
+            if encoded.len() != Self::ENCODED_LENGTH_BYTES {
+                return Err(CryptoError::VerificationFailure(
+                    "Encoded point has incorrect length",
+                ));
+            }
+            let x_bit = (encoded[56] & 0b1000_0000) >> 7;
+            let y = BigUint::from_bytes_le(&encoded[..56]);
+            if y.cmp(&*P).is_ge() {
+                return Err(CryptoError::VerificationFailure(
+                    "Encoded point contains illegal y component",
+                ));
+            }
+            let num = (&y * &y) - &*ONE;
+            let denom = &y * &y * &*D - &*ONE;
+            let x2 = &num * (&denom).mod_inverse(&*P).unwrap().to_biguint().unwrap();
+            let prelimX = x2.modpow(&(&(&*P + &*ONE) / &*FOUR), &*P);
+            if num
+                .mod_floor(&*P)
+                .cmp(&(&prelimX * &prelimX * &denom).mod_floor(&*P))
+                .is_ne()
+            {
+                return Err(CryptoError::VerificationFailure(
+                    "Encoded point: no square root exists",
+                ));
+            }
+            if prelimX == *ZERO && x_bit != 0 {
+                return Err(CryptoError::VerificationFailure(
+                    "Encoded point: sign-bit is 1 for x = 0",
+                ));
+            }
+            let x = if prelimX.is_even() == (x_bit == 0) {
+                prelimX
+            } else {
+                &*P - prelimX
+            };
+            Ok(Point { x, y })
+        }
+
+        pub fn encode(&self) -> [u8; Self::ENCODED_LENGTH_BYTES] {
+            let mut result = [0u8; Self::ENCODED_LENGTH_BYTES];
+            let encoded: Vec<u8> = self.y.to_bytes_le();
+            utils::slice::copy(&mut result, &encoded);
+            assert_eq!(0, result[56]);
+            let xbytes = self.x.to_bytes_le();
+            let lsb = if xbytes.is_empty() {
+                0
+            } else {
+                xbytes[0] & 0x1
+            };
+            result[56] |= lsb << 7;
+            result
+        }
+    }
+
+    #[allow(non_snake_case)]
     #[must_use]
     pub fn random_in_Zq() -> BigUint {
         let mut data: [u8; 57] = [0u8; 57];
@@ -750,26 +922,28 @@ pub mod dh2 {
     use once_cell::sync::Lazy;
 
     /// p is the prime (modulus).
-    pub const p: Lazy<BigUint> = Lazy::new(|| {
+    pub static P: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_radix_be(b"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF", 16).unwrap()
     });
 
     /// g3 is the generator
-    pub const g3: u8 = 2;
+    pub const G3: u8 = 2;
 
     // TODO check if cofactor is needed.
-    pub const cofactor: u8 = 2;
+    pub const COFACTOR: u8 = 2;
 
     // TODO why is this called subprime, isn't it the order?
     /// q is the subprime.
-    pub const q: Lazy<BigUint> = Lazy::new(|| {
+    pub static Q: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_radix_be(b"7FFFFFFFFFFFFFFFE487ED5110B4611A62633145C06E0E68948127044533E63A0105DF531D89CD9128A5043CC71A026EF7CA8CD9E69D218D98158536F92F8A1BA7F09AB6B6A8E122F242DABB312F3F637A262174D31BF6B585FFAE5B7A035BF6F71C35FDAD44CFD2D74F9208BE258FF324943328F6722D9EE1003E5C50B1DF82CC6D241B0E2AE9CD348B1FD47E9267AFC1B2AE91EE51D6CB0E3179AB1042A95DCF6A9483B84B4B36B3861AA7255E4C0278BA3604650C10BE19482F23171B671DF1CF3B960C074301CD93C1D17603D147DAE2AEF837A62964EF15E5FB4AAC0B8C1CCAA4BE754AB5728AE9130C4C7D02880AB9472D45556216D6998B8682283D19D42A90D5EF8E5D32767DC2822C6DF785457538ABAE83063ED9CB87C2D370F263D5FAD7466D8499EB8F464A702512B0CEE771E9130D697735F897FD036CC504326C3B01399F643532290F958C0BBD90065DF08BABBD30AEB63B84C4605D6CA371047127D03A72D598A1EDADFE707E884725C16890549D69657FFFFFFFFFFFFFFF", 16).unwrap()
     });
 }
 
 /// `constant` module provides constant-time operations.
 pub mod constant {
-    use super::{verify_nonzero, CryptoError};
+    use num_bigint::BigUint;
+
+    use super::{verify_nonzero, CryptoError, ed448};
 
     /// `verify` verifies two same-length byte-slices in constant-time.
     ///
@@ -778,6 +952,7 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
+    // FIXME rename verify to compare_bytes
     pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(mac1, mac2),
@@ -788,6 +963,14 @@ pub mod constant {
         ring::constant_time::verify_slices_are_equal(mac1, mac2).or(Err(
             CryptoError::VerificationFailure("mac verification failed"),
         ))
+    }
+
+    pub fn compare_scalars(scalar1: &BigUint, scalar2: &BigUint) -> Result<(), CryptoError> {
+        todo!("To be implemented")
+    }
+
+    pub fn compare_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
+        todo!("To be implemented")
     }
 }
 
@@ -805,7 +988,7 @@ mod tests {
     use crate::utils::biguint::{ONE, TWO, ZERO};
     use num_bigint::BigUint;
 
-    use super::{constant, dh};
+    use super::{constant, dh, ed448};
 
     #[test]
     fn test_dh_verify_homogenous() {
@@ -925,5 +1108,14 @@ mod tests {
     #[test]
     fn test_differing_length_slices() {
         assert!(constant::verify(b"Hello!", b"Hello").is_err());
+    }
+
+    #[test]
+    fn test_encoding_decoding_point() {
+        let modulus = ed448::modulus();
+        let generator = ed448::generator();
+        let encoded = generator.encode();
+        let decoded = ed448::Point::decode(&encoded).unwrap();
+        assert_eq!(generator, &decoded);
     }
 }
