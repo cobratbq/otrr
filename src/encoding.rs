@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    crypto::{aes128, dsa::Signature},
+    crypto::{aes128, dsa::Signature, ed448::LENGTH_BYTES},
     crypto::{dsa, ed448},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, Version,
@@ -540,6 +540,17 @@ impl<'a> OTRDecoder<'a> {
         Ok(value)
     }
 
+    /// `read_short_le` reads a short value (2 bytes, little-endian) from buffer.
+    pub fn read_u16_le(&mut self) -> Result<u16, OTRError> {
+        log::trace!("read short (Little-Endian)");
+        if self.0.len() < 2 {
+            return Err(OTRError::IncompleteMessage);
+        }
+        let value = (u16::from(self.0[1]) << 8) + u16::from(self.0[0]);
+        self.0 = &self.0[2..];
+        Ok(value)
+    }
+
     /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_u32(&mut self) -> Result<u32, OTRError> {
         log::trace!("read int");
@@ -555,11 +566,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_i64(&mut self) -> Result<i64, OTRError> {
-        let bytes = self.read(8)?;
-        assert_eq!(8, bytes.len());
-        Ok(i64::from_be_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        Ok(i64::from_be_bytes(self.read::<8>()?))
     }
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
@@ -699,29 +706,33 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
-        const LENGTH: usize = 114;
-        Ok(ed448::Signature::from(&self.read(LENGTH)?))
+        self.read::<{ 2 * LENGTH_BYTES }>()
+            .map(|v| ed448::Signature::from(&v))
     }
 
     pub fn read_ed448_public_key(&mut self) -> Result<ed448::PublicKey, OTRError> {
-        const LENGTH: usize = 57;
-        Ok(ed448::PublicKey::from(&self.read(LENGTH)?))
+        // TODO we write the public key as OTREncodable, but we make a specific implementation for reading.
+        self.read::<LENGTH_BYTES>()
+            .map(|v| ed448::PublicKey::from(&v))
     }
 
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
-        todo!("To be implemented")
+        let data = self.read::<LENGTH_BYTES>()?;
+        ed448::Point::decode(&data).map_err(OTRError::CryptographicViolation)
     }
 
     pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
-        todo!("To be implemented")
+        self.read::<LENGTH_BYTES>()
+            .map(|v| BigUint::from_bytes_le(&v))
     }
 
-    fn read(&mut self, n: usize) -> Result<Vec<u8>, OTRError> {
-        if self.0.len() < n {
+    fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
+        if self.0.len() < N {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut buffer = Vec::with_capacity(n);
-        self.transfer(n, &mut buffer);
+        let mut buffer = [0u8; N];
+        buffer.copy_from_slice(&self.0[..N]);
+        self.0 = &self.0[N..];
         Ok(buffer)
     }
 
@@ -772,6 +783,13 @@ impl OTREncoder {
 
     pub fn write_u16(&mut self, v: u16) -> &mut Self {
         let b = v.to_be_bytes();
+        self.buffer.push(b[0]);
+        self.buffer.push(b[1]);
+        self
+    }
+
+    pub fn write_u16_le(&mut self, v: u16) -> &mut Self {
+        let b = v.to_le_bytes();
         self.buffer.push(b[0]);
         self.buffer.push(b[1]);
         self
@@ -870,32 +888,26 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_ed448_public_key(&mut self, pk: &ed448::PublicKey) -> &mut Self {
-        todo!("Implement ED448 public key encoding")
-    }
-
-    pub fn write_ed448_signature(&mut self, sig: &ed448::Signature) -> &mut Self {
-        todo!("Implement ED448 signature encoding")
-    }
-
     pub fn write_ed448_point(&mut self, point: &ed448::Point) -> &mut Self {
-        todo!("Implement writing ed448 point")
+        let encoded = point.encode();
+        self.buffer.extend_from_slice(&encoded);
+        self
     }
 
     pub fn write_ed448_scalar(&mut self, scalar: &BigUint) -> &mut Self {
-        todo!("Implement writing ed448 scalar")
+        self.buffer
+            .extend_from_slice(&utils::biguint::to_bytes_le_fixed::<LENGTH_BYTES>(scalar));
+        self
     }
 
-    pub fn write_ed448_fingerprint(&mut self, fingerprint: &[u8]) -> &mut Self {
-        // FIXME make fingerprint a type?
-        assert_eq!(56, fingerprint.len());
-        todo!("Implement writing ed448 fingerprint")
+    pub fn write_ed448_fingerprint(&mut self, fingerprint: &[u8; 56]) -> &mut Self {
+        self.buffer.extend_from_slice(fingerprint);
+        self
     }
 
-    pub fn write_ssid(&mut self, ssid: &[u8]) -> &mut Self {
-        // FIXME make ssid a type?
-        assert_eq!(8, ssid.len());
-        todo!("Implement writing ssid");
+    pub fn write_ssid(&mut self, ssid: &[u8; 8]) -> &mut Self {
+        self.buffer.extend_from_slice(ssid);
+        self
     }
 
     pub fn to_vec(&self) -> Vec<u8> {

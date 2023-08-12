@@ -123,7 +123,7 @@ impl Session {
     #[allow(clippy::too_many_lines)]
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         log::debug!("Processing incoming message ..");
-        if !self.details.policy.contains(Policy::ALLOW_V3) {
+        if !self.details.policy.contains(Policy::ALLOW_V3) && !self.details.policy.contains(Policy::ALLOW_V4) {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(UserMessage::Plaintext(Vec::from(payload)));
         }

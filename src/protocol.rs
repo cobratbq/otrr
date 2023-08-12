@@ -13,7 +13,8 @@ use crate::{
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, smp4::SMP4Context,
+    smp4::SMP4Context,
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -152,7 +153,9 @@ impl ProtocolState for EncryptedOTR3State {
         }
         match self.decrypt_message(msg) {
             Ok(decrypted) => match parse_message(&decrypted) {
-                msg @ Ok(Message::ConfidentialFinished(_)) => (msg, Some(Box::new(FinishedState {}))),
+                msg @ Ok(Message::ConfidentialFinished(_)) => {
+                    (msg, Some(Box::new(FinishedState {})))
+                }
                 msg @ Ok(_) => (msg, None),
                 err @ Err(_) => {
                     // TODO if parsing message produces error, should we transition to different state or ignore? (protocol violation) ERROR_START_AKE seems to indicate that we need to assume the session is lost if OTR Error is received.
@@ -315,7 +318,7 @@ impl EncryptedOTR3State {
                 message,
             ),
         );
-        constant::verify(&message.authenticator, &authenticator)
+        constant::verify_bytes(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
         log::debug!("Authenticator of received confidential message verified.");
         self.keys.register_used_mac_key(receiving_mac_key);
@@ -390,10 +393,14 @@ impl ProtocolState for EncryptedOTR4State {
         their_dsa: dsa::PublicKey,
     ) -> Box<dyn ProtocolState> {
         // FIXME to be implemented
-        Box::new(EncryptedOTR4State{
+        Box::new(EncryptedOTR4State {
             our_instance,
             their_instance,
-            smp: SMP4Context::new(&[0u8;0], &[0u8;0], [0u8;8])
+            smp: SMP4Context::new(
+                &utils::random::secure_bytes::<56>(),
+                &utils::random::secure_bytes::<56>(),
+                utils::random::secure_bytes::<8>(),
+            ),
         })
     }
 
@@ -418,9 +425,7 @@ impl ProtocolState for EncryptedOTR4State {
     }
 }
 
-impl EncryptedOTR4State {
-
-}
+impl EncryptedOTR4State {}
 
 pub struct FinishedState {}
 

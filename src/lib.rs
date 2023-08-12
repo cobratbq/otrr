@@ -175,6 +175,7 @@ bitflags! {
     // ERROR_START_AKE
     //     Start the OTR AKE when you receive an OTR Error Message.
     const ERROR_START_AKE = 0b0100_0000;
+    const ALLOW_V4 = 0b0001_0000_0000;
     }
 }
 

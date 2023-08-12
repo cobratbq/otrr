@@ -1355,7 +1355,7 @@ mod tests {
         }
 
         fn inject(&self, _address: &[u8], _message: &[u8]) {
-            todo!("not implemented: not necessary for tests")
+            unimplemented!("not necessary for tests")
         }
 
         fn keypair(&self) -> &dsa::Keypair {

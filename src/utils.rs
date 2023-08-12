@@ -67,6 +67,17 @@ pub mod bytes {
     }
 }
 
+pub mod bigint {
+    use num_bigint::BigInt;
+    use once_cell::sync::Lazy;
+
+    pub static ZERO: Lazy<BigInt> = Lazy::new(|| BigInt::from(0u8));
+    pub static ONE: Lazy<BigInt> = Lazy::new(|| BigInt::from(1u8));
+    pub static TWO: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8));
+    pub static THREE: Lazy<BigInt> = Lazy::new(|| BigInt::from(3u8));
+    pub static FOUR: Lazy<BigInt> = Lazy::new(|| BigInt::from(4u8));
+}
+
 pub mod biguint {
     use num_bigint::BigUint;
     use once_cell::sync::Lazy;
@@ -74,7 +85,16 @@ pub mod biguint {
     pub static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
     pub static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
     pub static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    pub static THREE: Lazy<BigUint> = Lazy::new(|| BigUint::from(3u8));
     pub static FOUR: Lazy<BigUint> = Lazy::new(|| BigUint::from(4u8));
+    pub static FIVE: Lazy<BigUint> = Lazy::new(|| BigUint::from(5u8));
+    pub static SIX: Lazy<BigUint> = Lazy::new(|| BigUint::from(6u8));
+    pub static SEVEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(7u8));
+    pub static EIGHT: Lazy<BigUint> = Lazy::new(|| BigUint::from(8u8));
+    pub static NINE: Lazy<BigUint> = Lazy::new(|| BigUint::from(9u8));
+    pub static TEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(10u8));
+    pub static ELEVEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(11u8));
+    pub static TWELVE: Lazy<BigUint> = Lazy::new(|| BigUint::from(12u8));
 
     pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8; N] {
         let mut buffer = [0u8; N];
@@ -89,9 +109,23 @@ pub mod biguint {
         dst[start..].copy_from_slice(&bytes);
     }
 
+    pub fn to_bytes_le_fixed<const N: usize>(v: &BigUint) -> [u8; N] {
+        let mut result = [0u8; N];
+        let bytes = v.to_bytes_le();
+        assert!(result.len() >= bytes.len());
+        result[..bytes.len()].copy_from_slice(&bytes);
+        result
+    }
+
+    pub fn to_bytes_le_into(dst: &mut [u8], v: &BigUint) {
+        let bytes = v.to_bytes_le();
+        assert!(dst.len() >= bytes.len());
+        dst[..bytes.len()].copy_from_slice(&bytes);
+    }
+
     // TODO assuming u64-sized limbs, but should be checked because it can be influenced with a flag
     pub fn bit(v: &BigUint, i: usize) -> bool {
-        let (limb_idx,bit_idx) = (i / 64, i % 64);
+        let (limb_idx, bit_idx) = (i / 64, i % 64);
         let limb = v.get_limb(limb_idx);
         (limb & 1 << bit_idx) != 0
     }
@@ -108,6 +142,18 @@ pub mod slice {
         assert!(dst.len() >= src.len());
         let len = src.len();
         dst[..len].copy_from_slice(src);
+    }
+
+    /// `clear` overwrites a slice with value `0`.
+    pub fn clear(data: &mut [u8]) {
+        fill(data, 0);
+    }
+
+    /// `fill` fills a slice with specified value.
+    pub fn fill<T: Copy>(data: &mut [T], value: T) {
+        for i in 0..data.len() {
+            data[i] = value;
+        }
     }
 }
 
@@ -157,5 +203,20 @@ pub mod u32 {
         } else {
             Ok(())
         }
+    }
+}
+
+pub mod random {
+    use once_cell::sync::Lazy;
+    use ring::rand::{SecureRandom, SystemRandom};
+
+    /// `RANDOM` is an instance of `SystemRandom`.
+    pub static RANDOM: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
+
+    /// `secure_bytes` produces the specified number of secure bytes as a byte-array.
+    pub fn secure_bytes<const N: usize>() -> [u8; N] {
+        let mut bytes = [0u8; N];
+        RANDOM.fill(&mut bytes).unwrap();
+        bytes
     }
 }

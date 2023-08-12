@@ -80,12 +80,12 @@ impl OTREncodable for ClientProfilePayload {
         {
             let pk = self.public_key.as_ref().unwrap();
             encoder.write_u16(TYPE_ED448_PUBLIC_KEY);
-            encoder.write_ed448_public_key(pk);
+            encoder.write_encodable(pk);
         }
         {
             let pk = self.forging_key.as_ref().unwrap();
             encoder.write_u16(TYPE_ED448_FORGING_KEY);
-            encoder.write_ed448_public_key(pk);
+            encoder.write_encodable(pk);
         }
         {
             encoder.write_u16(TYPE_VERSIONS);

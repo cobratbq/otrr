@@ -596,64 +596,53 @@ pub mod sha256 {
 pub mod otr4 {
     // TODO consider if we want to keep 3 functions (kdf, hwc, hcmac) if they have same logic. (see spec)
 
-    use num_bigint::BigUint;
+    use super::{ed448, shake256};
 
-    use super::{shake256, ed448::{Point, self}};
+    const USAGE_FINGERPRINT: u8 = 0x00;
+    pub const USAGE_SMP_SECRET: u8 = 0x19;
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
-    pub fn hwc(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
-        kdf(output, usage_id, values);
+    #[must_use]
+    pub fn fingerprint(public_key: &ed448::Point, forging_key: &ed448::Point) -> [u8; 56] {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&public_key.encode());
+        buffer.extend_from_slice(&forging_key.encode());
+        hwc::<56>(USAGE_FINGERPRINT, &buffer)
     }
 
-    pub fn hcmac(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
-        kdf(output, usage_id, values);
+    pub fn hwc<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
+        kdf::<N>(usage, data)
     }
 
-    pub fn kdf(output: &mut [u8], usage_id: UsageID, values: &[u8]) {
-        let usage: u8 = match usage_id {
-            UsageID::Fingerprint => 0x00,
-            UsageID::ThirdBraceKey => 0x01,
-            UsageID::BraceKey => 0x02,
-            UsageID::SharedSecret => 0x03,
-            UsageID::SSID => 0x04,
-            UsageID::SMPSecret => 0x19,
-        };
-        let mut buffer = Vec::with_capacity(6 + values.len());
+    pub fn hcmac<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
+        kdf::<N>(usage, data)
+    }
+
+    // TODO is pruning done after `kdf` in all cases? move into kdf function?
+    pub fn kdf<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
+        let mut buffer = Vec::with_capacity(6 + data.len());
         buffer.extend_from_slice(&PREFIX);
         buffer.push(usage);
-        buffer.extend_from_slice(values);
-        shake256::digest(output, &buffer);
-    }
-
-    pub enum UsageID {
-        Fingerprint,
-        ThirdBraceKey,
-        BraceKey,
-        SharedSecret,
-        SSID,
-        SMPSecret,
-        //AuthRClientProfileBob,
-        //AuthRClientProfileAlice,
-        //AuthRPhi,
-        //AuthIClientProfileBob,
-        //AuthIClientProfileAlice,
-        //AuthIPhi,
-        //FirstRootKey,
+        buffer.extend_from_slice(data);
+        shake256::digest::<N>(&buffer)
     }
 }
 
-pub mod shake256 {
+mod shake256 {
     use digest::{ExtendableOutput, Update, XofReader};
     use sha3::Shake256;
 
     /// digest hashes `data` and produces an output digest in `output`, taking into account the size
     /// of the buffer.
-    pub fn digest(output: &mut [u8], data: &[u8]) {
+    #[must_use]
+    pub fn digest<const N: usize>(data: &[u8]) -> [u8; N] {
         let mut hasher = Shake256::default();
         hasher.update(data);
         let mut reader = hasher.finalize_xof();
-        reader.read(output);
+        let mut output = [0u8; N];
+        reader.read(&mut output);
+        output
     }
 }
 
@@ -663,23 +652,23 @@ pub mod ed448 {
         str::FromStr,
     };
 
-    use num_bigint::{BigInt, BigUint, ModInverse, ToBigInt};
+    use num_bigint::{BigInt, BigUint, ModInverse, Sign, ToBigInt};
     use num_integer::Integer;
     use once_cell::sync::Lazy;
-    use ring::rand::SecureRandom;
 
     use crate::{
-        crypto::RAND,
+        crypto::otr4::hwc,
+        encoding::OTREncodable,
         utils::{
             self,
-            biguint::{self, FOUR, ONE, ZERO},
+            bigint::{FOUR, ONE, ZERO, THREE},
             bytes,
         },
     };
 
     use super::{shake256, CryptoError};
 
-    const LENGTH: usize = 57;
+    pub const LENGTH_BYTES: usize = 57;
 
     // G = (x=22458004029592430018760433409989603624678964163256413424612546168695
     //        0415467406032909029192869357953282578032075146446173674602635247710,
@@ -692,6 +681,13 @@ pub mod ed448 {
     }
     });
 
+    /// `I` is the neutral element, or identity.
+    static I: Lazy<Point> = Lazy::new(|| Point {
+        x: (*utils::biguint::ZERO).clone(),
+        y: (*utils::biguint::ONE).clone(),
+    });
+
+    /// p, the modulus
     static P: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
     });
@@ -701,26 +697,27 @@ pub mod ed448 {
         BigUint::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
     });
 
-    // FIXME double-check that this is a valid alternative to using BigInt (need for the sign)
-    static D: Lazy<BigUint> = Lazy::new(|| {
-        BigInt::from_str("-39081")
-            .unwrap()
-            .mod_floor(&(*Q).to_bigint().unwrap())
-            .to_biguint()
-            .unwrap()
-    });
+    /// d, '-39081'
+    static D: Lazy<BigInt> = Lazy::new(|| BigInt::from_str("-39081").unwrap());
 
-    /// generator returns the Ed448 base-point.
+    /// `generator` returns the Ed448 base-point.
     #[must_use]
     pub fn generator() -> &'static Point {
         &G
     }
 
+    #[must_use]
+    pub fn identity() -> &'static Point {
+        &I
+    }
+
+    /// `modulus` returns the Ed448 modulus
+    #[must_use]
     pub fn modulus() -> &'static BigUint {
         &P
     }
 
-    /// prime_order provides the prime order value `q`.
+    /// `prime_order` provides the prime order value `q`.
     #[must_use]
     pub fn prime_order() -> &'static BigUint {
         &Q
@@ -728,49 +725,85 @@ pub mod ed448 {
 
     pub struct PublicKey(Point);
 
+    impl OTREncodable for PublicKey {
+        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+            encoder.write_u16_le(0x0010);
+            encoder.write_ed448_point(&self.0);
+        }
+    }
+
     impl PublicKey {
         #[must_use]
-        pub fn from(data: &[u8]) -> PublicKey {
+        pub fn from(data: &[u8]) -> Self {
             // FIXME implement `from` for deserializing Ed448 public key
             todo!("implement conversion from raw bytes")
         }
     }
 
-    pub struct Signature([u8; 2 * LENGTH]);
+    // NOTE: there is also the Ed448 Preshared PreKey (type 0x0011). Not yet implemented.
+
+    pub struct ForgingKey(Point);
+
+    impl OTREncodable for ForgingKey {
+        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+            encoder.write_u16_le(0x0012);
+            encoder.write_ed448_point(&self.0);
+        }
+    }
+
+    impl ForgingKey {
+        #[must_use]
+        pub fn from(data: &[u8]) -> Self {
+            // FIXME implement `from` for deserializing Ed448 forging key
+            todo!("implement conversion from raw bytes")
+        }
+    }
+
+    // TODO do we want the tuple types private or public?
+    pub struct Signature([u8; 2 * LENGTH_BYTES]);
+
+    impl OTREncodable for Signature {
+        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+            encoder.write(&self.0);
+        }
+    }
 
     impl Signature {
         #[must_use]
-        pub fn from(data: &[u8]) -> Signature {
+        pub fn from(data: &[u8]) -> Self {
             // FIXME implement `from` for deserializing Ed448 signature
             todo!("implement conversion from raw bytes")
         }
     }
 
-    pub fn verify(p: &Point) -> Result<(), CryptoError> {
-        // note: in the correct group, do not degenerate
-        todo!("implement point verification")
+    /// `verify` checks the provided Point for correctness.
+    pub fn verify(point: &Point) -> Result<(), CryptoError> {
+        if point.is_identity()
+            || point.x.cmp(&*P).is_ge()
+            || point.y.cmp(&*P).is_ge()
+            || !(point * &*Q).is_identity()
+        {
+            return Err(CryptoError::VerificationFailure(
+                "Point does not satisfy required conditions",
+            ));
+        }
+        Ok(())
     }
 
+    // TODO pruning is not strictly necessary because the scalars resulting from hash_to_scalar are not used on the curve, merely as proofs.
     #[must_use]
     pub fn hash_to_scalar(purpose: u8, data: &Point) -> BigUint {
-        todo!("implement hash_to_scalar")
+        // TODO double-check if `mod q` is correct.
+        BigUint::from_bytes_le(&hwc::<57>(purpose, &data.encode())).mod_floor(&*Q)
     }
 
     #[must_use]
     pub fn hash_to_scalar2(purpose: u8, data1: &Point, data2: &Point) -> BigUint {
-        todo!("implement hash_to_scalar")
-    }
-
-    #[must_use]
-    pub fn double(p: &Point) -> Point {
-        let result_x: BigUint =
-            (&p.x * &p.y + &p.y * &p.x) * -((&*ONE) + (&*D) * &p.x * &p.x * &p.y * &p.y);
-        let result_y: BigUint =
-            (&p.y * &p.y - &p.x * &p.x) * -((&*ONE) - (&*D) * &p.x * &p.x * &p.y * &p.y);
-        Point {
-            x: result_x.mod_floor(&Q),
-            y: result_y.mod_floor(&Q),
-        }
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&data1.encode());
+        buffer.extend_from_slice(&data2.encode());
+        // TODO double-check if `mod q` is correct.
+        BigUint::from_bytes_le(&hwc::<57>(purpose, &buffer)).mod_floor(&Q)
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -779,33 +812,29 @@ pub mod ed448 {
         y: BigUint,
     }
 
+    impl<'b> Mul<&'b BigUint> for Point {
+        type Output = Self;
+
+        fn mul(self, scalar: &'b BigUint) -> Self::Output {
+            self.mul0(scalar)
+        }
+    }
+
     #[allow(clippy::suspicious_arithmetic_impl)]
     impl<'a, 'b> Mul<&'b BigUint> for &'a Point {
         type Output = Point;
 
-        fn mul(self, scalar: &'b BigUint) -> Point {
-            // TODO implementation of scalar multiplication is not constant-time
-            // ECPoint result = ECPoint.POINT_INFINITY;
-            // ECPoint temp = point;
-            // for (int i = 0; i < scalar.bitLength(); i++) {
-            //     if (scalar.testBit(i)) {
-            //         result = add(result, temp);
-            //     }
-            //     temp = doubling(temp);
-            // }
-            // return result;
-            let mut result = Point {
-                x: utils::biguint::ZERO.clone(),
-                y: utils::biguint::ONE.clone(),
-            };
-            let mut temp: Point = self.clone();
-            for i in 0..scalar.bits() {
-                if biguint::bit(scalar, i) {
-                    result = &result + &temp;
-                }
-                temp = double(&temp);
-            }
-            result.clone()
+        // TODO implementation of scalar multiplication is not constant-time
+        fn mul(self, scalar: &'b BigUint) -> Self::Output {
+            self.mul0(scalar)
+        }
+    }
+
+    impl<'b> Add<&'b Point> for Point {
+        type Output = Self;
+
+        fn add(self, rhs: &'b Point) -> Self::Output {
+            self.add0(rhs)
         }
     }
 
@@ -813,105 +842,175 @@ pub mod ed448 {
     impl<'a, 'b> Add<&'b Point> for &'a Point {
         type Output = Point;
 
-        fn add(self, rhs: &'b Point) -> Point {
-            // FIXME add short-hand for IDENTITY either self or rhs
-            let result_x: BigUint = (&self.x * &rhs.y + &self.y * &rhs.x)
-                * -((&*ONE) + (&*D) * &self.x * &rhs.x * &self.y * &rhs.y);
-            let result_y: BigUint = (&self.y * &rhs.y - &self.x * &rhs.x)
-                * -((&*ONE) - (&*D) * &self.x * &rhs.x * &self.y * &rhs.y);
-            Point {
-                x: result_x.mod_floor(&Q),
-                y: result_y.mod_floor(&Q),
-            }
+        fn add(self, rhs: &'b Point) -> Self::Output {
+            self.add0(rhs)
         }
     }
 
     impl Neg for Point {
         type Output = Self;
 
-        fn neg(self) -> Self {
-            Point {
-                x: -self.x,
+        fn neg(self) -> Self::Output {
+            Self {
+                x: &*P - self.x,
                 y: self.y,
             }
         }
     }
 
-    impl Point {
-        const ENCODED_LENGTH_BYTES: usize = 57;
+    impl<'a> Neg for &'a Point {
+        type Output = Point;
 
-        pub fn decode(encoded: &[u8]) -> Result<Point, CryptoError> {
-            if encoded.len() != Self::ENCODED_LENGTH_BYTES {
-                return Err(CryptoError::VerificationFailure(
-                    "Encoded point has incorrect length",
-                ));
+        fn neg(self) -> Self::Output {
+            Point {
+                x: &*P - &self.x,
+                y: self.y.clone(),
             }
+        }
+    }
+
+    impl Point {
+        // TODO implementation of scalar multiplication is not constant-time
+        fn mul0(&self, scalar: &BigUint) -> Point {
+            let mut result = Point {
+                x: utils::biguint::ZERO.clone(),
+                y: utils::biguint::ONE.clone(),
+            };
+            let mut temp: Point = self.clone();
+            for i in 0..scalar.bits() {
+                if utils::biguint::bit(scalar, i) {
+                    result = result.add0(&temp);
+                }
+                temp = temp.add0(&temp);
+            }
+            result
+        }
+
+        fn add0(&self, rhs: &Point) -> Point {
+            if self.is_identity() {
+                return rhs.clone();
+            }
+            if rhs.is_identity() {
+                return self.clone();
+            }
+            let lhs_x = self.x.to_bigint().unwrap();
+            let lhs_y = self.y.to_bigint().unwrap();
+            let rhs_x = rhs.x.to_bigint().unwrap();
+            let rhs_y = rhs.y.to_bigint().unwrap();
+            let result_x: BigInt = &(&lhs_x * &rhs_y + &lhs_y * &rhs_x)
+                * &(&*ONE + &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+                    .mod_inverse(&*P)
+                    .unwrap();
+            let result_y: BigInt = &(&lhs_y * &rhs_y - &lhs_x * &rhs_x)
+                * &(&*ONE - &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+                    .mod_inverse(&*P)
+                    .unwrap();
+            Point {
+                x: result_x
+                    .mod_floor(&P.to_bigint().unwrap())
+                    .to_biguint()
+                    .unwrap(),
+                y: result_y
+                    .mod_floor(&P.to_bigint().unwrap())
+                    .to_biguint()
+                    .unwrap(),
+            }
+        }
+
+        /// `decode` decodes an encoded Ed448 Point and returns an instance iff correct.
+        ///
+        /// # Errors
+        /// Returns an error in case the encoded point contains bad data, therefore it is impossible
+        /// to reconstruct a (valid) point.
+        ///
+        /// # Panics
+        /// Panics if there are bugs.
+        pub fn decode(encoded: &[u8; 57]) -> Result<Point, CryptoError> {
             let x_bit = (encoded[56] & 0b1000_0000) >> 7;
-            let y = BigUint::from_bytes_le(&encoded[..56]);
-            if y.cmp(&*P).is_ge() {
+            let y = BigInt::from_bytes_le(Sign::Plus, &encoded[..56]);
+            let p = &P.to_bigint().unwrap();
+            if y.cmp(p).is_ge() {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point contains illegal y component",
                 ));
             }
-            let num = (&y * &y) - &*ONE;
-            let denom = &y * &y * &*D - &*ONE;
-            let x2 = &num * (&denom).mod_inverse(&*P).unwrap().to_biguint().unwrap();
-            let prelimX = x2.modpow(&(&(&*P + &*ONE) / &*FOUR), &*P);
-            if num
-                .mod_floor(&*P)
-                .cmp(&(&prelimX * &prelimX * &denom).mod_floor(&*P))
-                .is_ne()
-            {
+            let num = (&y * &y - &*ONE).mod_floor(p);
+            let denom = (&y * &y * &*D - &*ONE).mod_floor(p);
+            //let x2 = &num * (&denom).mod_inverse(&*P).unwrap();
+            // REMARK the `exponent` for `modpow` could be precomputed.
+            //let x = x2.modpow(&(&(p + &*ONE) * (&*FOUR).mod_inverse(p).unwrap()), p);
+            let x = (&num * &num * &num * &denom * (&num * &num * &num * &num * &num * &denom * &denom * &denom).modpow(&(&(p - &*THREE) / &*FOUR), p)).mod_floor(p);
+            if num != (&x * &x * &denom).mod_floor(p) {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: no square root exists",
                 ));
             }
-            if prelimX == *ZERO && x_bit != 0 {
+            if x == *ZERO && x_bit != 0 {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: sign-bit is 1 for x = 0",
                 ));
             }
-            let x = if prelimX.is_even() == (x_bit == 0) {
-                prelimX
+            if x.is_even() == (x_bit == 0) {
+                Ok(Point {
+                    x: x.to_biguint().unwrap(),
+                    y: y.to_biguint().unwrap(),
+                })
             } else {
-                &*P - prelimX
-            };
-            Ok(Point { x, y })
+                Ok(Point {
+                    x: (p - &x).to_biguint().unwrap(),
+                    y: y.to_biguint().unwrap(),
+                })
+            }
         }
 
-        pub fn encode(&self) -> [u8; Self::ENCODED_LENGTH_BYTES] {
-            let mut result = [0u8; Self::ENCODED_LENGTH_BYTES];
-            let encoded: Vec<u8> = self.y.to_bytes_le();
-            utils::slice::copy(&mut result, &encoded);
-            assert_eq!(0, result[56]);
-            let xbytes = self.x.to_bytes_le();
-            let lsb = if xbytes.is_empty() {
+        /// `encode` encodes an Ed448 Point into bytes.
+        ///
+        /// # Panics
+        /// In case of bugs.
+        #[must_use]
+        pub fn encode(&self) -> [u8; 57] {
+            let mut encoded = utils::biguint::to_bytes_le_fixed::<57>(&self.y);
+            assert_eq!(0, encoded[56]);
+            let x_bytes = self.x.to_bytes_le();
+            let x_bit = if x_bytes.is_empty() {
                 0
             } else {
-                xbytes[0] & 0x1
+                x_bytes[0] & 0x1
             };
-            result[56] |= lsb << 7;
-            result
+            encoded[56] |= x_bit << 7;
+            encoded
+        }
+
+        #[must_use]
+        pub fn is_identity(&self) -> bool {
+            self.x == *utils::biguint::ZERO && self.y == *utils::biguint::ONE
         }
     }
 
+    /// `random_in_Zq` generates a random value in Z_q and returns this as `BigUint` unsigned
+    /// integer value. The value is pruned as to be guaranteed safe for use in curve Ed448.
+    ///
+    /// # Panics
+    /// Panics if invalid input data is provided. (sanity-checks)
     #[allow(non_snake_case)]
     #[must_use]
     pub fn random_in_Zq() -> BigUint {
-        let mut data: [u8; 57] = [0u8; 57];
-        (*RAND)
-            .fill(&mut data)
-            .expect("Failed to produce random bytes for random big unsigned integer value.");
-        let mut h = [0u8; 57];
-        shake256::digest(&mut h, &data);
+        let mut h = shake256::digest::<57>(&utils::random::secure_bytes::<57>());
         prune(&mut h);
+        assert!(bytes::any_nonzero(&h));
         BigUint::from_bytes_le(&h).mod_floor(&Q)
     }
 
-    fn prune(v: &mut [u8]) {
+    /// `prune` prunes a byte-array that represents an encoded scalar value to ensure
+    /// that the scalar, when decoded, produces a valid scalar value.
+    ///
+    /// # Panics
+    /// Panics if invalid input is provided. (sanity-checks)
+    pub fn prune(v: &mut [u8]) {
         assert_eq!(57, v.len());
         assert!(bytes::any_nonzero(v));
         v[0] &= 0b1111_1100;
+        v[55] |= 0b1000_0000;
         v[56] = 0;
     }
 }
@@ -940,37 +1039,50 @@ pub mod dh2 {
 }
 
 /// `constant` module provides constant-time operations.
+// TODO check at some moment that it's okay to encode points/scalars to preserve proper constant-time guarantees.
 pub mod constant {
     use num_bigint::BigUint;
 
-    use super::{verify_nonzero, CryptoError, ed448};
+    use super::{ed448, verify_nonzero, CryptoError};
+
+    /// `compare_scalars` compares two scalars in constant-time by encoding them then
+    /// constant-time-comparing the byte-arrays.
+    pub fn verify_scalars(scalar1: &BigUint, scalar2: &BigUint) -> Result<(), CryptoError> {
+        assert!(
+            !core::ptr::eq(scalar1, scalar2),
+            "BUG: p1 and p2 are same instance"
+        );
+        verify_bytes(&scalar1.to_bytes_le(), &scalar2.to_bytes_le())
+    }
+
+    /// `compare_points` checks if two points are the same in constant-time by comparing the
+    /// byte-arrays of the encoded points in constant-time.
+    ///
+    /// # Panics
+    /// Panics if instances `p1` and `p2` are the same.
+    pub fn verify_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
+        assert!(!core::ptr::eq(p1, p2), "BUG: p1 and p2 are same instance");
+        verify_bytes(&p1.encode(), &p2.encode())
+    }
 
     /// `verify` verifies two same-length byte-slices in constant-time.
     ///
     /// # Errors
-    /// `CryptoError` in case verification fails.
+    /// `CryptoError` in case verification fails. Failure-cases: provide same instance twice,
+    /// provide all-zero byte-arrays, provide equal slices.
     ///
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
-    // FIXME rename verify to compare_bytes
-    pub fn verify(mac1: &[u8], mac2: &[u8]) -> Result<(), CryptoError> {
+    pub fn verify_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         assert!(
-            !core::ptr::eq(mac1, mac2),
-            "BUG: mac1 and mac2 parameters are same reference"
+            !core::ptr::eq(data1, data2),
+            "BUG: data1 and data2 parameters are same instance"
         );
-        verify_nonzero(mac1)?;
-        verify_nonzero(mac2)?;
-        ring::constant_time::verify_slices_are_equal(mac1, mac2).or(Err(
-            CryptoError::VerificationFailure("mac verification failed"),
+        verify_nonzero(data1)?;
+        verify_nonzero(data2)?;
+        ring::constant_time::verify_slices_are_equal(data1, data2).or(Err(
+            CryptoError::VerificationFailure("data verification failed"),
         ))
-    }
-
-    pub fn compare_scalars(scalar1: &BigUint, scalar2: &BigUint) -> Result<(), CryptoError> {
-        todo!("To be implemented")
-    }
-
-    pub fn compare_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
-        todo!("To be implemented")
     }
 }
 
@@ -985,7 +1097,16 @@ pub enum CryptoError {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::biguint::{ONE, TWO, ZERO};
+    use crate::{
+        crypto::{
+            self,
+            ed448::{prime_order, verify},
+        },
+        utils::{
+            self,
+            biguint::{ONE, TWELVE, TWO, ZERO},
+        },
+    };
     use num_bigint::BigUint;
 
     use super::{constant, dh, ed448};
@@ -1084,38 +1205,88 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_zero_length_slices() {
-        constant::verify(&[], &[]).unwrap();
+        constant::verify_bytes(&[], &[]).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_zero_slices() {
-        constant::verify(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
+        constant::verify_bytes(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
     }
 
     #[test]
     fn test_same_length_slices() {
         let s1 = b"Hello world";
         let s2 = *s1;
-        constant::verify(s1, &s2).unwrap();
+        constant::verify_bytes(s1, &s2).unwrap();
     }
 
     #[test]
     fn test_different_content() {
-        assert!(constant::verify(b"Hello!", b"Yo!").is_err());
+        assert!(constant::verify_bytes(b"Hello!", b"Yo!").is_err());
     }
 
     #[test]
     fn test_differing_length_slices() {
-        assert!(constant::verify(b"Hello!", b"Hello").is_err());
+        assert!(constant::verify_bytes(b"Hello!", b"Hello").is_err());
     }
 
     #[test]
     fn test_encoding_decoding_point() {
-        let modulus = ed448::modulus();
         let generator = ed448::generator();
-        let encoded = generator.encode();
-        let decoded = ed448::Point::decode(&encoded).unwrap();
+        let decoded = ed448::Point::decode(&generator.encode()).unwrap();
         assert_eq!(generator, &decoded);
+        let doublecoded = ed448::Point::decode(&decoded.encode()).unwrap();
+        assert_eq!(generator, &doublecoded);
+    }
+
+    #[test]
+    fn test_point_generator_valid() {
+        let generator = ed448::generator();
+        crypto::ed448::verify(generator).unwrap();
+    }
+
+    #[test]
+    fn test_point_verify() {
+        let n = ed448::random_in_Zq();
+        let point = ed448::generator() * &n;
+        ed448::verify(&point).unwrap();
+        assert!((&point * ed448::prime_order()).is_identity());
+        assert_eq!(ed448::identity(), &(&point + &-&point));
+    }
+
+    #[test]
+    fn test_scalar_multiplication() {
+        let n = ed448::random_in_Zq();
+        let p = ed448::generator() * &n;
+        assert_eq!(&p + &p, &p * &*utils::biguint::TWO);
+        assert_eq!(&p + &p + &p, &p * &*utils::biguint::THREE);
+        assert_eq!(&p + &p + &p + &p, &p * &*utils::biguint::FOUR);
+        assert_eq!(&p + &p + &p + &p + &p, &p * &*utils::biguint::FIVE);
+        assert_eq!(&p + &p + &p + &p + &p + &p, &p * &*utils::biguint::SIX);
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::SEVEN
+        );
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::EIGHT
+        );
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::NINE
+        );
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::TEN
+        );
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::ELEVEN
+        );
+        assert_eq!(
+            &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
+            &p * &*utils::biguint::TWELVE
+        );
     }
 }
