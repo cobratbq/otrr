@@ -646,24 +646,21 @@ mod shake256 {
     }
 }
 
+// FIXME I am not fully confident that the changes made to avoid negative values are correct. Needs interop testing and/or review. (E.g. `D` -> `-39081 =?= P-39081`, holds for multiplication? -- likely yes)
 pub mod ed448 {
     use std::{
         ops::{Add, Mul, Neg},
         str::FromStr,
     };
 
-    use num_bigint::{BigInt, BigUint, ModInverse, Sign, ToBigInt};
+    use num_bigint::{BigInt, BigUint, ModInverse, ToBigInt};
     use num_integer::Integer;
     use once_cell::sync::Lazy;
 
     use crate::{
         crypto::otr4::hwc,
         encoding::OTREncodable,
-        utils::{
-            self,
-            bigint::{FOUR, ONE, ZERO, THREE},
-            bytes,
-        },
+        utils::{self, bigint::ONE, bytes},
     };
 
     use super::{shake256, CryptoError};
@@ -698,7 +695,7 @@ pub mod ed448 {
     });
 
     /// d, '-39081'
-    static D: Lazy<BigInt> = Lazy::new(|| BigInt::from_str("-39081").unwrap());
+    static D: Lazy<BigUint> = Lazy::new(|| &*P - &BigUint::from_str("39081").unwrap());
 
     /// `generator` returns the Ed448 base-point.
     #[must_use]
@@ -793,8 +790,7 @@ pub mod ed448 {
     // TODO pruning is not strictly necessary because the scalars resulting from hash_to_scalar are not used on the curve, merely as proofs.
     #[must_use]
     pub fn hash_to_scalar(purpose: u8, data: &Point) -> BigUint {
-        // TODO double-check if `mod q` is correct.
-        BigUint::from_bytes_le(&hwc::<57>(purpose, &data.encode())).mod_floor(&*Q)
+        decode_scalar(&hwc::<57>(purpose, &data.encode()))
     }
 
     #[must_use]
@@ -802,14 +798,31 @@ pub mod ed448 {
         let mut buffer = Vec::new();
         buffer.extend_from_slice(&data1.encode());
         buffer.extend_from_slice(&data2.encode());
-        // TODO double-check if `mod q` is correct.
-        BigUint::from_bytes_le(&hwc::<57>(purpose, &buffer)).mod_floor(&Q)
+        decode_scalar(&hwc::<57>(purpose, &buffer))
+    }
+
+    /// `decode_scalar` decodes an encoded scalar into `BigUint`.
+    ///
+    /// # Panics
+    /// Panics if all bytes are zero. (sanity-check)
+    #[must_use]
+    pub fn decode_scalar(encoded: &[u8; 57]) -> BigUint {
+        assert!(utils::bytes::any_nonzero(encoded));
+        BigUint::from_bytes_le(encoded).mod_floor(&*Q)
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct Point {
         x: BigUint,
         y: BigUint,
+    }
+
+    impl Mul<BigUint> for Point {
+        type Output = Self;
+
+        fn mul(self, rhs: BigUint) -> Self::Output {
+            self.mul0(&rhs)
+        }
     }
 
     impl<'b> Mul<&'b BigUint> for Point {
@@ -820,13 +833,20 @@ pub mod ed448 {
         }
     }
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
     impl<'a, 'b> Mul<&'b BigUint> for &'a Point {
         type Output = Point;
 
         // TODO implementation of scalar multiplication is not constant-time
         fn mul(self, scalar: &'b BigUint) -> Self::Output {
             self.mul0(scalar)
+        }
+    }
+
+    impl Add<Point> for Point {
+        type Output = Self;
+
+        fn add(self, rhs: Point) -> Self::Output {
+            self.add0(&rhs)
         }
     }
 
@@ -886,6 +906,7 @@ pub mod ed448 {
             result
         }
 
+        // TODO need to check if biguint -> bigint -> biguint conversions are expensive.
         fn add0(&self, rhs: &Point) -> Point {
             if self.is_identity() {
                 return rhs.clone();
@@ -893,16 +914,17 @@ pub mod ed448 {
             if rhs.is_identity() {
                 return self.clone();
             }
+            // FIXME rewrite to do this with `BigUint` instead of conversion to `BigInt` and back.
             let lhs_x = self.x.to_bigint().unwrap();
             let lhs_y = self.y.to_bigint().unwrap();
             let rhs_x = rhs.x.to_bigint().unwrap();
             let rhs_y = rhs.y.to_bigint().unwrap();
             let result_x: BigInt = &(&lhs_x * &rhs_y + &lhs_y * &rhs_x)
-                * &(&*ONE + &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+                * (&*ONE + &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
                     .mod_inverse(&*P)
                     .unwrap();
             let result_y: BigInt = &(&lhs_y * &rhs_y - &lhs_x * &rhs_x)
-                * &(&*ONE - &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+                * (&*ONE - &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
                     .mod_inverse(&*P)
                     .unwrap();
             Point {
@@ -927,39 +949,39 @@ pub mod ed448 {
         /// Panics if there are bugs.
         pub fn decode(encoded: &[u8; 57]) -> Result<Point, CryptoError> {
             let x_bit = (encoded[56] & 0b1000_0000) >> 7;
-            let y = BigInt::from_bytes_le(Sign::Plus, &encoded[..56]);
-            let p = &P.to_bigint().unwrap();
-            if y.cmp(p).is_ge() {
+            let y = BigUint::from_bytes_le(&encoded[..56]);
+            if y.cmp(&*P).is_ge() {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point contains illegal y component",
                 ));
             }
-            let num = (&y * &y - &*ONE).mod_floor(p);
-            let denom = (&y * &y * &*D - &*ONE).mod_floor(p);
-            //let x2 = &num * (&denom).mod_inverse(&*P).unwrap();
+            let num = (&y * &y - &*utils::biguint::ONE).mod_floor(&*P);
+            let denom = (&y * &y * &*D - &*utils::biguint::ONE).mod_floor(&*P);
             // REMARK the `exponent` for `modpow` could be precomputed.
-            //let x = x2.modpow(&(&(p + &*ONE) * (&*FOUR).mod_inverse(p).unwrap()), p);
-            let x = (&num * &num * &num * &denom * (&num * &num * &num * &num * &num * &denom * &denom * &denom).modpow(&(&(p - &*THREE) / &*FOUR), p)).mod_floor(p);
-            if num != (&x * &x * &denom).mod_floor(p) {
+            // FIXME check if `.modpow` is more efficient given large numbers.
+            let x = (&num
+                * &num
+                * &num
+                * &denom
+                * (&num * &num * &num * &num * &num * &denom * &denom * &denom).modpow(
+                    &((&*P - &*utils::biguint::THREE) / &*utils::biguint::FOUR),
+                    &P,
+                ))
+            .mod_floor(&*P);
+            if num != (&x * &x * &denom).mod_floor(&*P) {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: no square root exists",
                 ));
             }
-            if x == *ZERO && x_bit != 0 {
+            if x == *utils::biguint::ZERO && x_bit != 0 {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: sign-bit is 1 for x = 0",
                 ));
             }
             if x.is_even() == (x_bit == 0) {
-                Ok(Point {
-                    x: x.to_biguint().unwrap(),
-                    y: y.to_biguint().unwrap(),
-                })
+                Ok(Point { x, y })
             } else {
-                Ok(Point {
-                    x: (p - &x).to_biguint().unwrap(),
-                    y: y.to_biguint().unwrap(),
-                })
+                Ok(Point { x: (&*P - &x), y })
             }
         }
 

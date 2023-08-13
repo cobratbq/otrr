@@ -43,7 +43,6 @@ impl SMP4Context {
     }
 
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
-        let x = self.generateSecret(secret);
         let G = ed448::generator();
         let q = ed448::prime_order();
         let a2 = ed448::random_in_Zq();
@@ -67,21 +66,21 @@ impl SMP4Context {
             .write_ed448_scalar(&c3)
             .write_ed448_scalar(&d3)
             .to_vec();
-        self.state = State::ExpectSMP2 { x, a2, a3 };
+        self.state = State::ExpectSMP2 { x: self.generateSecret(secret), a2, a3 };
         Ok(TLV(TLV_SMP_MESSAGE_1, smp1))
     }
 
-    // TODO we need to split up processing TLV and responding, as we need the question to ask the user for their answer (secret).
     pub fn handle_message_1(&mut self, tlv: &TLV, secret: &[u8]) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_1);
         if let State::ExpectSMP1 = self.state {
-            // No need to do anything.
+            // No need to extract any data.
         } else {
             return Err(OTRError::ProtocolViolation(
                 "Expected to receive SMP message 1",
             ));
         }
         let mut dec = OTRDecoder::new(&tlv.1);
+        // TODO we need to split up processing TLV and responding, as we need the question to ask the user for their answer (secret).
         let question = dec.read_data();
         let G2a = dec.read_ed448_point()?;
         ed448::verify(&G2a).map_err(OTRError::CryptographicViolation)?;

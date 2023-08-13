@@ -722,8 +722,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
-        self.read::<LENGTH_BYTES>()
-            .map(|v| BigUint::from_bytes_le(&v))
+        Ok(ed448::decode_scalar(&self.read::<LENGTH_BYTES>()?))
     }
 
     fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
