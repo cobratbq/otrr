@@ -31,6 +31,7 @@ const TLV_SMP_ABORT: TLVType = 6;
 
 // TODO ensure any produced error is followed by an abort and reset to ExpectSMP1.
 // FIXME needs unit tests
+// TODO SMP processing is very slow.
 #[allow(non_snake_case)]
 impl SMP4Context {
     pub fn new(initiator: &[u8; 56], responder: &[u8; 56], ssid: [u8; 8]) -> SMP4Context {
@@ -42,6 +43,7 @@ impl SMP4Context {
         }
     }
 
+    /// `initiate` initiates a new Socialist Millionaire's Protocol conversation for OTRv4.
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         let G = ed448::generator();
         let q = ed448::prime_order();
@@ -70,6 +72,7 @@ impl SMP4Context {
         Ok(TLV(TLV_SMP_MESSAGE_1, smp1))
     }
 
+    /// `handle_message_1` handles the TLV containing SMP message 1 (with or without question).
     pub fn handle_message_1(&mut self, tlv: &TLV, secret: &[u8]) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_1);
         if let State::ExpectSMP1 = self.state {
@@ -117,7 +120,6 @@ impl SMP4Context {
         ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
         let G3 = &G3a * &b3;
         ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-        // FIXME need to split function so we can independently respond with a secret answer.
         let y = self.generateSecret(secret);
         let Pb = &G3 * &r4;
         ed448::verify(&Pb).map_err(OTRError::CryptographicViolation)?;
@@ -150,6 +152,7 @@ impl SMP4Context {
         Ok(TLV(TLV_SMP_MESSAGE_2, smp2))
     }
 
+    /// `handle_message_2` handles TLV payload for SMP message 2.
     pub fn handle_message_2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_2);
         let q = ed448::prime_order();
@@ -245,7 +248,10 @@ impl SMP4Context {
         Ok(TLV(TLV_SMP_MESSAGE_3, smp3))
     }
 
-    pub fn handle_message_3(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    /// `handle_message_3` handles the TLV payload for SMP message 3. It returns a tuple
+    /// `(success, TLV)` with `success` indicating successful completion of the protocol, and `TLV`
+    /// being the response TLV to send to Alice.
+    pub fn handle_message_3(&mut self, tlv: &TLV) -> Result<(bool, TLV), OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_3);
         let G3a: ed448::Point;
         let G2: ed448::Point;
@@ -320,14 +326,14 @@ impl SMP4Context {
             .write_ed448_scalar(&d7)
             .to_vec();
         // Conclude the protocol by verifying if the secret is equal.
-        constant::verify_points(&(&Ra * &b3), &(&Pa + &-Pb))
-            .map_err(OTRError::CryptographicViolation)?;
-        // TODO we should respond with TLV even if verification fails for us.
+        let success = constant::verify_points(&(Ra * b3), &(Pa + -Pb)).is_ok();
         self.state = State::ExpectSMP1;
-        Ok(TLV(TLV_SMP_MESSAGE_4, smp4))
+        Ok((success, TLV(TLV_SMP_MESSAGE_4, smp4)))
     }
 
-    pub fn handle_message_4(&mut self, tlv: &TLV) -> Result<(), OTRError> {
+    /// `handle_message_4` handles TLV payload for SMP message 4. The result indicates successful
+    /// completion of the protocol.
+    pub fn handle_message_4(&mut self, tlv: &TLV) -> Result<bool, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_4);
         let G3b: ed448::Point;
         let DeltaPaPb: ed448::Point;
@@ -368,12 +374,12 @@ impl SMP4Context {
         )
         .map_err(OTRError::CryptographicViolation)?;
         // Process data and verify.
-        constant::verify_points(&(&Rb * &a3), &DeltaPaPb)
-            .map_err(OTRError::CryptographicViolation)?;
+        let success = constant::verify_points(&(&Rb * &a3), &DeltaPaPb).is_ok();
         self.state = State::ExpectSMP1;
-        Ok(())
+        Ok(success)
     }
 
+    /// `abort` aborts an in-progress protocol execution by resetting state to initial state.
     pub fn abort(&mut self) -> TLV {
         self.state = State::ExpectSMP1;
         TLV(TLV_SMP_ABORT, Vec::new())
@@ -425,7 +431,9 @@ impl Drop for State {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::random;
+    use std::time::Instant;
+
+    use crate::utils::{random, self};
 
     use super::SMP4Context;
 
@@ -438,10 +446,105 @@ mod tests {
         let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
         let secret = b"It's a secret :-P";
         let question = b"What is your great great great great great great great great grandmother's maiden name?";
+
+        let before_initiate = Instant::now();
         let init_tlv = alice_smp.initiate(secret, question).unwrap();
+        dbg!(before_initiate.elapsed());
+
+        let before_smp1 = Instant::now();
         let tlv2 = bob_smp.handle_message_1(&init_tlv, secret).unwrap();
+        dbg!(before_smp1.elapsed());
+
+        let before_smp2 = Instant::now();
         let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
-        let tlv4 = bob_smp.handle_message_3(&tlv3).unwrap();
-        alice_smp.handle_message_4(&tlv4).unwrap();
+        dbg!(before_smp2.elapsed());
+
+        let before_smp3 = Instant::now();
+        let (success, tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
+        assert!(success);
+        dbg!(before_smp3.elapsed());
+
+        let before_smp4 = Instant::now();
+        assert!(alice_smp.handle_message_4(&tlv4).unwrap());
+        dbg!(before_smp4.elapsed());
+    }
+
+    #[test]
+    fn test_bad_secret() {
+        let initiator = random::secure_bytes::<56>();
+        let responder = random::secure_bytes::<56>();
+        let ssid = random::secure_bytes::<8>();
+        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let question = b"What is the best artist of all time?";
+        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Keith Urban").unwrap();
+        let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
+        let (success, tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
+        assert!(!success);
+        assert!(!alice_smp.handle_message_4(&tlv4).unwrap());
+    }
+
+    #[test]
+    fn test_bad_data_smp1() {
+        let initiator = random::secure_bytes::<56>();
+        let responder = random::secure_bytes::<56>();
+        let ssid = random::secure_bytes::<8>();
+        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let question = b"What is the best artist of all time?";
+        let mut init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        utils::random::fill_secure_bytes(&mut init_tlv.1);
+        assert!(bob_smp.handle_message_1(&init_tlv, b"Nightwish").is_err());
+        // FIXME ensure state is reset
+    }
+
+    #[test]
+    fn test_bad_data_smp2() {
+        let initiator = random::secure_bytes::<56>();
+        let responder = random::secure_bytes::<56>();
+        let ssid = random::secure_bytes::<8>();
+        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let question = b"What is the best artist of all time?";
+        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        let mut tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        utils::random::fill_secure_bytes(&mut tlv2.1);
+        assert!(alice_smp.handle_message_2(&tlv2).is_err());
+        // FIXME ensure state is reset
+    }
+
+    #[test]
+    fn test_bad_data_smp3() {
+        let initiator = random::secure_bytes::<56>();
+        let responder = random::secure_bytes::<56>();
+        let ssid = random::secure_bytes::<8>();
+        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let question = b"What is the best artist of all time?";
+        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        let mut tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
+        utils::random::fill_secure_bytes(&mut tlv3.1);
+        assert!(bob_smp.handle_message_3(&tlv3).is_err());
+        // FIXME ensure state is reset
+    }
+
+    #[test]
+    fn test_bad_data_smp4() {
+        let initiator = random::secure_bytes::<56>();
+        let responder = random::secure_bytes::<56>();
+        let ssid = random::secure_bytes::<8>();
+        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let question = b"What is the best artist of all time?";
+        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
+        let (success, mut tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
+        assert!(success);
+        utils::random::fill_secure_bytes(&mut tlv4.1);
+        assert!(alice_smp.handle_message_4(&tlv4).is_err());
+        // FIXME ensure state is reset
     }
 }

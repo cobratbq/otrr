@@ -2,7 +2,7 @@
 
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions)]
+#![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions, clippy::doc_markdown)]
 
 use ake::AKEError;
 use bitflags::bitflags;

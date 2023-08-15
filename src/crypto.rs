@@ -811,6 +811,7 @@ pub mod ed448 {
         BigUint::from_bytes_le(encoded).mod_floor(&*Q)
     }
 
+    // TODO how to implement `Drop` for `Point`.
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct Point {
         x: BigUint,
@@ -858,7 +859,6 @@ pub mod ed448 {
         }
     }
 
-    // FIXME SMP4 can be simplified (less parentheses) if we can automatically use &Point if adder is Point
     impl<'a, 'b> Add<&'b Point> for &'a Point {
         type Output = Point;
 
@@ -958,7 +958,6 @@ pub mod ed448 {
             let num = (&y * &y - &*utils::biguint::ONE).mod_floor(&*P);
             let denom = (&y * &y * &*D - &*utils::biguint::ONE).mod_floor(&*P);
             // REMARK the `exponent` for `modpow` could be precomputed.
-            // FIXME check if `.modpow` is more efficient given large numbers.
             let x = (&num
                 * &num
                 * &num
@@ -981,7 +980,7 @@ pub mod ed448 {
             if x.is_even() == (x_bit == 0) {
                 Ok(Point { x, y })
             } else {
-                Ok(Point { x: (&*P - &x), y })
+                Ok(Point { x: (&*P - x), y })
             }
         }
 
@@ -1067,27 +1066,31 @@ pub mod constant {
 
     use super::{ed448, verify_nonzero, CryptoError};
 
-    /// `compare_scalars` compares two scalars in constant-time by encoding them then
+    /// `verify_scalars` compares two scalars in constant-time by encoding them then
     /// constant-time-comparing the byte-arrays.
     pub fn verify_scalars(scalar1: &BigUint, scalar2: &BigUint) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(scalar1, scalar2),
             "BUG: p1 and p2 are same instance"
         );
-        verify_bytes(&scalar1.to_bytes_le(), &scalar2.to_bytes_le())
+        verify(
+            &scalar1.to_bytes_le(),
+            &scalar2.to_bytes_le(),
+            "verification of scalars failed",
+        )
     }
 
-    /// `compare_points` checks if two points are the same in constant-time by comparing the
+    /// `verify_points` checks if two points are the same in constant-time by comparing the
     /// byte-arrays of the encoded points in constant-time.
     ///
     /// # Panics
     /// Panics if instances `p1` and `p2` are the same.
     pub fn verify_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
         assert!(!core::ptr::eq(p1, p2), "BUG: p1 and p2 are same instance");
-        verify_bytes(&p1.encode(), &p2.encode())
+        verify(&p1.encode(), &p2.encode(), "verification of points failed")
     }
 
-    /// `verify` verifies two same-length byte-slices in constant-time.
+    /// `verify_bytes` verifies two same-length byte-slices in constant-time.
     ///
     /// # Errors
     /// `CryptoError` in case verification fails. Failure-cases: provide same instance twice,
@@ -1096,15 +1099,18 @@ pub mod constant {
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
     pub fn verify_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
+        verify(data1, data2, "verification of byte-arrays failed")
+    }
+
+    fn verify(data1: &[u8], data2: &[u8], msg: &'static str) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(data1, data2),
             "BUG: data1 and data2 parameters are same instance"
         );
         verify_nonzero(data1)?;
         verify_nonzero(data2)?;
-        ring::constant_time::verify_slices_are_equal(data1, data2).or(Err(
-            CryptoError::VerificationFailure("data verification failed"),
-        ))
+        ring::constant_time::verify_slices_are_equal(data1, data2)
+            .or(Err(CryptoError::VerificationFailure(msg)))
     }
 }
 

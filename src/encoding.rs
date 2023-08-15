@@ -687,6 +687,7 @@ impl<'a> OTRDecoder<'a> {
         self.transfer(len, &mut data);
         Ok(TLV(typ, data))
     }
+
     /// `read_bytes_null_terminated` reads bytes until a NULL-byte is found or the buffer is empty.
     /// The NULL-byte is consumed, but will not be returned in the result. If no NULL-byte is
     /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
@@ -1019,5 +1020,18 @@ mod tests {
         assert_eq!(&tlv, &decoder.read_tlv().unwrap());
         assert_eq!(&mpi, &decoder.read_mpi().unwrap());
         decoder.done().unwrap();
+    }
+
+    #[test]
+    fn test_decoding_random_data() {
+        let mut data = [0u8; 3000];
+        for _ in 0..20 {
+            utils::random::fill_secure_bytes(&mut data);
+            // accept successful or unsuccessful reading, just not panicking
+            let mut dec = OTRDecoder::new(&data);
+            let _ = dec.read_data();
+            let _ = dec.read_mpi();
+            let _ = dec.read_mpi_sequence();
+        }
     }
 }

@@ -219,4 +219,8 @@ pub mod random {
         RANDOM.fill(&mut bytes).unwrap();
         bytes
     }
+
+    pub fn fill_secure_bytes(buffer: &mut [u8]) {
+        RANDOM.fill(buffer).unwrap();
+    }
 }
