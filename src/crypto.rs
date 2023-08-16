@@ -1013,6 +1013,7 @@ pub mod ed448 {
     ///
     /// # Panics
     /// Panics if invalid input data is provided. (sanity-checks)
+    // TODO is non-zero value a hard requirement? If so, change assert into a retry-loop.
     #[allow(non_snake_case)]
     #[must_use]
     pub fn random_in_Zq() -> BigUint {
