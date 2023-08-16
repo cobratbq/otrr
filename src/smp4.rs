@@ -43,6 +43,10 @@ impl SMP4Context {
         }
     }
 
+    pub fn is_in_progress(&self) -> bool {
+        !matches!(self.state, State::ExpectSMP1)
+    }
+
     /// `initiate` initiates a new Socialist Millionaire's Protocol conversation for OTRv4.
     pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         let G = ed448::generator();
@@ -159,6 +163,7 @@ impl SMP4Context {
             Ok(TLV(TLV_SMP_MESSAGE_2, smp2))
         })();
         if result.is_err() {
+            // FIXME perform full abort here, or just reset state and return error?
             self.state = State::ExpectSMP1;
         }
         result
@@ -261,6 +266,7 @@ impl SMP4Context {
             Ok(TLV(TLV_SMP_MESSAGE_3, smp3))
         })();
         if result.is_err() {
+            // FIXME perform full abort here, or just reset state and return error?
             self.state = State::ExpectSMP1;
         }
         result
@@ -350,6 +356,7 @@ impl SMP4Context {
             Ok((success, TLV(TLV_SMP_MESSAGE_4, smp4)))
         })();
         if result.is_err() {
+            // FIXME perform full abort here, or just reset state and return error?
             self.state = State::ExpectSMP1;
         }
         result
@@ -404,6 +411,7 @@ impl SMP4Context {
             Ok(success)
         })();
         if result.is_err() {
+            // FIXME perform full abort here, or just reset state and return error?
             self.state = State::ExpectSMP1;
         }
         result
@@ -473,29 +481,41 @@ mod tests {
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
         let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        assert!(!alice_smp.is_in_progress());
         let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        assert!(!bob_smp.is_in_progress());
         let secret = b"It's a secret :-P";
         let question = b"What is your great great great great great great great great grandmother's maiden name?";
 
         let before_initiate = Instant::now();
+        assert!(!alice_smp.is_in_progress());
         let init_tlv = alice_smp.initiate(secret, question).unwrap();
+        assert!(alice_smp.is_in_progress());
         dbg!(before_initiate.elapsed());
 
         let before_smp1 = Instant::now();
+        assert!(!bob_smp.is_in_progress());
         let tlv2 = bob_smp.handle_message_1(&init_tlv, secret).unwrap();
+        assert!(bob_smp.is_in_progress());
         dbg!(before_smp1.elapsed());
 
         let before_smp2 = Instant::now();
+        assert!(alice_smp.is_in_progress());
         let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
+        assert!(alice_smp.is_in_progress());
         dbg!(before_smp2.elapsed());
 
         let before_smp3 = Instant::now();
+        assert!(bob_smp.is_in_progress());
         let (success, tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
+        assert!(!bob_smp.is_in_progress());
         assert!(success);
         dbg!(before_smp3.elapsed());
 
         let before_smp4 = Instant::now();
+        assert!(alice_smp.is_in_progress());
         assert!(alice_smp.handle_message_4(&tlv4).unwrap());
+        assert!(!alice_smp.is_in_progress());
         dbg!(before_smp4.elapsed());
     }
 
@@ -510,9 +530,13 @@ mod tests {
         let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
         let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Keith Urban").unwrap();
         let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
+        assert!(bob_smp.is_in_progress());
         let (success, tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
+        assert!(!bob_smp.is_in_progress());
         assert!(!success);
+        assert!(alice_smp.is_in_progress());
         assert!(!alice_smp.handle_message_4(&tlv4).unwrap());
+        assert!(!alice_smp.is_in_progress());
     }
 
     #[test]
@@ -525,8 +549,9 @@ mod tests {
         let question = b"What is the best artist of all time?";
         let mut init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
         utils::random::fill_secure_bytes(&mut init_tlv.1);
+        assert!(!bob_smp.is_in_progress());
         assert!(bob_smp.handle_message_1(&init_tlv, b"Nightwish").is_err());
-        // FIXME ensure state is reset
+        assert!(!bob_smp.is_in_progress());
     }
 
     #[test]
@@ -540,8 +565,9 @@ mod tests {
         let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
         let mut tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
         utils::random::fill_secure_bytes(&mut tlv2.1);
+        assert!(alice_smp.is_in_progress());
         assert!(alice_smp.handle_message_2(&tlv2).is_err());
-        // FIXME ensure state is reset
+        assert!(!alice_smp.is_in_progress());
     }
 
     #[test]
@@ -556,8 +582,9 @@ mod tests {
         let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
         let mut tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
         utils::random::fill_secure_bytes(&mut tlv3.1);
+        assert!(bob_smp.is_in_progress());
         assert!(bob_smp.handle_message_3(&tlv3).is_err());
-        // FIXME ensure state is reset
+        assert!(!bob_smp.is_in_progress());
     }
 
     #[test]
@@ -574,7 +601,8 @@ mod tests {
         let (success, mut tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
         assert!(success);
         utils::random::fill_secure_bytes(&mut tlv4.1);
+        assert!(alice_smp.is_in_progress());
         assert!(alice_smp.handle_message_4(&tlv4).is_err());
-        // FIXME ensure state is reset
+        assert!(!alice_smp.is_in_progress());
     }
 }
