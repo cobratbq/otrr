@@ -1350,10 +1350,6 @@ mod tests {
     struct TestHost(dsa::Keypair, Vec<u8>, Vec<u8>);
 
     impl Host for TestHost {
-        fn message_size(&self) -> usize {
-            usize::MAX
-        }
-
         fn inject(&self, _address: &[u8], _message: &[u8]) {
             unimplemented!("not necessary for tests")
         }

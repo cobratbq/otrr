@@ -198,7 +198,9 @@ pub trait Host {
     /// `message_size` is called for every message constructed. If name changes, connection changes,
     /// etc. are determining factors for the maximum message size, then the size only has to be
     /// stable for a single (OTR-encoded) message to be constructed.
-    fn message_size(&self) -> usize;
+    fn message_size(&self) -> usize {
+        usize::MAX
+    }
 
     /// Inject a message into the messaging's transport stream. (I.e. protocol-related so not
     /// relevant to return to the client.)

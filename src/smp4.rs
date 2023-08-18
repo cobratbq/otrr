@@ -1,15 +1,18 @@
+use std::rc::Rc;
+
 use num_bigint::BigUint;
 use num_integer::Integer;
 
 use crate::{
     crypto::{self, constant, ed448, otr4},
     encoding::{OTRDecoder, OTREncoder, TLV},
-    utils, OTRError, TLVType,
+    utils, OTRError, TLVType, Host,
 };
 
 // TODO ensure `Drop` implementation is up-to-date after fully implementing SMP4.
 pub struct SMP4Context {
     state: State,
+    host: Rc<dyn Host>,
     initiator: [u8; 56],
     responder: [u8; 56],
     ssid: [u8; 8],
@@ -34,9 +37,10 @@ const TLV_SMP_ABORT: TLVType = 6;
 // TODO SMP processing is very slow.
 #[allow(non_snake_case)]
 impl SMP4Context {
-    pub fn new(initiator: &[u8; 56], responder: &[u8; 56], ssid: [u8; 8]) -> SMP4Context {
+    pub fn new(host: Rc<dyn Host>, initiator: &[u8; 56], responder: &[u8; 56], ssid: [u8; 8]) -> SMP4Context {
         Self {
             state: State::ExpectSMP1,
+            host,
             initiator: *initiator,
             responder: *responder,
             ssid,
@@ -73,7 +77,7 @@ impl SMP4Context {
             .write_ed448_scalar(&d3)
             .to_vec();
         self.state = State::ExpectSMP2 {
-            x: self.generateSecret(secret),
+            x: self.compute_secret(secret),
             a2,
             a3,
         };
@@ -81,7 +85,7 @@ impl SMP4Context {
     }
 
     /// `handle_message_1` handles the TLV containing SMP message 1 (with or without question).
-    pub fn handle_message_1(&mut self, tlv: &TLV, secret: &[u8]) -> Result<TLV, OTRError> {
+    pub fn handle_message_1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_1);
         let result = (|| -> Result<TLV, OTRError> {
             if let State::ExpectSMP1 = self.state {
@@ -93,7 +97,7 @@ impl SMP4Context {
             }
             let mut dec = OTRDecoder::new(&tlv.1);
             // TODO we need to split up processing TLV and responding, as we need the question to ask the user for their answer (secret).
-            let question = dec.read_data();
+            let question = dec.read_data()?;
             let G2a = dec.read_ed448_point()?;
             ed448::verify(&G2a).map_err(OTRError::CryptographicViolation)?;
             let c2 = dec.read_ed448_scalar()?;
@@ -113,6 +117,7 @@ impl SMP4Context {
             constant::verify_scalars(&c3_expected, &c3)
                 .map_err(OTRError::CryptographicViolation)?;
             // Generate Bob's counterparts to random secret data for the SMP.
+            let secret = self.host.query_smp_secret(&question).ok_or(OTRError::SMPAborted(true))?;
             let b2 = ed448::random_in_Zq();
             let b3 = ed448::random_in_Zq();
             let r2 = ed448::random_in_Zq();
@@ -131,7 +136,7 @@ impl SMP4Context {
             ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
             let G3 = &G3a * &b3;
             ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-            let y = self.generateSecret(secret);
+            let y = self.compute_secret(&secret);
             let Pb = &G3 * &r4;
             ed448::verify(&Pb).map_err(OTRError::CryptographicViolation)?;
             let Qb = &(G * &r4) + &(&G2 * &y);
@@ -423,7 +428,7 @@ impl SMP4Context {
         TLV(TLV_SMP_ABORT, Vec::new())
     }
 
-    fn generateSecret(&self, secret: &[u8]) -> BigUint {
+    fn compute_secret(&self, secret: &[u8]) -> BigUint {
         let secretbytes = OTREncoder::new()
             .write_u8(1)
             .write_ed448_fingerprint(&self.initiator)
@@ -437,6 +442,7 @@ impl SMP4Context {
     }
 }
 
+// TODO implement Drop if way to clear `BigUint`s.
 #[allow(non_snake_case)]
 enum State {
     ExpectSMP1,
@@ -461,17 +467,11 @@ enum State {
     },
 }
 
-impl Drop for State {
-    fn drop(&mut self) {
-        // FIXME implement memory clearing for SMP4::State. (How to clear `BigUint`?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::{time::Instant, rc::Rc};
 
-    use crate::utils::{self, random};
+    use crate::{utils::{self, random}, Host, crypto};
 
     use super::SMP4Context;
 
@@ -480,22 +480,23 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let secret = Vec::from("It's a secret :-P");
+        let question = Vec::from("What is your great great great great great great great great grandmother's maiden name?");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
         assert!(!alice_smp.is_in_progress());
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
         assert!(!bob_smp.is_in_progress());
-        let secret = b"It's a secret :-P";
-        let question = b"What is your great great great great great great great great grandmother's maiden name?";
 
         let before_initiate = Instant::now();
         assert!(!alice_smp.is_in_progress());
-        let init_tlv = alice_smp.initiate(secret, question).unwrap();
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         assert!(alice_smp.is_in_progress());
         dbg!(before_initiate.elapsed());
 
         let before_smp1 = Instant::now();
         assert!(!bob_smp.is_in_progress());
-        let tlv2 = bob_smp.handle_message_1(&init_tlv, secret).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv).unwrap();
         assert!(bob_smp.is_in_progress());
         dbg!(before_smp1.elapsed());
 
@@ -524,11 +525,12 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let question = b"What is the best artist of all time?";
-        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
-        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Keith Urban").unwrap();
+        let question = Vec::from("What is the best artist of all time?");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), Vec::from("DragonForce")));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let init_tlv = alice_smp.initiate(b"Nightwish", &question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
         assert!(bob_smp.is_in_progress());
         let (success, tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
@@ -544,13 +546,15 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let question = b"What is the best artist of all time?";
-        let mut init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
+        let question = Vec::from("What is the best artist of all time?");
+        let secret = Vec::from("DragonForce");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         utils::random::fill_secure_bytes(&mut init_tlv.1);
         assert!(!bob_smp.is_in_progress());
-        assert!(bob_smp.handle_message_1(&init_tlv, b"Nightwish").is_err());
+        assert!(bob_smp.handle_message_1(&init_tlv).is_err());
         assert!(!bob_smp.is_in_progress());
     }
 
@@ -559,11 +563,13 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let question = b"What is the best artist of all time?";
-        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
-        let mut tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        let question = Vec::from("What is the best artist of all time?");
+        let secret = Vec::from("Nightwish");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
+        let mut tlv2 = bob_smp.handle_message_1(&init_tlv).unwrap();
         utils::random::fill_secure_bytes(&mut tlv2.1);
         assert!(alice_smp.is_in_progress());
         assert!(alice_smp.handle_message_2(&tlv2).is_err());
@@ -575,11 +581,13 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let question = b"What is the best artist of all time?";
-        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
-        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        let question = Vec::from("What is the best artist of all time?");
+        let secret = Vec::from("Sonata Arctica");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv).unwrap();
         let mut tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
         utils::random::fill_secure_bytes(&mut tlv3.1);
         assert!(bob_smp.is_in_progress());
@@ -592,11 +600,13 @@ mod tests {
         let initiator = random::secure_bytes::<56>();
         let responder = random::secure_bytes::<56>();
         let ssid = random::secure_bytes::<8>();
-        let mut alice_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(&initiator, &responder, ssid);
-        let question = b"What is the best artist of all time?";
-        let init_tlv = alice_smp.initiate(b"Nightwish", question).unwrap();
-        let tlv2 = bob_smp.handle_message_1(&init_tlv, b"Nightwish").unwrap();
+        let question = Vec::from("What is the best artist of all time?");
+        let secret = Vec::from("Sonata Arctica");
+        let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
+        let tlv2 = bob_smp.handle_message_1(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle_message_2(&tlv2).unwrap();
         let (success, mut tlv4) = bob_smp.handle_message_3(&tlv3).unwrap();
         assert!(success);
@@ -604,5 +614,26 @@ mod tests {
         assert!(alice_smp.is_in_progress());
         assert!(alice_smp.handle_message_4(&tlv4).is_err());
         assert!(!alice_smp.is_in_progress());
+    }
+
+    struct TestHost(Vec<u8>, Vec<u8>);
+
+    impl Host for TestHost {
+        fn inject(&self, _address: &[u8], _message: &[u8]) {
+            unimplemented!("message injection is not necessary for tests")
+        }
+
+        fn keypair(&self) -> &crypto::dsa::Keypair {
+            unimplemented!("DSA keypair is not necessary for tests")
+        }
+
+        fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
+            assert_eq!(&self.0, question);
+            Some(self.1.clone())
+        }
+
+        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+            unimplemented!("client profile is not necessary for tests")
+        }
     }
 }

@@ -397,6 +397,7 @@ impl ProtocolState for EncryptedOTR4State {
             our_instance,
             their_instance,
             smp: SMP4Context::new(
+                host,
                 &utils::random::secure_bytes::<56>(),
                 &utils::random::secure_bytes::<56>(),
                 utils::random::secure_bytes::<8>(),
