@@ -187,11 +187,11 @@ impl SMPContext {
     fn dispatch(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1 | TLV_TYPE_SMP_MESSAGE_1Q, _) => {
-                self.handleMessage1(tlv)
+                self.handle_message_1(tlv)
             }
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handleMessage2(tlv),
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handleMessage3(tlv),
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handleMessage4(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handle_message_2(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handle_message_3(tlv),
+            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handle_message_4(tlv),
             TLV(TLV_TYPE_SMP_ABORT, _) => Err(OTRError::SMPAborted(false)),
             _ => panic!("BUG: incorrect TLV type: {}", tlv.0),
         }
@@ -199,7 +199,7 @@ impl SMPContext {
 
     // FIXME rename handleMessageX methods
     #[allow(clippy::similar_names)]
-    fn handleMessage1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    fn handle_message_1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);
         if let SMPState::Expect1 = &self.state {
             // SMP in expected state. TLV processing can proceed.
@@ -321,7 +321,7 @@ impl SMPContext {
         Ok(TLV(TLV_TYPE_SMP_MESSAGE_2, payload))
     }
 
-    fn handleMessage2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    fn handle_message_2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_2);
         // "SMP message 2 is sent by Bob to complete the DH exchange to determine the new
         //  generators, `g2` and `g3`. It also begins the construction of the values used in the final
@@ -463,7 +463,7 @@ impl SMPContext {
         Ok(tlv)
     }
 
-    fn handleMessage3(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    fn handle_message_3(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_3);
         let g3a: BigUint;
         let g2: BigUint;
@@ -585,7 +585,7 @@ impl SMPContext {
     ///
     /// SMP message 4 is Bob's final message in the SMP exchange. It has the last of the information
     /// required by Alice to determine if x = y.
-    fn handleMessage4(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
+    fn handle_message_4(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_TYPE_SMP_MESSAGE_4);
         let g3b: BigUint;
         let PadivPb: BigUint;

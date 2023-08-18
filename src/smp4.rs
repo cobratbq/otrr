@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use num_bigint::BigUint;
 use num_integer::Integer;
+use zeroize::Zeroize;
 
 use crate::{
     crypto::{self, constant, ed448, otr4},
@@ -242,10 +243,10 @@ impl SMP4Context {
             let r6 = ed448::random_in_Zq();
             let r7 = ed448::random_in_Zq();
             let Pa = &G3 * &r4;
-            let DeltaPaPb = &Pa + &-Pb;
+            let DeltaPaPb = &Pa + &-&Pb;
             let G = ed448::generator();
             let Qa = &(G * &r4) + &(&G2 * &x);
-            let DeltaQaQb = &Qa + &-Qb;
+            let DeltaQaQb = &Qa + &-&Qb;
             let cp = ed448::hash_to_scalar2(0x06, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
             let d5 = (q + &r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
             let d6 = (q + &r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
@@ -334,7 +335,7 @@ impl SMP4Context {
                 ),
             )
             .map_err(OTRError::CryptographicViolation)?;
-            let DeltaQaQb = &Qa + &-Qb;
+            let DeltaQaQb = &Qa + &-&Qb;
             constant::verify_scalars(
                 &cr,
                 &ed448::hash_to_scalar2(
@@ -356,7 +357,7 @@ impl SMP4Context {
                 .write_ed448_scalar(&d7)
                 .to_vec();
             // Conclude the protocol by verifying if the secret is equal.
-            let success = constant::verify_points(&(Ra * b3), &(Pa + -Pb)).is_ok();
+            let success = constant::verify_points(&(Ra * b3), &(Pa + -&Pb)).is_ok();
             self.state = State::ExpectSMP1;
             Ok((success, TLV(TLV_SMP_MESSAGE_4, smp4)))
         })();
@@ -442,7 +443,6 @@ impl SMP4Context {
     }
 }
 
-// TODO implement Drop if way to clear `BigUint`s.
 #[allow(non_snake_case)]
 enum State {
     ExpectSMP1,
@@ -465,6 +465,25 @@ enum State {
         DeltaQaQb: ed448::Point,
         a3: BigUint,
     },
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        match self {
+            Self::ExpectSMP1 => {},
+            Self::ExpectSMP2 { x, a2, a3 } => {
+                x.zeroize();
+                a2.zeroize();
+                a3.zeroize();
+            }
+            Self::ExpectSMP3 { G3a: _, G2: _, G3: _, b3, Pb: _, Qb: _ } => {
+                b3.zeroize();
+            }
+            Self::ExpectSMP4 { G3b: _, DeltaPaPb: _, DeltaQaQb: _, a3 } => {
+                a3.zeroize();
+            }
+        }
+    }
 }
 
 #[cfg(test)]

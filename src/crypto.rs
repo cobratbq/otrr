@@ -656,6 +656,7 @@ pub mod ed448 {
     use num_bigint::{BigInt, BigUint, ModInverse, ToBigInt};
     use num_integer::Integer;
     use once_cell::sync::Lazy;
+    use zeroize::Zeroize;
 
     use crate::{
         crypto::otr4::hwc,
@@ -811,11 +812,17 @@ pub mod ed448 {
         BigUint::from_bytes_le(encoded).mod_floor(&*Q)
     }
 
-    // TODO how to implement `Drop` for `Point`.
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct Point {
         x: BigUint,
         y: BigUint,
+    }
+
+    impl Drop for Point {
+        fn drop(&mut self) {
+            self.x.zeroize();
+            self.y.zeroize();
+        }
     }
 
     impl Mul<BigUint> for Point {
@@ -864,17 +871,6 @@ pub mod ed448 {
 
         fn add(self, rhs: &'b Point) -> Self::Output {
             self.add0(rhs)
-        }
-    }
-
-    impl Neg for Point {
-        type Output = Self;
-
-        fn neg(self) -> Self::Output {
-            Self {
-                x: &*P - self.x,
-                y: self.y,
-            }
         }
     }
 
