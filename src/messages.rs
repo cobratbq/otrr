@@ -277,18 +277,26 @@ pub type KeyID = u32;
 
 impl DataMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        let flags = MessageFlags::from_bits(decoder.read_u8()?)
+            .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?;
+        let sender_keyid = utils::u32::nonzero(decoder.read_u32()?)
+            .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?;
+        let receiver_keyid = utils::u32::nonzero(decoder.read_u32()?)
+            .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?;
+        let dh_y = decoder.read_mpi()?;
+        let ctr = decoder.read_ctr()?;
+        let encrypted = decoder.read_data()?;
+        let authenticator = decoder.read_mac()?;
+        let revealed = decoder.read_data()?;
         Ok(Self {
-            flags: MessageFlags::from_bits(decoder.read_u8()?)
-                .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
-            sender_keyid: utils::u32::nonzero(decoder.read_u32()?)
-                .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
-            receiver_keyid: utils::u32::nonzero(decoder.read_u32()?)
-                .ok_or(OTRError::ProtocolViolation("Invalid KeyID: cannot be 0"))?,
-            dh_y: decoder.read_mpi()?,
-            ctr: decoder.read_ctr()?,
-            encrypted: decoder.read_data()?,
-            authenticator: decoder.read_mac()?,
-            revealed: decoder.read_data()?,
+            flags,
+            sender_keyid,
+            receiver_keyid,
+            dh_y,
+            ctr,
+            encrypted,
+            authenticator,
+            revealed,
         })
     }
 }
@@ -321,17 +329,26 @@ pub struct DataMessage4 {
 
 impl DataMessage4 {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        let flags = MessageFlags::from_bits(decoder.read_u8()?)
+            .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?;
+        let pn = decoder.read_u32()?;
+        let i = decoder.read_u32()?;
+        let j = decoder.read_u32()?;
+        let ecdh = decoder.read_ed448_point()?;
+        let dh = decoder.read_mpi()?;
+        let encrypted = decoder.read_data()?;
+        let authenticator = decoder.read_mac4()?;
+        let revealed = decoder.read_data()?;
         Ok(Self {
-            flags: MessageFlags::from_bits(decoder.read_u8()?)
-                .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
-            pn: decoder.read_u32()?,
-            i: decoder.read_u32()?,
-            j: decoder.read_u32()?,
-            ecdh: decoder.read_ed448_point()?,
-            dh: decoder.read_mpi()?,
-            encrypted: decoder.read_data()?,
-            authenticator: decoder.read_mac4()?,
-            revealed: decoder.read_data()?,
+            flags,
+            pn,
+            i,
+            j,
+            ecdh,
+            dh,
+            encrypted,
+            authenticator,
+            revealed,
         })
     }
 }
