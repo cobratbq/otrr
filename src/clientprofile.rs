@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use crate::{
     crypto::{dsa, ed448},
     encoding::{OTRDecoder, OTREncodable},
@@ -17,9 +19,14 @@ pub struct ClientProfile {
 
 // TODO consider method for including and signing with legacy DSA public key for transitional signature.
 impl ClientProfile {
-
-    fn new(tag: InstanceTag, public_key: ed448::PublicKey, forging_key: ed448::PublicKey, versions: Vec<Version>, expiration: i64) -> Result<Self,OTRError> {
-        let profile = Self{
+    fn new(
+        tag: InstanceTag,
+        public_key: ed448::PublicKey,
+        forging_key: ed448::PublicKey,
+        versions: Vec<Version>,
+        expiration: i64,
+    ) -> Result<Self, OTRError> {
+        let profile = Self {
             owner: tag,
             public_key,
             forging_key,
@@ -30,7 +37,7 @@ impl ClientProfile {
         Self::validate(profile)
     }
 
-    fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
+    pub fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
         let ClientProfilePayload {
             owner: Some(owner),
             public_key: Some(public_key),
@@ -52,7 +59,7 @@ impl ClientProfile {
         })
     }
 
-    fn validate(profile: Self) -> Result<Self,OTRError> {
+    fn validate(profile: Self) -> Result<Self, OTRError> {
         // FIXME continue here
         Ok(profile)
     }
@@ -108,7 +115,7 @@ impl OTREncodable for ClientProfilePayload {
 }
 
 impl ClientProfilePayload {
-    fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
         let n = decoder.read_u32()? as usize;
         let mut payload = Self {
             owner: Option::None,

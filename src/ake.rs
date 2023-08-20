@@ -4,11 +4,10 @@ use std::rc::Rc;
 
 use crate::{
     crypto::{aes128, constant, dh, dsa, otr::AKESecrets, sha256, CryptoError},
-    encoding::{
-        DHCommitMessage, DHKeyMessage, EncodedMessageType, OTRDecoder, OTREncoder,
-        RevealSignatureMessage, SignatureMessage,
-    },
-    log, utils, Host, Version, SSID,
+    encoding::{OTRDecoder, OTREncodable, OTREncoder, MAC},
+    log,
+    messages::EncodedMessageType,
+    utils, Host, OTRError, Version, SSID,
 };
 
 use num_bigint::BigUint;
@@ -257,7 +256,11 @@ impl AKEContext {
         result
     }
 
-    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value, clippy::similar_names)]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::needless_pass_by_value,
+        clippy::similar_names
+    )]
     pub fn handle_reveal_signature(
         &mut self,
         msg: RevealSignatureMessage,
@@ -427,7 +430,8 @@ impl AKEContext {
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
-                constant::verify_bytes(&signature_mac, &mac).map_err(AKEError::CryptographicViolation)?;
+                constant::verify_bytes(&signature_mac, &mac)
+                    .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("Signature MAC verified.");
                 let x_a = secrets.cp.decrypt(&[0; 16], &signature_encrypted);
                 log::debug!("X_A decrypted.");
@@ -527,6 +531,103 @@ struct AwaitingSignature {
     gy: BigUint,
     s: dh::SharedSecret,
     previous_message: RevealSignatureMessage,
+}
+
+pub struct DHCommitMessage {
+    pub gx_encrypted: Vec<u8>,
+    pub gx_hashed: Vec<u8>,
+}
+
+impl OTREncodable for DHCommitMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        encoder
+            .write_data(&self.gx_encrypted)
+            .write_data(&self.gx_hashed);
+    }
+}
+
+impl DHCommitMessage {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<DHCommitMessage, OTRError> {
+        Ok(DHCommitMessage {
+            gx_encrypted: decoder.read_data()?,
+            gx_hashed: decoder.read_data()?,
+        })
+    }
+}
+
+pub struct DHKeyMessage {
+    pub gy: BigUint,
+}
+
+impl OTREncodable for DHKeyMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        encoder.write_mpi(&self.gy);
+    }
+}
+
+impl DHKeyMessage {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<DHKeyMessage, OTRError> {
+        Ok(DHKeyMessage {
+            gy: decoder.read_mpi()?,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct RevealSignatureMessage {
+    pub key: aes128::Key,
+    pub signature_encrypted: Vec<u8>,
+    pub signature_mac: MAC,
+}
+
+impl Drop for RevealSignatureMessage {
+    fn drop(&mut self) {
+        self.signature_encrypted.fill(0);
+        self.signature_mac.fill(0);
+    }
+}
+
+impl OTREncodable for RevealSignatureMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        encoder
+            .write_data(&self.key.0)
+            .write_data(&self.signature_encrypted)
+            .write_mac(&self.signature_mac);
+    }
+}
+
+impl RevealSignatureMessage {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<RevealSignatureMessage, OTRError> {
+        Ok(RevealSignatureMessage {
+            key: aes128::Key(decoder.read_data()?.try_into().or(Err(
+                OTRError::ProtocolViolation("Invalid format for 128-bit AES key."),
+            ))?),
+            signature_encrypted: decoder.read_data()?,
+            signature_mac: decoder.read_mac()?,
+        })
+    }
+}
+
+pub struct SignatureMessage {
+    pub signature_encrypted: Vec<u8>,
+    pub signature_mac: MAC,
+}
+
+impl OTREncodable for SignatureMessage {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        encoder
+            .write_data(&self.signature_encrypted)
+            .write_mac(&self.signature_mac);
+    }
+}
+
+impl SignatureMessage {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<SignatureMessage, OTRError> {
+        Ok(SignatureMessage {
+            signature_encrypted: decoder.read_data()?,
+            signature_mac: decoder.read_mac()?,
+        })
+    }
 }
 
 /// `AKEError` contains the variants of errors produced during AKE.

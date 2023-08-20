@@ -660,8 +660,9 @@ pub mod ed448 {
 
     use crate::{
         crypto::otr4::hwc,
-        encoding::OTREncodable,
+        encoding::{OTRDecoder, OTREncodable},
         utils::{self, bigint::ONE, bytes},
+        OTRError,
     };
 
     use super::{shake256, CryptoError};
@@ -1004,6 +1005,46 @@ pub mod ed448 {
         }
     }
 
+    pub struct RingSignature {
+        c1: BigUint,
+        r1: BigUint,
+        c2: BigUint,
+        r2: BigUint,
+        c3: BigUint,
+        r3: BigUint,
+    }
+
+    impl OTREncodable for RingSignature {
+        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+            encoder
+                .write_ed448_scalar(&self.c1)
+                .write_ed448_scalar(&self.r1)
+                .write_ed448_scalar(&self.c2)
+                .write_ed448_scalar(&self.r2)
+                .write_ed448_scalar(&self.c3)
+                .write_ed448_scalar(&self.r3);
+        }
+    }
+
+    impl RingSignature {
+        pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+            let c1 = decoder.read_ed448_scalar()?;
+            let r1 = decoder.read_ed448_scalar()?;
+            let c2 = decoder.read_ed448_scalar()?;
+            let r2 = decoder.read_ed448_scalar()?;
+            let c3 = decoder.read_ed448_scalar()?;
+            let r3 = decoder.read_ed448_scalar()?;
+            Ok(Self {
+                c1,
+                r1,
+                c2,
+                r2,
+                c3,
+                r3,
+            })
+        }
+    }
+
     /// `random_in_Zq` generates a random value in Z_q and returns this as `BigUint` unsigned
     /// integer value. The value is pruned as to be guaranteed safe for use in curve Ed448.
     ///
@@ -1123,13 +1164,10 @@ pub enum CryptoError {
 #[cfg(test)]
 mod tests {
     use crate::{
-        crypto::{
-            self,
-            ed448::{prime_order, verify},
-        },
+        crypto::{self},
         utils::{
             self,
-            biguint::{ONE, TWELVE, TWO, ZERO},
+            biguint::{ONE, TWO, ZERO},
         },
     };
     use num_bigint::BigUint;

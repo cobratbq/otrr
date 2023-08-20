@@ -24,9 +24,11 @@ extern crate regex;
 extern crate ring;
 
 mod ake;
+mod dake;
 mod encoding;
 mod fragment;
 mod keymanager;
+mod messages;
 mod protocol;
 mod smp;
 mod smp4;

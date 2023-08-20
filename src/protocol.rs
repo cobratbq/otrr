@@ -6,15 +6,12 @@ use num_bigint::BigUint;
 
 use crate::{
     crypto::{constant, dh, dsa, otr, sha1},
-    encoding::{
-        encode_authenticator_data, DataMessage, EncodedMessageType, Fingerprint, MessageFlags,
-        OTRDecoder, OTREncoder, MAC_LEN, TLV,
-    },
+    encoding::{Fingerprint, MessageFlags, OTRDecoder, OTREncoder, MAC_LEN, TLV},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
     smp4::SMP4Context,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, messages::{DataMessage, EncodedMessageType, encode_authenticator_data},
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an

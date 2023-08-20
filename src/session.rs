@@ -4,12 +4,12 @@ use std::{collections, rc::Rc};
 
 use crate::{
     ake::{AKEContext, CryptographicMaterial},
-    encoding::{
-        self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageFlags,
-        MessageType, OTREncoder,
-    },
+    encoding::{MessageFlags, OTREncoder},
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
+    messages::{
+        self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageType,
+    },
     protocol::{self, Message},
     smp::{self, SMPStatus},
     utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID, SUPPORTED_VERSIONS,
@@ -29,7 +29,11 @@ impl Account {
             tag: instancetag::random_tag(),
         });
         let sessions = collections::HashMap::new();
-        Self { host, details, sessions }
+        Self {
+            host,
+            details,
+            sessions,
+        }
     }
 
     #[must_use]
@@ -44,8 +48,14 @@ impl Account {
 
     #[must_use]
     pub fn session(&mut self, address: &[u8]) -> &mut Session {
-        return self.sessions.entry(Vec::from(address)).or_insert(Session::new(
-            Rc::clone(&self.host), Rc::clone(&self.details), Vec::from(address)));
+        return self
+            .sessions
+            .entry(Vec::from(address))
+            .or_insert(Session::new(
+                Rc::clone(&self.host),
+                Rc::clone(&self.details),
+                Vec::from(address),
+            ));
     }
 }
 
@@ -72,7 +82,12 @@ impl Session {
         let mut instances = collections::HashMap::new();
         instances.insert(
             INSTANCE_ZERO,
-            Instance::new(Rc::clone(&details), Rc::clone(&host), address.clone(), INSTANCE_ZERO),
+            Instance::new(
+                Rc::clone(&details),
+                Rc::clone(&host),
+                address.clone(),
+                INSTANCE_ZERO,
+            ),
         );
         Self {
             host,
@@ -123,7 +138,9 @@ impl Session {
     #[allow(clippy::too_many_lines)]
     pub fn receive(&mut self, payload: &[u8]) -> Result<UserMessage, OTRError> {
         log::debug!("Processing incoming message ..");
-        if !self.details.policy.contains(Policy::ALLOW_V3) && !self.details.policy.contains(Policy::ALLOW_V4) {
+        if !self.details.policy.contains(Policy::ALLOW_V3)
+            && !self.details.policy.contains(Policy::ALLOW_V4)
+        {
             // OTR: if no version is allowed according to policy, do not do any handling at all.
             return Ok(UserMessage::Plaintext(Vec::from(payload)));
         }
@@ -140,11 +157,14 @@ impl Session {
                 return Err(OTRError::MessageForOtherInstance);
             }
             let details = Rc::clone(&self.details);
-            let instance = self
-                .instances
-                .entry(fragment.sender)
-                .or_insert_with(|| Instance::new(details, Rc::clone(&self.host),
-                self.address.clone(), fragment.sender));
+            let instance = self.instances.entry(fragment.sender).or_insert_with(|| {
+                Instance::new(
+                    details,
+                    Rc::clone(&self.host),
+                    self.address.clone(),
+                    fragment.sender,
+                )
+            });
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
@@ -170,7 +190,7 @@ impl Session {
             };
         }
         // TODO can we handle possible errors produced here to reset whitespace_tagged, respond with OTR Error, etc?
-        match encoding::parse(payload)? {
+        match messages::parse(payload)? {
             MessageType::Error(error) => {
                 log::debug!("Processing OTR Error message ..");
                 if self.details.policy.contains(Policy::ERROR_START_AKE) {
@@ -231,8 +251,12 @@ impl Session {
                     .unwrap()
                     .transfer_akecontext();
                 let instance = self.instances.entry(msg.sender).or_insert_with(|| {
-                    Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
-                    self.address.clone(), msg.sender)
+                    Instance::new(
+                        Rc::clone(&self.details),
+                        Rc::clone(&self.host),
+                        self.address.clone(),
+                        msg.sender,
+                    )
                 });
                 if let Ok(context) = result_context {
                     // Transfer is only supported in `AKEState::AwaitingDHKey`. Therefore, result
@@ -240,6 +264,17 @@ impl Session {
                     instance.adopt_akecontext(context);
                 }
                 instance.handle(msg)
+            }
+            MessageType::Encoded(
+                msg @ EncodedMessage {
+                    version: _,
+                    sender: _,
+                    receiver: _,
+                    message: EncodedMessageType::Identity(_),
+                },
+            ) => {
+                // FIXME implement: handling receiving Identity message before instance tag is known/in use
+                todo!("implement: handling receiving Identity message before instance tag is known/in use")
             }
             MessageType::Encoded(msg) => {
                 log::debug!("Processing OTR-encoded message ..");
@@ -250,8 +285,12 @@ impl Session {
                 self.instances
                     .entry(msg.sender)
                     .or_insert_with(|| {
-                        Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
-                        self.address.clone(), msg.sender)
+                        Instance::new(
+                            Rc::clone(&self.details),
+                            Rc::clone(&self.host),
+                            self.address.clone(),
+                            msg.sender,
+                        )
                     })
                     .handle(msg)
             }
@@ -348,8 +387,12 @@ impl Session {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
-                Instance::new(Rc::clone(&self.details), Rc::clone(&self.host),
-                self.address.clone(), receiver)
+                Instance::new(
+                    Rc::clone(&self.details),
+                    Rc::clone(&self.host),
+                    self.address.clone(),
+                    receiver,
+                )
             })
             .initiate(version)
     }
@@ -412,8 +455,10 @@ impl Session {
         if accepted_versions.is_empty() {
             return Err(OTRError::UserError("No supported versions available."));
         }
-        self.host
-            .inject(&self.address, &serialize_message(&MessageType::Query(accepted_versions)));
+        self.host.inject(
+            &self.address,
+            &serialize_message(&MessageType::Query(accepted_versions)),
+        );
         Ok(())
     }
 
@@ -462,7 +507,12 @@ struct Instance {
 /// `Instance` expects to receive (as much as possible) preselected values to be used: selection,
 /// validation to be performed in `Session` if possible.
 impl Instance {
-    fn new(details: Rc<AccountDetails>, host: Rc<dyn Host>, address: Vec<u8>, receiver: InstanceTag) -> Self {
+    fn new(
+        details: Rc<AccountDetails>,
+        host: Rc<dyn Host>,
+        address: Vec<u8>,
+        receiver: InstanceTag,
+    ) -> Self {
         Self {
             ake: AKEContext::new(Rc::clone(&host)),
             details,
@@ -529,6 +579,18 @@ impl Instance {
                 self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
+            }
+            EncodedMessageType::Identity(msg) => {
+                // FIXME implement: handling DAKE Identity message
+                todo!("implement: handling DAKE Identity message")
+            }
+            EncodedMessageType::AuthR(msg) => {
+                // FIXME implement: handling DAKE Auth-R message type
+                todo!("implement: handling DAKE Auth-R message type")
+            }
+            EncodedMessageType::AuthI(msg) => {
+                // FIXME implement: handling DAKE Auth-I message type
+                todo!("implement: handling DAKE Auth-I message type")
             }
             EncodedMessageType::Data(msg) => {
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
@@ -632,7 +694,10 @@ impl Instance {
             message @ (EncodedMessageType::DHCommit(_)
             | EncodedMessageType::DHKey(_)
             | EncodedMessageType::RevealSignature(_)
-            | EncodedMessageType::Signature(_)) => {
+            | EncodedMessageType::Signature(_)
+            | EncodedMessageType::Identity(_)
+            | EncodedMessageType::AuthR(_)
+            | EncodedMessageType::AuthI(_)) => {
                 let content =
                     encode_message(self.ake.version(), self.details.tag, self.receiver, message);
                 Ok(self.prepare_payloads(content))
@@ -830,15 +895,9 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert_eq!(
-            None,
-            handle_messages("Alice", &mut messages_alice, alice)
-        );
+        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
-        assert_eq!(
-            None,
-            handle_messages("Alice", &mut messages_alice, alice)
-        );
+        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
@@ -917,15 +976,9 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert_eq!(
-            None,
-            handle_messages("Alice", &mut messages_alice, alice)
-        );
+        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
-        assert_eq!(
-            None,
-            handle_messages("Alice", &mut messages_alice, alice)
-        );
+        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
         assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {

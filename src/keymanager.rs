@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-use crate::{crypto::dh, encoding::KeyID, utils::{self, biguint::ZERO}, OTRError};
+use crate::{crypto::dh, utils::{self, biguint::ZERO}, OTRError, messages::KeyID};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
