@@ -10,7 +10,7 @@ use zeroize::Zeroize;
 
 use crate::{
     crypto::{dh, otr, sha256, CryptoError},
-    encoding::{Fingerprint, OTRDecoder, OTREncoder},
+    encoding::{OTRDecoder, OTREncoder, FINGERPRINT_LEN},
     Host, OTRError, TLVType, SSID, TLV,
 };
 
@@ -46,7 +46,7 @@ pub struct SMPContext {
     status: SMPStatus,
     state: SMPState,
     ssid: SSID,
-    their_fingerprint: Fingerprint,
+    their_fingerprint: [u8; FINGERPRINT_LEN],
     host: Rc<dyn Host>,
 }
 
@@ -59,7 +59,7 @@ impl Drop for SMPContext {
 // TODO improve on the extra addition of `q` that is now used to avoid negative values? (All D# values)
 #[allow(non_snake_case)]
 impl SMPContext {
-    pub fn new(host: Rc<dyn Host>, ssid: SSID, their_fingerprint: Fingerprint) -> Self {
+    pub fn new(host: Rc<dyn Host>, ssid: SSID, their_fingerprint: [u8; FINGERPRINT_LEN]) -> Self {
         Self {
             status: SMPStatus::Initial,
             state: SMPState::Expect1,
@@ -738,8 +738,8 @@ const SMP_VERSION: u8 = 1;
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn compute_secret(
-    initiator: &Fingerprint,
-    responder: &Fingerprint,
+    initiator: &[u8; FINGERPRINT_LEN],
+    responder: &[u8; FINGERPRINT_LEN],
     ssid: &SSID,
     secret: &[u8],
 ) -> BigUint {

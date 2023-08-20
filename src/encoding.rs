@@ -139,27 +139,21 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_ctr` reads CTR value from buffer.
-    pub fn read_ctr(&mut self) -> Result<CTR, OTRError> {
+    pub fn read_ctr(&mut self) -> Result<[u8; CTR_LEN], OTRError> {
         log::trace!("read CTR");
         if self.0.len() < CTR_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut ctr: CTR = [0; CTR_LEN];
-        ctr.copy_from_slice(&self.0[..CTR_LEN]);
-        self.0 = &self.0[CTR_LEN..];
-        Ok(ctr)
+        self.read::<CTR_LEN>()
     }
 
     /// `read_mac` reads a MAC value from buffer.
-    pub fn read_mac(&mut self) -> Result<MAC, OTRError> {
+    pub fn read_mac(&mut self) -> Result<[u8;MAC_LEN], OTRError> {
         log::trace!("read MAC");
         if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
         }
-        let mut mac: MAC = [0; MAC_LEN];
-        mac.copy_from_slice(&self.0[..MAC_LEN]);
-        self.0 = &self.0[MAC_LEN..];
-        Ok(mac)
+        self.read::<20>()
     }
 
     /// `read_public_key` reads a DSA public key from the buffer.
@@ -254,6 +248,14 @@ impl<'a> OTRDecoder<'a> {
         Ok(ed448::decode_scalar(&self.read::<LENGTH_BYTES>()?))
     }
 
+    pub fn read_mac4(&mut self) -> Result<[u8; MAC4_LEN], OTRError> {
+        self.read::<MAC4_LEN>()
+    }
+
+    pub fn read_nonce(&mut self) -> Result<[u8; NONCE_LEN], OTRError> {
+        self.read::<NONCE_LEN>()
+    }
+
     fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
         if self.0.len() < N {
             return Err(OTRError::IncompleteMessage);
@@ -271,6 +273,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `done` can be used to express the end of decoding. The instance is consumed.
     /// NOTE during clean-up we verify if the buffer is fully drained.
+    // TODO inspect uses of OTRDecoder and check if `done()` is called everywhere applicable.
     pub fn done(self) -> Result<(), OTRError> {
         if self.0.is_empty() {
             Ok(())
@@ -370,12 +373,12 @@ impl OTREncoder {
         self.write(&encoded)
     }
 
-    pub fn write_ctr(&mut self, v: &CTR) -> &mut Self {
+    pub fn write_ctr(&mut self, v: &[u8; CTR_LEN]) -> &mut Self {
         self.buffer.extend_from_slice(v);
         self
     }
 
-    pub fn write_mac(&mut self, v: &MAC) -> &mut Self {
+    pub fn write_mac(&mut self, v: &[u8; MAC_LEN]) -> &mut Self {
         self.buffer.extend_from_slice(v);
         self
     }
@@ -433,6 +436,16 @@ impl OTREncoder {
         self
     }
 
+    pub fn write_mac4(&mut self, mac: &[u8; MAC4_LEN]) -> &mut Self {
+        self.buffer.extend_from_slice(mac);
+        self
+    }
+
+    pub fn write_nonce(&mut self, nonce: &[u8; NONCE_LEN]) -> &mut Self {
+        self.buffer.extend_from_slice(nonce);
+        self
+    }
+
     pub fn write_ssid(&mut self, ssid: &[u8; 8]) -> &mut Self {
         self.buffer.extend_from_slice(ssid);
         self
@@ -445,16 +458,12 @@ impl OTREncoder {
 
 /// CTR type represents the first half of the counter value used for encryption, which is transmitted between communicating parties.
 pub const CTR_LEN: usize = 8;
-#[allow(clippy::upper_case_acronyms)]
-pub type CTR = [u8; CTR_LEN];
-
 /// MAC type represents the 20-byte MAC value.
 pub const MAC_LEN: usize = 20;
-#[allow(clippy::upper_case_acronyms)]
-pub type MAC = [u8; MAC_LEN];
-
 pub const FINGERPRINT_LEN: usize = 20;
-pub type Fingerprint = [u8; FINGERPRINT_LEN];
+
+pub const MAC4_LEN: usize = 64;
+pub const NONCE_LEN: usize = 12;
 
 #[derive(Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]

@@ -6,7 +6,7 @@ use num_bigint::BigUint;
 
 use crate::{
     crypto::{constant, dh, dsa, otr, sha1},
-    encoding::{Fingerprint, MessageFlags, OTRDecoder, OTREncoder, MAC_LEN, TLV},
+    encoding::{MessageFlags, OTRDecoder, OTREncoder, MAC_LEN, TLV, FINGERPRINT_LEN},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
     smp::SMPContext,
@@ -233,7 +233,7 @@ impl EncryptedOTR3State {
         ssid: SSID,
         our_dh: dh::Keypair,
         their_dh: BigUint,
-        their_fingerprint: Fingerprint,
+        their_fingerprint: [u8; FINGERPRINT_LEN],
     ) -> Self {
         Self {
             version,

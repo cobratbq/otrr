@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     crypto::{aes128, constant, dh, dsa, otr::AKESecrets, sha256, CryptoError},
-    encoding::{OTRDecoder, OTREncodable, OTREncoder, MAC},
+    encoding::{OTRDecoder, OTREncodable, OTREncoder, MAC_LEN},
     log,
     messages::EncodedMessageType,
     utils, Host, OTRError, Version, SSID,
@@ -577,7 +577,7 @@ impl DHKeyMessage {
 pub struct RevealSignatureMessage {
     pub key: aes128::Key,
     pub signature_encrypted: Vec<u8>,
-    pub signature_mac: MAC,
+    pub signature_mac: [u8; MAC_LEN],
 }
 
 impl Drop for RevealSignatureMessage {
@@ -610,7 +610,7 @@ impl RevealSignatureMessage {
 
 pub struct SignatureMessage {
     pub signature_encrypted: Vec<u8>,
-    pub signature_mac: MAC,
+    pub signature_mac: [u8; MAC_LEN],
 }
 
 impl OTREncodable for SignatureMessage {

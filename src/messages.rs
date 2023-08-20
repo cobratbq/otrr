@@ -1,12 +1,14 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    ake, dake,
-    encoding::{OTRDecoder, OTREncodable, OTREncoder, MessageFlags, CTR, MAC},
+    ake, crypto, dake,
+    encoding::{MessageFlags, OTRDecoder, OTREncodable, OTREncoder, CTR_LEN, MAC4_LEN, MAC_LEN},
     instancetag::InstanceTag,
-    OTRError, Version, utils,
+    utils, OTRError, Version,
 };
 
 const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";
@@ -220,7 +222,6 @@ impl OTREncodable for EncodedMessage {
     }
 }
 
-// FIXME consider moving all messages out of encoding as this will now require dependencies for AKE/DAKE/crypto specific concerns.
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
 pub enum EncodedMessageType {
     /// `Unencoded` message type. This is a special case, typically used as an indicator that the
@@ -257,9 +258,9 @@ pub struct DataMessage {
     //    of the message, so no message padding needs to be done. If you *want*
     //    to do message padding (to disguise the length of your message), use
     //    the above TLV of type 0."
-    pub ctr: CTR,
+    pub ctr: [u8; CTR_LEN],
     pub encrypted: Vec<u8>,
-    pub authenticator: MAC,
+    pub authenticator: [u8; MAC_LEN],
     /// revealed contains recent keys, previously used for authentication, that should now become public.
     pub revealed: Vec<u8>,
 }
@@ -298,6 +299,36 @@ impl OTREncodable for DataMessage {
             .write_data(&self.revealed);
     }
 }
+
+pub struct DataMessage4 {
+    pub flags: MessageFlags,
+    pub pn: u32,
+    pub i: u32,
+    pub j: u32,
+    pub ecdh: crypto::ed448::Point,
+    pub dh: BigUint,
+    pub encrypted: Vec<u8>,
+    pub authenticator: [u8; MAC4_LEN],
+    pub revealed: Vec<u8>,
+}
+
+impl OTREncodable for DataMessage4 {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        assert_eq!(0, self.revealed.len() % MAC4_LEN);
+        encoder
+            .write_u8(self.flags.bits())
+            .write_u32(self.pn)
+            .write_u32(self.i)
+            .write_u32(self.j)
+            .write_ed448_point(&self.ecdh)
+            .write_mpi(&self.dh)
+            .write_data(&self.encrypted)
+            .write_mac4(&self.authenticator)
+            .write_data(&self.revealed);
+    }
+}
+
+impl DataMessage4 {}
 
 pub fn encode_message(
     version: Version,
