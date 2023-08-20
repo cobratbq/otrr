@@ -25,6 +25,8 @@ const OTR_SIGNATURE_TYPE_CODE: u8 = 0x12;
 const OTR_IDENTITY_TYPE_CODE: u8 = 0x35;
 const OTR_AUTHR_TYPE_CODE: u8 = 0x36;
 const OTR_AUTHI_TYPE_CODE: u8 = 0x37;
+
+/// OTR encoded message type code for OTRv2 + OTRv3 + OTRv4 data messages.
 const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
 static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
@@ -53,7 +55,9 @@ pub fn parse(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
-    let data = base64_decode(data)?;
+    let data = base64::decode(data).or(Err(OTRError::ProtocolViolation(
+        "Invalid message content: content cannot be decoded from base64.",
+    )))?;
     let mut decoder = OTRDecoder::new(&data);
     let version: Version = match decoder.read_u16()? {
         0u16 => {
@@ -199,10 +203,11 @@ impl OTREncodable for EncodedMessage {
                 EncodedMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
                 EncodedMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
                 EncodedMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
+                EncodedMessageType::Data(_) => OTR_DATA_TYPE_CODE,
                 EncodedMessageType::Identity(_) => OTR_IDENTITY_TYPE_CODE,
                 EncodedMessageType::AuthR(_) => OTR_AUTHR_TYPE_CODE,
                 EncodedMessageType::AuthI(_) => OTR_AUTHI_TYPE_CODE,
-                EncodedMessageType::Data(_) => OTR_DATA_TYPE_CODE,
+                EncodedMessageType::Data4(_) => OTR_DATA_TYPE_CODE,
             })
             .write_u32(self.sender)
             .write_u32(self.receiver)
@@ -214,10 +219,11 @@ impl OTREncodable for EncodedMessage {
                 EncodedMessageType::DHKey(msg) => msg,
                 EncodedMessageType::RevealSignature(msg) => msg,
                 EncodedMessageType::Signature(msg) => msg,
+                EncodedMessageType::Data(msg) => msg,
                 EncodedMessageType::Identity(msg) => msg,
                 EncodedMessageType::AuthR(msg) => msg,
                 EncodedMessageType::AuthI(msg) => msg,
-                EncodedMessageType::Data(msg) => msg,
+                EncodedMessageType::Data4(msg) => msg,
             });
     }
 }
@@ -244,6 +250,7 @@ pub enum EncodedMessageType {
     AuthR(dake::AuthRMessage),
     /// OTRv4 Auth-I-message in interactive DAKE-process.
     AuthI(dake::AuthIMessage),
+    Data4(DataMessage4),
 }
 
 pub struct DataMessage {
@@ -269,8 +276,8 @@ pub struct DataMessage {
 pub type KeyID = u32;
 
 impl DataMessage {
-    fn decode(decoder: &mut OTRDecoder) -> Result<DataMessage, OTRError> {
-        Ok(DataMessage {
+    fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        Ok(Self {
             flags: MessageFlags::from_bits(decoder.read_u8()?)
                 .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
             sender_keyid: utils::u32::nonzero(decoder.read_u32()?)
@@ -312,6 +319,23 @@ pub struct DataMessage4 {
     pub revealed: Vec<u8>,
 }
 
+impl DataMessage4 {
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        Ok(Self {
+            flags: MessageFlags::from_bits(decoder.read_u8()?)
+                .ok_or(OTRError::ProtocolViolation("Invalid message flags"))?,
+            pn: decoder.read_u32()?,
+            i: decoder.read_u32()?,
+            j: decoder.read_u32()?,
+            ecdh: decoder.read_ed448_point()?,
+            dh: decoder.read_mpi()?,
+            encrypted: decoder.read_data()?,
+            authenticator: decoder.read_mac4()?,
+            revealed: decoder.read_data()?,
+        })
+    }
+}
+
 impl OTREncodable for DataMessage4 {
     fn encode(&self, encoder: &mut OTREncoder) {
         assert_eq!(0, self.revealed.len() % MAC4_LEN);
@@ -327,8 +351,6 @@ impl OTREncodable for DataMessage4 {
             .write_data(&self.revealed);
     }
 }
-
-impl DataMessage4 {}
 
 pub fn encode_message(
     version: Version,
@@ -399,9 +421,10 @@ pub fn serialize_message(msg: &MessageType) -> Vec<u8> {
         }
         MessageType::Encoded(encoded_message) => {
             buffer.extend_from_slice(OTR_ENCODED_PREFIX);
-            buffer.extend(base64_encode(
-                &OTREncoder::new().write_encodable(encoded_message).to_vec(),
-            ));
+            buffer.extend(
+                base64::encode(OTREncoder::new().write_encodable(encoded_message).to_vec())
+                    .into_bytes(),
+            );
             buffer.extend_from_slice(OTR_ENCODED_SUFFIX);
             buffer
         }
@@ -435,14 +458,4 @@ fn encode_version(version: &Version) -> u16 {
         Version::V4 => 4,
         Version::Unsupported(_) => panic!("BUG: unsupported version"),
     }
-}
-
-fn base64_encode(content: &[u8]) -> Vec<u8> {
-    base64::encode(content).into_bytes()
-}
-
-fn base64_decode(content: &[u8]) -> Result<Vec<u8>, OTRError> {
-    base64::decode(content).or(Err(OTRError::ProtocolViolation(
-        "Invalid message content: content cannot be decoded from base64.",
-    )))
 }

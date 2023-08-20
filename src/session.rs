@@ -580,18 +580,6 @@ impl Instance {
                     encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
-            EncodedMessageType::Identity(msg) => {
-                // FIXME implement: handling DAKE Identity message
-                todo!("implement: handling DAKE Identity message")
-            }
-            EncodedMessageType::AuthR(msg) => {
-                // FIXME implement: handling DAKE Auth-R message type
-                todo!("implement: handling DAKE Auth-R message type")
-            }
-            EncodedMessageType::AuthI(msg) => {
-                // FIXME implement: handling DAKE Auth-I message type
-                todo!("implement: handling DAKE Auth-I message type")
-            }
             EncodedMessageType::Data(msg) => {
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
@@ -646,6 +634,22 @@ impl Instance {
                     }
                 }
             }
+            EncodedMessageType::Identity(msg) => {
+                // FIXME implement: handling DAKE Identity message
+                todo!("implement: handling DAKE Identity message")
+            }
+            EncodedMessageType::AuthR(msg) => {
+                // FIXME implement: handling DAKE Auth-R message type
+                todo!("implement: handling DAKE Auth-R message type")
+            }
+            EncodedMessageType::AuthI(msg) => {
+                // FIXME implement: handling DAKE Auth-I message type
+                todo!("implement: handling DAKE Auth-I message type")
+            }
+            EncodedMessageType::Data4(msg) => {
+                // FIXME implement: handling OTRv4 Data Message
+                todo!("implement: handling OTRv4 Data Message")
+            }
             EncodedMessageType::Unencoded(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
         }
     }
@@ -698,11 +702,12 @@ impl Instance {
             | EncodedMessageType::Identity(_)
             | EncodedMessageType::AuthR(_)
             | EncodedMessageType::AuthI(_)) => {
+                // FIXME need to split so that OTRv4 uses DAKE i.s.o. AKE
                 let content =
                     encode_message(self.ake.version(), self.details.tag, self.receiver, message);
                 Ok(self.prepare_payloads(content))
             }
-            message @ EncodedMessageType::Data(_) => {
+            message @ (EncodedMessageType::Data(_) | EncodedMessageType::Data4(_)) => {
                 let content = encode_message(
                     self.state.version(),
                     self.details.tag,

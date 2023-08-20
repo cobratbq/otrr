@@ -11,7 +11,7 @@ use crate::{
     keymanager::KeyManager,
     smp::SMPContext,
     smp4::SMP4Context,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, messages::{DataMessage, EncodedMessageType, encode_authenticator_data},
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, messages::{DataMessage, EncodedMessageType, encode_authenticator_data, DataMessage4},
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -364,11 +364,11 @@ pub struct EncryptedOTR4State {
 
 impl ProtocolState for EncryptedOTR4State {
     fn status(&self) -> ProtocolStatus {
-        todo!()
+        ProtocolStatus::Encrypted
     }
 
     fn version(&self) -> Version {
-        todo!()
+        Version::V4
     }
 
     fn handle(
@@ -403,7 +403,14 @@ impl ProtocolState for EncryptedOTR4State {
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
-        todo!()
+        let plaintext = OTREncoder::new()
+            .write_u8(0)
+            .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
+            .to_vec();
+        let optabort = Some(EncodedMessageType::Data4(
+            self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
+        ));
+        (optabort, Box::new(PlaintextState {}))
     }
 
     fn prepare(
@@ -423,7 +430,13 @@ impl ProtocolState for EncryptedOTR4State {
     }
 }
 
-impl EncryptedOTR4State {}
+impl EncryptedOTR4State {
+
+    fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
+        // FIXME implement: encrypt DataMessage4 message
+        todo!("implement: encrypt DataMessage4 message")
+    }
+}
 
 pub struct FinishedState {}
 
