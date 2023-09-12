@@ -105,7 +105,7 @@ pub mod dh {
     #[derive(Clone)]
     pub struct Keypair {
         private: BigUint,
-        pub public: BigUint,
+        public: BigUint,
     }
 
     impl Drop for Keypair {
@@ -144,6 +144,12 @@ pub mod dh {
         pub fn new_custom(generator: &BigUint, private: BigUint) -> Self {
             let public = generator.modpow(&private, &MODULUS);
             Self { private, public }
+        }
+
+        /// `public` returns the public component of the keypair.
+        #[must_use]
+        pub fn public(&self) -> &BigUint {
+            &self.public
         }
 
         /// `generate_shared_secret` generates a shared secret from its own keypair and the provided public key.
@@ -338,6 +344,10 @@ pub mod aes128 {
     pub struct Key(pub [u8; KEY_LENGTH]);
 
     impl Key {
+        /// `generate` generates an AES-128 key.
+        ///
+        /// # Panics
+        /// Panics if it fails to generate (sufficient) random data.
         pub fn generate() -> Self {
             let mut key = [0u8; 16];
             RAND.fill(&mut key)
@@ -489,7 +499,7 @@ pub mod dsa {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Signature(dsa::Signature);
 
     impl Signature {
@@ -594,12 +604,35 @@ pub mod sha256 {
 }
 
 pub mod otr4 {
-    // TODO consider if we want to keep 3 functions (kdf, hwc, hcmac) if they have same logic. (see spec)
-
     use super::{ed448, shake256};
 
     const USAGE_FINGERPRINT: u8 = 0x00;
+    pub const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
+    const USAGE_BRACE_KEY: u8 = 0x02;
+    pub const USAGE_SHARED_SECRET: u8 = 0x03;
+    pub const USAGE_SSID: u8 = 0x04;
+    pub const USAGE_AUTH_R_BOB_CLIENT_PROFILE: u8 = 0x05;
+    pub const USAGE_AUTH_R_ALICE_CLIENT_PROFILE: u8 = 0x06;
+    pub const USAGE_AUTH_R_PHI: u8 = 0x07;
+    pub const USAGE_AUTH_I_BOB_CLIENT_PROFILE: u8 = 0x08;
+    pub const USAGE_AUTH_I_ALICE_CLIENT_PROFILE: u8 = 0x09;
+    pub const USAGE_AUTH_I_PHI: u8 = 0x0A;
+    const USAGE_FIRST_ROOT_KEY: u8 = 0x0B;
+    const USAGE_TMP_KEY: u8 = 0x0C;
+    const USAGE_AUTH_MAC_KEY: u8 = 0x0D;
+    const USAGE_NONINT_AUTH_BOB_CLIENT_PROFILE: u8 = 0x0E;
+    const USAGE_NONINT_AUTH_ALICE_CLIENT_PROFILE: u8 = 0x0F;
+    const USAGE_NONINT_AUTH_PHI: u8 = 0x10;
+    const USAGE_AUTH_MAC: u8 = 0x11;
+    const USAGE_ROOT_KEY: u8 = 0x12;
+    const USAGE_CHAIN_KEY: u8 = 0x13;
+    const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
+    const USAGE_MESSAGE_KEY: u8 = 0x15;
+    const USAGE_MAC_KEY: u8 = 0x16;
+    const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
+    const USAGE_AUTHENTICATOR: u8 = 0x18;
     pub const USAGE_SMP_SECRET: u8 = 0x19;
+    pub const USAGE_AUTH: u8 = 0x1A;
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
@@ -611,20 +644,34 @@ pub mod otr4 {
         hwc::<56>(USAGE_FINGERPRINT, &buffer)
     }
 
+    #[must_use]
     pub fn hwc<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
         kdf::<N>(usage, data)
     }
 
+    #[must_use]
     pub fn hcmac<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
         kdf::<N>(usage, data)
     }
 
     // TODO is pruning done after `kdf` in all cases? move into kdf function?
+    #[must_use]
     pub fn kdf<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
         let mut buffer = Vec::with_capacity(6 + data.len());
         buffer.extend_from_slice(&PREFIX);
         buffer.push(usage);
         buffer.extend_from_slice(data);
+        shake256::digest::<N>(&buffer)
+    }
+
+    // TODO is pruning done after `kdf` in all cases? move into kdf function?
+    #[must_use]
+    pub fn kdf_2<const N: usize>(usage: u8, data1: &[u8], data2: &[u8]) -> [u8; N] {
+        let mut buffer = Vec::with_capacity(6 + data1.len() + data2.len());
+        buffer.extend_from_slice(&PREFIX);
+        buffer.push(usage);
+        buffer.extend_from_slice(data1);
+        buffer.extend_from_slice(data2);
         shake256::digest::<N>(&buffer)
     }
 }
@@ -659,13 +706,13 @@ pub mod ed448 {
     use zeroize::Zeroize;
 
     use crate::{
-        crypto::otr4::hwc,
-        encoding::{OTRDecoder, OTREncodable},
+        crypto::otr4::{self, hwc, USAGE_AUTH},
+        encoding::{OTRDecoder, OTREncodable, OTREncoder},
         utils::{self, bigint::ONE, bytes},
         OTRError,
     };
 
-    use super::{shake256, CryptoError};
+    use super::{constant, shake256, CryptoError};
 
     pub const LENGTH_BYTES: usize = 57;
 
@@ -722,6 +769,7 @@ pub mod ed448 {
         &Q
     }
 
+    #[derive(Clone)]
     pub struct PublicKey(Point);
 
     impl OTREncodable for PublicKey {
@@ -732,10 +780,32 @@ pub mod ed448 {
     }
 
     impl PublicKey {
+        /// `decode` decodes a public key from its OTR-encoding.
+        ///
+        /// # Errors
+        /// In case of bad input data.
+        pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+            if decoder.read_u16_le()? != 0x0010 {
+                return Err(OTRError::ProtocolViolation(
+                    "Expected public key type: 0x0010",
+                ));
+            }
+            Ok(Self(decoder.read_ed448_point()?))
+        }
+
+        /// `from` extracts the public key from encoded point data.
+        ///
+        /// # Errors
+        /// In case of bad input data.
+        pub fn from(bytes: &[u8; 57]) -> Result<Self, OTRError> {
+            Ok(Self(
+                Point::decode(bytes).map_err(OTRError::CryptographicViolation)?,
+            ))
+        }
+
         #[must_use]
-        pub fn from(data: &[u8]) -> Self {
-            // FIXME implement `from` for deserializing Ed448 public key
-            todo!("implement conversion from raw bytes")
+        pub fn point(&self) -> &Point {
+            &self.0
         }
     }
 
@@ -751,14 +821,18 @@ pub mod ed448 {
     }
 
     impl ForgingKey {
-        #[must_use]
-        pub fn from(data: &[u8]) -> Self {
-            // FIXME implement `from` for deserializing Ed448 forging key
-            todo!("implement conversion from raw bytes")
+        /// `from` extracts the forging key from encoded point data.
+        ///
+        /// # Errors
+        /// In case of bad input data.
+        pub fn from(data: &[u8; 57]) -> Result<Self, OTRError> {
+            Ok(Self(
+                Point::decode(data).map_err(OTRError::CryptographicViolation)?,
+            ))
         }
     }
 
-    // TODO do we want the tuple types private or public?
+    #[derive(Clone)]
     pub struct Signature([u8; 2 * LENGTH_BYTES]);
 
     impl OTREncodable for Signature {
@@ -769,13 +843,15 @@ pub mod ed448 {
 
     impl Signature {
         #[must_use]
-        pub fn from(data: &[u8]) -> Self {
-            // FIXME implement `from` for deserializing Ed448 signature
-            todo!("implement conversion from raw bytes")
+        pub fn from(data: [u8; 2 * LENGTH_BYTES]) -> Self {
+            Self(data)
         }
     }
 
     /// `verify` checks the provided Point for correctness.
+    ///
+    /// # Errors
+    /// Error in case point fails verification.
     pub fn verify(point: &Point) -> Result<(), CryptoError> {
         if point.is_identity()
             || point.x.cmp(&*P).is_ge()
@@ -789,18 +865,23 @@ pub mod ed448 {
         Ok(())
     }
 
-    // TODO pruning is not strictly necessary because the scalars resulting from hash_to_scalar are not used on the curve, merely as proofs.
     #[must_use]
-    pub fn hash_to_scalar(purpose: u8, data: &Point) -> BigUint {
-        decode_scalar(&hwc::<57>(purpose, &data.encode()))
+    pub fn hash_point_to_scalar(purpose: u8, point: &Point) -> BigUint {
+        hash_to_scalar(purpose, &point.encode())
     }
 
     #[must_use]
-    pub fn hash_to_scalar2(purpose: u8, data1: &Point, data2: &Point) -> BigUint {
+    pub fn hash_point_to_scalar2(purpose: u8, point1: &Point, point2: &Point) -> BigUint {
         let mut buffer = Vec::new();
-        buffer.extend_from_slice(&data1.encode());
-        buffer.extend_from_slice(&data2.encode());
-        decode_scalar(&hwc::<57>(purpose, &buffer))
+        buffer.extend_from_slice(&point1.encode());
+        buffer.extend_from_slice(&point2.encode());
+        hash_to_scalar(purpose, &buffer)
+    }
+
+    // TODO pruning is not strictly necessary because the scalars resulting from hash_to_scalar are not used on the curve, merely as proofs.
+    #[must_use]
+    pub fn hash_to_scalar(purpose: u8, data: &[u8]) -> BigUint {
+        decode_scalar(&hwc::<57>(purpose, data))
     }
 
     /// `decode_scalar` decodes an encoded scalar into `BigUint`.
@@ -811,6 +892,32 @@ pub mod ed448 {
     pub fn decode_scalar(encoded: &[u8; 57]) -> BigUint {
         assert!(utils::bytes::any_nonzero(encoded));
         BigUint::from_bytes_le(encoded).mod_floor(&*Q)
+    }
+
+    pub struct KeyPair(BigUint, Point);
+
+    impl KeyPair {
+        /// `generate` generates a key pair for Ed448 ECDH.
+        #[must_use]
+        pub fn generate() -> Self {
+            let r = random_in_Zq();
+            let mut buffer = shake256::digest::<114>(&r.to_bytes_le());
+            prune(&mut buffer);
+            let s = BigUint::from_bytes_le(&buffer);
+            // FIXME securely delete r, h
+            let public = (&*G) * &s;
+            KeyPair(s, public)
+        }
+
+        #[must_use]
+        pub fn public(&self) -> &Point {
+            &self.1
+        }
+
+        #[must_use]
+        pub fn generate_shared_secret(&self, other: &Point) -> Point {
+            other * &self.0
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1005,6 +1112,7 @@ pub mod ed448 {
         }
     }
 
+    // FIXME Ring signatures and other BigUint code (SMP4) is really waaaaay too slow. (undoubtedly my own fault)
     pub struct RingSignature {
         c1: BigUint,
         r1: BigUint,
@@ -1027,6 +1135,11 @@ pub mod ed448 {
     }
 
     impl RingSignature {
+        /// `decode` decodes the bytes of an encoded ring signature to its individual numerical
+        /// components. Returning the composite structure as a result.
+        ///
+        /// # Errors
+        /// Error in case we fail to read any of the components.
         pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
             let c1 = decoder.read_ed448_scalar()?;
             let r1 = decoder.read_ed448_scalar()?;
@@ -1042,6 +1155,143 @@ pub mod ed448 {
                 c3,
                 r3,
             })
+        }
+
+        /// `verify` verifies a ring signature against the expected data.
+        ///
+        /// # Errors
+        /// In case of verification failure.
+        #[allow(non_snake_case)]
+        pub fn verify(
+            &self,
+            A1: &Point,
+            A2: &Point,
+            A3: &Point,
+            m: &[u8],
+        ) -> Result<(), CryptoError> {
+            let T1 = &*G * &self.r1 + A1 * &self.c1;
+            let T2 = &*G * &self.r2 + A2 * &self.c2;
+            let T3 = &*G * &self.r3 + A3 * &self.c3;
+            let h = otr4::hwc::<57>(
+                USAGE_AUTH,
+                &OTREncoder::new()
+                    .write_ed448_point(&G)
+                    .write_ed448_scalar(&Q)
+                    .write_ed448_point(A1)
+                    .write_ed448_point(A2)
+                    .write_ed448_point(A3)
+                    .write_ed448_point(&T1)
+                    .write_ed448_point(&T2)
+                    .write_ed448_point(&T3)
+                    .write_data(m)
+                    .to_vec(),
+            );
+            let c = BigUint::from_bytes_le(&h).mod_floor(&Q);
+            // FIXME make constant-time comparison, selection
+            constant::compare_distinct_scalars(&c, &(&self.c1 + &self.c2 + &self.c3).mod_floor(&Q))
+        }
+
+        /// `sign` generates a ring signature.
+        ///
+        /// # Errors
+        /// In case of failure to generate ring signature.
+        ///
+        /// # Panics
+        /// In case of implementation errors (bad usage).
+        pub fn sign(
+            keypair: &KeyPair,
+            A1: &Point,
+            A2: &Point,
+            A3: &Point,
+            m: &[u8],
+        ) -> Result<Self, CryptoError> {
+            verify(A1)?;
+            verify(A2)?;
+            verify(A3)?;
+            let eq1 = constant::compare_points(&keypair.1, A1).is_ok();
+            let eq2 = constant::compare_points(&keypair.1, A2).is_ok();
+            let eq3 = constant::compare_points(&keypair.1, A3).is_ok();
+            assert!((eq1 && !eq2 && !eq3) || (!eq1 && eq2 && !eq3) || (!eq1 && !eq2 && eq3));
+            let t = random_in_Zq();
+            let c1 = random_in_Zq();
+            let c2 = random_in_Zq();
+            let c3 = random_in_Zq();
+            let r1 = random_in_Zq();
+            let r2 = random_in_Zq();
+            let r3 = random_in_Zq();
+            let T1: Point;
+            let T2: Point;
+            let T3: Point;
+            // FIXME make constant-time comparison, selection
+            if eq1 {
+                T1 = &*G * &t;
+                T2 = &*G * &r2 + A2 * &c2;
+                T3 = &*G * &r3 + A3 * &c3;
+            } else if eq2 {
+                T1 = &*G * &r1 + A1 * &c1;
+                T2 = &*G * &t;
+                T3 = &*G * &r3 + A3 * &c3;
+            } else if eq3 {
+                T1 = &*G * &r1 + A1 * &c1;
+                T2 = &*G * &r2 + A2 * &c2;
+                T3 = &*G * &t;
+            } else {
+                panic!("BUG: should not reach here.");
+            }
+            let mut enc = OTREncoder::new();
+            enc.write_ed448_point(&G);
+            enc.write_ed448_scalar(&Q);
+            enc.write_ed448_point(A1);
+            enc.write_ed448_point(A2);
+            enc.write_ed448_point(A3);
+            enc.write_ed448_point(&T1);
+            enc.write_ed448_point(&T2);
+            enc.write_ed448_point(&T3);
+            enc.write_data(m);
+            let c = hash_to_scalar(USAGE_AUTH, &enc.to_vec());
+            // FIXME "The order of elements passed to `H` and sent to the verifier must not depend on the secret known by the prover (otherwise, the key used to produce the proof can be inferred in practice)."
+            if eq1 {
+                //let c1 = &c - &c2 - &c3;
+                let c1 = (&c + &*Q - &c2 + &*Q - &c3).mod_floor(&*Q);
+                //let r1 = &t - &c1 * &keypair.0;
+                let r1 = &t + &*Q - &(&c1 * &keypair.0).mod_floor(&*Q);
+                return Ok(Self {
+                    c1,
+                    r1,
+                    c2,
+                    r2,
+                    c3,
+                    r3,
+                });
+            } else if eq2 {
+                //let c2 = &c - &c1 - &c3;
+                let c2 = (&c + &*Q - &c1 + &*Q - &c3).mod_floor(&*Q);
+                //let r2 = &t - &c2 * &keypair.0;
+                let r2 = &t + &*Q - &(&c2 * &keypair.0).mod_floor(&*Q);
+                return Ok(Self {
+                    c1,
+                    r1,
+                    c2,
+                    r2,
+                    c3,
+                    r3,
+                });
+            } else if eq3 {
+                //let c3 = &c - &c1 - &c2;
+                let c3 = (&c + &*Q - &c1 + &*Q - &c2).mod_floor(&*Q);
+                //let r3 = &t - &c3 * &keypair.0;
+                let r3 = &t + &*Q - &(&c3 * &keypair.0).mod_floor(&*Q);
+                return Ok(Self {
+                    c1,
+                    r1,
+                    c2,
+                    r2,
+                    c3,
+                    r3,
+                });
+            }
+            // FIXME securely delete t
+            panic!("BUG: should not reach here.");
         }
     }
 
@@ -1066,7 +1316,7 @@ pub mod ed448 {
     /// # Panics
     /// Panics if invalid input is provided. (sanity-checks)
     pub fn prune(v: &mut [u8]) {
-        assert_eq!(57, v.len());
+        assert!(v.len() >= 57);
         assert!(bytes::any_nonzero(v));
         v[0] &= 0b1111_1100;
         v[55] |= 0b1000_0000;
@@ -1079,13 +1329,17 @@ pub mod dh2 {
     use num_bigint::BigUint;
     use once_cell::sync::Lazy;
 
+    use crate::utils;
+
+    use super::CryptoError;
+
     /// p is the prime (modulus).
     pub static P: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_radix_be(b"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF", 16).unwrap()
     });
 
     /// g3 is the generator
-    pub const G3: u8 = 2;
+    pub static G3: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
     // TODO check if cofactor is needed.
     pub const COFACTOR: u8 = 2;
@@ -1095,6 +1349,41 @@ pub mod dh2 {
     pub static Q: Lazy<BigUint> = Lazy::new(|| {
         BigUint::from_radix_be(b"7FFFFFFFFFFFFFFFE487ED5110B4611A62633145C06E0E68948127044533E63A0105DF531D89CD9128A5043CC71A026EF7CA8CD9E69D218D98158536F92F8A1BA7F09AB6B6A8E122F242DABB312F3F637A262174D31BF6B585FFAE5B7A035BF6F71C35FDAD44CFD2D74F9208BE258FF324943328F6722D9EE1003E5C50B1DF82CC6D241B0E2AE9CD348B1FD47E9267AFC1B2AE91EE51D6CB0E3179AB1042A95DCF6A9483B84B4B36B3861AA7255E4C0278BA3604650C10BE19482F23171B671DF1CF3B960C074301CD93C1D17603D147DAE2AEF837A62964EF15E5FB4AAC0B8C1CCAA4BE754AB5728AE9130C4C7D02880AB9472D45556216D6998B8682283D19D42A90D5EF8E5D32767DC2822C6DF785457538ABAE83063ED9CB87C2D370F263D5FAD7466D8499EB8F464A702512B0CEE771E9130D697735F897FD036CC504326C3B01399F643532290F958C0BBD90065DF08BABBD30AEB63B84C4605D6CA371047127D03A72D598A1EDADFE707E884725C16890549D69657FFFFFFFFFFFFFFF", 16).unwrap()
     });
+
+    /// `verify` verifies a 3072-bit DH element to confirm that it satisfies the requirements of the
+    /// group.
+    pub fn verify(v: &BigUint) -> Result<(), CryptoError> {
+        if v < &G3 || v > &(&*P - &*G3) || v.modpow(&Q, &P) != *utils::biguint::ONE {
+            return Err(CryptoError::VerificationFailure("element is invalid"));
+        }
+        Ok(())
+    }
+
+    /// `KeyPair` is a 3072 DH keypair.
+    pub struct KeyPair {
+        private: BigUint,
+        public: BigUint,
+    }
+
+    impl KeyPair {
+        #[must_use]
+        pub fn generate() -> Self {
+            let bytes = utils::random::secure_bytes::<80>();
+            let private = BigUint::from_bytes_be(&bytes);
+            let public = G3.modpow(&private, &P);
+            Self { private, public }
+        }
+
+        #[must_use]
+        pub fn public(&self) -> &BigUint {
+            &self.public
+        }
+
+        #[must_use]
+        pub fn generate_shared_secret(&self, other: &BigUint) -> BigUint {
+            &self.private * other
+        }
+    }
 }
 
 /// `constant` module provides constant-time operations.
@@ -1104,31 +1393,54 @@ pub mod constant {
 
     use super::{ed448, verify_nonzero, CryptoError};
 
-    /// `verify_scalars` compares two scalars in constant-time by encoding them then
+    /// `compare_different_scalars` compares two scalars in constant-time by encoding them then
     /// constant-time-comparing the byte-arrays.
-    pub fn verify_scalars(scalar1: &BigUint, scalar2: &BigUint) -> Result<(), CryptoError> {
-        assert!(
-            !core::ptr::eq(scalar1, scalar2),
-            "BUG: p1 and p2 are same instance"
-        );
-        verify(
-            &scalar1.to_bytes_le(),
-            &scalar2.to_bytes_le(),
+    ///
+    /// # Errors
+    /// Error in case scalars fail verification.
+    ///
+    /// # Panics
+    /// Panics if instances `s1` and `s2` are the same.
+    // FIXME need better name, 'distinct' bytes?
+    pub fn compare_distinct_scalars(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
+        assert!(!core::ptr::eq(s1, s2), "BUG: s1 and s2 are same instance");
+        compare(
+            &s1.to_bytes_le(),
+            &s2.to_bytes_le(),
             "verification of scalars failed",
         )
     }
 
-    /// `verify_points` checks if two points are the same in constant-time by comparing the
-    /// byte-arrays of the encoded points in constant-time.
+    pub fn compare_scalars(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
+        compare(
+            &s1.to_bytes_le(),
+            &s2.to_bytes_le(),
+            "verification of scalars failed",
+        )
+    }
+
+    /// `compare_different_points` checks if two points are the same in constant-time by comparing
+    /// the byte-arrays of the encoded points in constant-time.
+    ///
+    /// # Errors
+    /// Error in case points fail verification.
     ///
     /// # Panics
     /// Panics if instances `p1` and `p2` are the same.
-    pub fn verify_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
+    // FIXME need better name, 'distinct' bytes?
+    pub fn compare_distinct_points(
+        p1: &ed448::Point,
+        p2: &ed448::Point,
+    ) -> Result<(), CryptoError> {
         assert!(!core::ptr::eq(p1, p2), "BUG: p1 and p2 are same instance");
-        verify(&p1.encode(), &p2.encode(), "verification of points failed")
+        compare(&p1.encode(), &p2.encode(), "verification of points failed")
     }
 
-    /// `verify_bytes` verifies two same-length byte-slices in constant-time.
+    pub fn compare_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
+        compare(&p1.encode(), &p2.encode(), "verification of points failed")
+    }
+
+    /// `compare_different_bytes` verifies two same-length byte-slices in constant-time.
     ///
     /// # Errors
     /// `CryptoError` in case verification fails. Failure-cases: provide same instance twice,
@@ -1136,15 +1448,20 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
-    pub fn verify_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
-        verify(data1, data2, "verification of byte-arrays failed")
-    }
-
-    fn verify(data1: &[u8], data2: &[u8], msg: &'static str) -> Result<(), CryptoError> {
+    // FIXME need better name, 'distinct' bytes?
+    pub fn compare_distinct_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(data1, data2),
             "BUG: data1 and data2 parameters are same instance"
         );
+        compare(data1, data2, "verification of bytes failed")
+    }
+
+    pub fn compare_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
+        compare(data1, data2, "verification of bytes failed")
+    }
+
+    fn compare(data1: &[u8], data2: &[u8], msg: &'static str) -> Result<(), CryptoError> {
         verify_nonzero(data1)?;
         verify_nonzero(data2)?;
         ring::constant_time::verify_slices_are_equal(data1, data2)
@@ -1172,7 +1489,11 @@ mod tests {
     };
     use num_bigint::BigUint;
 
-    use super::{constant, dh, ed448};
+    use super::{
+        constant, dh,
+        ed448::{self, RingSignature},
+        CryptoError,
+    };
 
     #[test]
     fn test_dh_verify_homogenous() {
@@ -1209,46 +1530,46 @@ mod tests {
         assert_eq!(dh::modulus(), dh::modulus());
         assert_eq!(dh::q(), dh::q());
         let k1 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k1.public).is_ok());
+        assert!(dh::verify_public_key(&k1.public()).is_ok());
         let k2 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k2.public).is_ok());
+        assert!(dh::verify_public_key(&k2.public()).is_ok());
         let k3 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k3.public).is_ok());
+        assert!(dh::verify_public_key(&k3.public()).is_ok());
         let k4 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k4.public).is_ok());
+        assert!(dh::verify_public_key(&k4.public()).is_ok());
         let k5 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k5.public).is_ok());
-        assert_ne!(k1.public, k2.public);
-        assert_ne!(k2.public, k3.public);
-        assert_ne!(k3.public, k4.public);
-        assert_ne!(k4.public, k5.public);
+        assert!(dh::verify_public_key(&k5.public()).is_ok());
+        assert_ne!(k1.public(), k2.public());
+        assert_ne!(k2.public(), k3.public());
+        assert_ne!(k3.public(), k4.public());
+        assert_ne!(k4.public(), k5.public());
         assert_eq!(
-            k1.generate_shared_secret(&k2.public),
-            k2.generate_shared_secret(&k1.public)
+            k1.generate_shared_secret(&k2.public()),
+            k2.generate_shared_secret(&k1.public())
         );
         assert_eq!(
-            k2.generate_shared_secret(&k3.public),
-            k3.generate_shared_secret(&k2.public)
+            k2.generate_shared_secret(&k3.public()),
+            k3.generate_shared_secret(&k2.public())
         );
         assert_eq!(
-            k4.generate_shared_secret(&k3.public),
-            k3.generate_shared_secret(&k4.public)
+            k4.generate_shared_secret(&k3.public()),
+            k3.generate_shared_secret(&k4.public())
         );
         assert_eq!(
-            k4.generate_shared_secret(&k5.public),
-            k5.generate_shared_secret(&k4.public)
+            k4.generate_shared_secret(&k5.public()),
+            k5.generate_shared_secret(&k4.public())
         );
         assert_eq!(
-            k1.generate_shared_secret(&k5.public),
-            k5.generate_shared_secret(&k1.public)
+            k1.generate_shared_secret(&k5.public()),
+            k5.generate_shared_secret(&k1.public())
         );
         assert_eq!(
-            k2.generate_shared_secret(&k4.public),
-            k4.generate_shared_secret(&k2.public)
+            k2.generate_shared_secret(&k4.public()),
+            k4.generate_shared_secret(&k2.public())
         );
         assert_eq!(
-            k3.generate_shared_secret(&k3.public),
-            k3.generate_shared_secret(&k3.public)
+            k3.generate_shared_secret(&k3.public()),
+            k3.generate_shared_secret(&k3.public())
         );
         assert!(dh::verify_public_key(&ZERO).is_err());
         assert!(dh::verify_public_key(&ONE).is_err());
@@ -1268,30 +1589,30 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_zero_length_slices() {
-        constant::verify_bytes(&[], &[]).unwrap();
+        constant::compare_distinct_bytes(&[], &[]).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_zero_slices() {
-        constant::verify_bytes(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
+        constant::compare_distinct_bytes(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
     }
 
     #[test]
     fn test_same_length_slices() {
         let s1 = b"Hello world";
         let s2 = *s1;
-        constant::verify_bytes(s1, &s2).unwrap();
+        constant::compare_distinct_bytes(s1, &s2).unwrap();
     }
 
     #[test]
     fn test_different_content() {
-        assert!(constant::verify_bytes(b"Hello!", b"Yo!").is_err());
+        assert!(constant::compare_distinct_bytes(b"Hello!", b"Yo!").is_err());
     }
 
     #[test]
     fn test_differing_length_slices() {
-        assert!(constant::verify_bytes(b"Hello!", b"Hello").is_err());
+        assert!(constant::compare_distinct_bytes(b"Hello!", b"Hello").is_err());
     }
 
     #[test]
@@ -1351,5 +1672,69 @@ mod tests {
             &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
             &p * &*utils::biguint::TWELVE
         );
+    }
+
+    #[test]
+    fn test_ring_sign_verify() -> Result<(), CryptoError> {
+        let m = utils::random::secure_bytes::<250>();
+        let keypair = ed448::KeyPair::generate();
+        let a2 = ed448::KeyPair::generate();
+        let a3 = ed448::KeyPair::generate();
+        let sigma = RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m)?;
+        sigma.verify(keypair.public(), a2.public(), a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), keypair.public(), a3.public(), &m)?;
+        sigma.verify(a2.public(), keypair.public(), a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), keypair.public(), &m)?;
+        sigma.verify(a2.public(), a3.public(), keypair.public(), &m)
+    }
+
+    #[test]
+    fn test_ring_sign_verify_distinct() -> Result<(), CryptoError> {
+        let m = utils::random::secure_bytes::<250>();
+        let keypair = ed448::KeyPair::generate();
+        let A1 = keypair.public().clone();
+        let a2 = ed448::KeyPair::generate();
+        let a3 = ed448::KeyPair::generate();
+        let sigma = RingSignature::sign(&keypair, &A1, a2.public(), a3.public(), &m)?;
+        sigma.verify(&A1, a2.public(), a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), &A1, a3.public(), &m)?;
+        sigma.verify(a2.public(), &A1, a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), &A1, &m)?;
+        sigma.verify(a2.public(), a3.public(), &A1, &m)
+    }
+
+    #[test]
+    fn test_ring_sign_verify_bad() {
+        let m = utils::random::secure_bytes::<250>();
+        let m_bad = utils::random::secure_bytes::<250>();
+        let keypair = ed448::KeyPair::generate();
+        let a2 = ed448::KeyPair::generate();
+        let a3 = ed448::KeyPair::generate();
+        let sigma =
+            RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m).unwrap();
+        assert!(sigma
+            .verify(keypair.public(), a2.public(), a3.public(), &m_bad)
+            .is_err());
+        let sigma =
+            RingSignature::sign(&keypair, a2.public(), keypair.public(), a3.public(), &m).unwrap();
+        assert!(sigma
+            .verify(a2.public(), keypair.public(), a3.public(), &m_bad)
+            .is_err());
+        let sigma =
+            RingSignature::sign(&keypair, a2.public(), a3.public(), keypair.public(), &m).unwrap();
+        assert!(sigma
+            .verify(a2.public(), a3.public(), keypair.public(), &m_bad)
+            .is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_ring_sign_verify_incorrect_public_key_1() {
+        let m = utils::random::secure_bytes::<250>();
+        let keypair = ed448::KeyPair::generate();
+        let a1 = ed448::KeyPair::generate();
+        let a2 = ed448::KeyPair::generate();
+        let a3 = ed448::KeyPair::generate();
+        RingSignature::sign(&keypair, a1.public(), a2.public(), a3.public(), &m).unwrap();
     }
 }

@@ -1050,11 +1050,21 @@ mod tests {
             &self.1
         }
 
+        fn keypair_identity(&self) -> &crate::crypto::ed448::KeyPair {
+            // FIXME implement: implement test keypair_identity function
+            todo!("implement: implement test keypair_identity function")
+        }
+
+        fn keypair_forging(&self) -> &crate::crypto::ed448::KeyPair {
+            // FIXME implement: test keypair_forging function
+            todo!("implement: test keypair_forging function")
+        }
+
         fn query_smp_secret(&self, _question: &[u8]) -> Option<Vec<u8>> {
             todo!()
         }
 
-        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+        fn client_profile(&self) -> Vec<u8> {
             // FIXME implement client profile
             todo!("Generate valid client profile")
         }

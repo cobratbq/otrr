@@ -23,6 +23,7 @@ bitflags! {
     }
 }
 
+// FIXME check places where decoder is used, to check `done` after being done to confirm decoder was exhaustive
 pub struct OTRDecoder<'a>(&'a [u8]);
 
 impl Drop for OTRDecoder<'_> {
@@ -148,7 +149,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `read_mac` reads a MAC value from buffer.
-    pub fn read_mac(&mut self) -> Result<[u8;MAC_LEN], OTRError> {
+    pub fn read_mac(&mut self) -> Result<[u8; MAC_LEN], OTRError> {
         log::trace!("read MAC");
         if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
@@ -229,31 +230,28 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
-        self.read::<{ 2 * LENGTH_BYTES }>()
-            .map(|v| ed448::Signature::from(&v))
+        Ok(ed448::Signature::from(self.read()?))
     }
 
     pub fn read_ed448_public_key(&mut self) -> Result<ed448::PublicKey, OTRError> {
         // TODO we write the public key as OTREncodable, but we make a specific implementation for reading.
-        self.read::<LENGTH_BYTES>()
-            .map(|v| ed448::PublicKey::from(&v))
+        ed448::PublicKey::from(&self.read()?)
     }
 
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
-        let data = self.read::<LENGTH_BYTES>()?;
-        ed448::Point::decode(&data).map_err(OTRError::CryptographicViolation)
+        ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)
     }
 
     pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
-        Ok(ed448::decode_scalar(&self.read::<LENGTH_BYTES>()?))
+        Ok(ed448::decode_scalar(&self.read()?))
     }
 
     pub fn read_mac4(&mut self) -> Result<[u8; MAC4_LEN], OTRError> {
-        self.read::<MAC4_LEN>()
+        self.read()
     }
 
     pub fn read_nonce(&mut self) -> Result<[u8; NONCE_LEN], OTRError> {
-        self.read::<NONCE_LEN>()
+        self.read()
     }
 
     fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {

@@ -36,7 +36,7 @@ impl AKEContext {
         log::info!("Initiating AKE.");
         let keypair = dh::Keypair::generate();
         let r = aes128::Key::generate();
-        let gxmpi = OTREncoder::new().write_mpi(&keypair.public).to_vec();
+        let gxmpi = OTREncoder::new().write_mpi(keypair.public()).to_vec();
         let gx_encrypted = r.encrypt(&[0; 16], &gxmpi);
         let gx_hashed = sha256::digest(&gxmpi).to_vec();
         // Send D-H Commit message and await D-H Key message.
@@ -84,7 +84,7 @@ impl AKEContext {
                 // D-H Commit Message with the one you received, considered as 32-byte unsigned
                 // big-endian values.
                 let gxmpi = OTREncoder::new()
-                    .write_mpi(&state.our_dh_keypair.public)
+                    .write_mpi(state.our_dh_keypair.public())
                     .to_vec();
                 let our_gxmpi_hashed = sha256::digest(&gxmpi);
                 let our_hash = BigUint::from_bytes_be(&our_gxmpi_hashed);
@@ -118,7 +118,7 @@ impl AKEContext {
                 //   each of the D-H Key Messages you send. [And the problem gets even worse if you
                 //   are each logged in multiple times.]
                 let dhkey = EncodedMessageType::DHKey(DHKeyMessage {
-                    gy: state.our_dh_keypair.public.clone(),
+                    gy: state.our_dh_keypair.public().clone(),
                 });
                 (
                     Ok(dhkey),
@@ -134,7 +134,7 @@ impl AKEContext {
                 // AUTHSTATE_AWAITING_REVEALSIG.
                 let our_dh_keypair = dh::Keypair::generate();
                 let dhkey = EncodedMessageType::DHKey(DHKeyMessage {
-                    gy: our_dh_keypair.public.clone(),
+                    gy: our_dh_keypair.public().clone(),
                 });
                 let gx_encrypted = msg.gx_encrypted;
                 let gx_hashed = msg.gx_hashed;
@@ -160,7 +160,7 @@ impl AKEContext {
         // Reply with a D-H Key Message, and transition authstate to AUTHSTATE_AWAITING_REVEALSIG.
         let keypair = dh::Keypair::generate();
         let dhkey = EncodedMessageType::DHKey(DHKeyMessage {
-            gy: keypair.public.clone(),
+            gy: keypair.public().clone(),
         });
         let gx_encrypted = msg.gx_encrypted;
         let gx_hashed = msg.gx_hashed;
@@ -192,7 +192,7 @@ impl AKEContext {
                 let m_b = sha256::hmac(
                     &secrets.m1,
                     &OTREncoder::new()
-                        .write_mpi(&state.our_dh_keypair.public)
+                        .write_mpi(state.our_dh_keypair.public())
                         .write_mpi(&msg.gy)
                         .write_public_key(&pub_b)
                         .write_u32(KEYID_B)
@@ -284,7 +284,7 @@ impl AKEContext {
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
                 let gxmpi = msg.key.decrypt(&[0; 16], &state.gx_encrypted);
                 let gxmpihash = sha256::digest(&gxmpi);
-                constant::verify_bytes(&gxmpihash, &state.gx_hashed)
+                constant::compare_distinct_bytes(&gxmpihash, &state.gx_hashed)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("gxmpi verified: correct");
 
@@ -306,7 +306,7 @@ impl AKEContext {
                         .write_data(&msg.signature_encrypted)
                         .to_vec(),
                 );
-                constant::verify_bytes(&expected_signature_mac, &msg.signature_mac)
+                constant::compare_distinct_bytes(&expected_signature_mac, &msg.signature_mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("signature MAC verified: correct");
 
@@ -334,7 +334,7 @@ impl AKEContext {
                     &secrets.m1,
                     &OTREncoder::new()
                         .write_mpi(&gx)
-                        .write_mpi(&state.our_dh_keypair.public)
+                        .write_mpi(state.our_dh_keypair.public())
                         .write_public_key(&pub_b)
                         .write_u32(keyid_b)
                         .to_vec(),
@@ -357,7 +357,7 @@ impl AKEContext {
                 let m_a = sha256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
-                        .write_mpi(&state.our_dh_keypair.public)
+                        .write_mpi(&state.our_dh_keypair.public())
                         .write_mpi(&gx)
                         .write_public_key(&keypair.public_key())
                         .write_u32(KEYID_A)
@@ -430,7 +430,7 @@ impl AKEContext {
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
-                constant::verify_bytes(&signature_mac, &mac)
+                constant::compare_distinct_bytes(&signature_mac, &mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("Signature MAC verified.");
                 let x_a = secrets.cp.decrypt(&[0; 16], &signature_encrypted);
@@ -458,7 +458,7 @@ impl AKEContext {
                     &secrets.m1p,
                     &OTREncoder::new()
                         .write_mpi(&state.gy)
-                        .write_mpi(&state.our_dh_keypair.public)
+                        .write_mpi(&state.our_dh_keypair.public())
                         .write_public_key(&pub_a)
                         .write_u32(keyid_a)
                         .to_vec(),

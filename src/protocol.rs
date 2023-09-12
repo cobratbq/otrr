@@ -248,10 +248,10 @@ impl EncryptedOTR3State {
         let ctr = self.keys.take_counter();
         let (receiver_keyid, receiver_key) = self.keys.their_current();
         let (our_keyid, our_dh) = self.keys.current_keys();
-        let next_dh = self.keys.next_keys().1.public.clone();
+        let next_dh = self.keys.next_keys().1.public().clone();
         let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        let secrets = otr::DataSecrets::derive(&our_dh.public, receiver_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(&our_dh.public(), receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
         utils::slice::copy(&mut nonce, &ctr);
         let ciphertext = secrets
@@ -303,7 +303,7 @@ impl EncryptedOTR3State {
         let secbytes = OTREncoder::new()
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
-        let secrets = otr::DataSecrets::derive(&our_dh.public, their_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(&our_dh.public(), their_key, &secbytes);
         // "Uses mk to verify MACmk(TA)."
         let receiving_mac_key = secrets.receiver_mac_key();
         let authenticator = sha1::hmac(
@@ -315,7 +315,7 @@ impl EncryptedOTR3State {
                 message,
             ),
         );
-        constant::verify_bytes(&message.authenticator, &authenticator)
+        constant::compare_distinct_bytes(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
         log::debug!("Authenticator of received confidential message verified.");
         self.keys.register_used_mac_key(receiving_mac_key);

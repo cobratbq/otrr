@@ -1358,12 +1358,22 @@ mod tests {
             &self.0
         }
 
+        fn keypair_identity(&self) -> &crate::crypto::ed448::KeyPair {
+            // FIXME implement: keypair_identity function for testing
+            todo!("implement: keypair_identity function for testing")
+        }
+
+        fn keypair_forging(&self) -> &crate::crypto::ed448::KeyPair {
+            // FIXME implement: keypair_forging function for testing
+            todo!("implement: keypair_forging function for testing")
+        }
+
         fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
             assert_eq!(&self.1, question);
             Some(self.2.clone())
         }
 
-        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+        fn client_profile(&self) -> Vec<u8> {
             panic!("BUG: client profile should not be needed for OTRv3 SMP")
         }
     }

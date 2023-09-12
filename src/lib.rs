@@ -2,12 +2,15 @@
 
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::unnecessary_unwrap, clippy::module_name_repetitions, clippy::doc_markdown)]
+#![allow(
+    clippy::unnecessary_unwrap,
+    clippy::module_name_repetitions,
+    clippy::doc_markdown
+)]
 
 use ake::AKEError;
 use bitflags::bitflags;
-use clientprofile::ClientProfile;
-use crypto::{CryptoError, dsa};
+use crypto::{dsa, ed448, CryptoError};
 use encoding::TLV;
 use instancetag::InstanceTag;
 
@@ -209,15 +212,21 @@ pub trait Host {
     /// NOTE: `otrr` assumes that injection of the provided message into the transport succeeds.
     fn inject(&self, account: &[u8], message: &[u8]);
 
-    /// Acquire the long-term DSA keypair from the host application. The long-term keypair, that is
-    /// used for authentication purposes, is requested from the host application. This allows the
-    /// host control over which keypair to provide for which account.
+    /// Acquire the long-term (legacy) DSA keypair from the host application. The long-term keypair,
+    /// that is used for authentication purposes, is requested from the host application. This
+    /// allows the host control over which keypair to provide for which account.
     fn keypair(&self) -> &dsa::Keypair;
+
+    /// keypair_identity is the OTRv4 long-term (identity) keypair.
+    fn keypair_identity(&self) -> &ed448::KeyPair;
+
+    /// keypair_forging is the OTRv4 forging keypair.
+    fn keypair_forging(&self) -> &ed448::KeyPair;
 
     /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
     /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 
     // `client_profile` retries the client profile from the host application.
-    fn client_profile(&self) -> &ClientProfile;
+    fn client_profile(&self) -> Vec<u8>;
 }

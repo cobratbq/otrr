@@ -170,12 +170,15 @@ fn parse_whitespace_tags(data: &[u8]) -> Vec<Version> {
             WHITESPACE_TAG_OTRV1 => result.push(Version::Unsupported(1)),
             WHITESPACE_TAG_OTRV2 => result.push(Version::Unsupported(2)),
             WHITESPACE_TAG_OTRV3 => result.push(Version::V3),
+            WHITESPACE_TAG_OTRV4 => result.push(Version::V4),
             _ => { /* ignore unknown tags */ }
         }
     }
     result
 }
 
+// TODO eventually, re-evaluate issue w.r.t. large-enum-variant static analysis issue
+#[allow(clippy::large_enum_variant)]
 pub enum MessageType {
     Error(Vec<u8>),
     Plaintext(Vec<u8>),
@@ -203,11 +206,10 @@ impl OTREncodable for EncodedMessage {
                 EncodedMessageType::DHKey(_) => OTR_DH_KEY_TYPE_CODE,
                 EncodedMessageType::RevealSignature(_) => OTR_REVEAL_SIGNATURE_TYPE_CODE,
                 EncodedMessageType::Signature(_) => OTR_SIGNATURE_TYPE_CODE,
-                EncodedMessageType::Data(_) => OTR_DATA_TYPE_CODE,
                 EncodedMessageType::Identity(_) => OTR_IDENTITY_TYPE_CODE,
                 EncodedMessageType::AuthR(_) => OTR_AUTHR_TYPE_CODE,
                 EncodedMessageType::AuthI(_) => OTR_AUTHI_TYPE_CODE,
-                EncodedMessageType::Data4(_) => OTR_DATA_TYPE_CODE,
+                EncodedMessageType::Data(_) | EncodedMessageType::Data4(_) => OTR_DATA_TYPE_CODE,
             })
             .write_u32(self.sender)
             .write_u32(self.receiver)
@@ -229,6 +231,7 @@ impl OTREncodable for EncodedMessage {
 }
 
 /// OTR-message represents all of the existing OTR-encoded message structures in use by OTR.
+#[allow(clippy::large_enum_variant)]
 pub enum EncodedMessageType {
     /// `Unencoded` message type. This is a special case, typically used as an indicator that the
     /// content is not any one of the standard OTR-encoded message-types. Possibly a plain-text
@@ -250,6 +253,7 @@ pub enum EncodedMessageType {
     AuthR(dake::AuthRMessage),
     /// OTRv4 Auth-I-message in interactive DAKE-process.
     AuthI(dake::AuthIMessage),
+    /// OTRv4 (Encrypted) data-message.
     Data4(DataMessage4),
 }
 

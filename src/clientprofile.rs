@@ -8,13 +8,12 @@ use crate::{
 };
 
 pub struct ClientProfile {
-    // FIXME how to implement client profile with useable fields? Follow otr4j pattern?
-    owner: InstanceTag,
-    public_key: ed448::PublicKey,
-    forging_key: ed448::PublicKey,
-    versions: Vec<Version>,
-    expiration: i64,
-    legacy_public_key: Option<dsa::PublicKey>,
+    pub owner: InstanceTag,
+    pub public_key: ed448::PublicKey,
+    pub forging_key: ed448::PublicKey,
+    pub versions: Vec<Version>,
+    pub expiration: i64,
+    pub legacy_public_key: Option<dsa::PublicKey>,
 }
 
 // TODO consider method for including and signing with legacy DSA public key for transitional signature.
@@ -45,7 +44,8 @@ impl ClientProfile {
             versions,
             expiration: Some(expiration),
             legacy_public_key,
-            transitional_sig: _,
+            transitional_sig,
+            signature: Some(signature),
         } = payload else {
             return Err(OTRError::ProtocolViolation("Some components from the client profile are missing"))
         };
@@ -65,6 +65,7 @@ impl ClientProfile {
     }
 }
 
+#[derive(Clone)]
 pub struct ClientProfilePayload {
     owner: Option<InstanceTag>,
     public_key: Option<ed448::PublicKey>,
@@ -73,6 +74,7 @@ pub struct ClientProfilePayload {
     expiration: Option<i64>,
     legacy_public_key: Option<dsa::PublicKey>,
     transitional_sig: Option<dsa::Signature>,
+    signature: Option<ed448::Signature>,
 }
 
 impl OTREncodable for ClientProfilePayload {
@@ -104,10 +106,12 @@ impl OTREncodable for ClientProfilePayload {
             encoder.write_i64(timestamp);
         }
         if let Some(pk) = &self.legacy_public_key {
+            assert!(self.transitional_sig.is_some());
             encoder.write_u16(TYPE_DSA_PUBLIC_KEY);
             encoder.write_public_key(pk);
         }
         if let Some(sig) = &self.transitional_sig {
+            assert!(self.legacy_public_key.is_some());
             encoder.write_u16(TYPE_TRANSITIONAL_SIGNATURE);
             encoder.write_signature(sig);
         }
@@ -125,6 +129,7 @@ impl ClientProfilePayload {
             expiration: Option::None,
             legacy_public_key: Option::None,
             transitional_sig: Option::None,
+            signature: Option::None,
         };
         for _ in 0..n {
             match decoder.read_u16()? {
@@ -152,18 +157,14 @@ impl ClientProfilePayload {
                 }
             }
         }
-        let signature = decoder.read_ed448_signature()?;
-        // FIXME need to verify signature before reading payload?
-        Self::validate(payload, signature)
+        payload.signature = Some(decoder.read_ed448_signature()?);
+        payload.validate()?;
+        Ok(payload)
     }
 
-    fn validate(
-        payload: ClientProfilePayload,
-        signature: ed448::Signature,
-    ) -> Result<Self, OTRError> {
+    pub fn validate(&self) -> Result<ClientProfile, OTRError> {
         // FIXME perform verification of payload and validation against signature
         todo!("perform field validation of payload");
-        Ok(payload)
     }
 
     fn count_fields(&self) -> u8 {

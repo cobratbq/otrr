@@ -146,7 +146,7 @@ impl KeypairRotation {
     /// New instance of `KeyRotation` struct.
     fn new(initial_keyid: KeyID, initial_key: dh::Keypair) -> Self {
         assert_ne!(0, initial_keyid);
-        dh::verify_public_key(&initial_key.public).expect("BUG: public key must be valid.");
+        dh::verify_public_key(&initial_key.public()).expect("BUG: public key must be valid.");
         let mut keys: [dh::Keypair; NUM_KEYS] = [dh::Keypair::generate(), dh::Keypair::generate()];
         keys[initial_keyid as usize % NUM_KEYS] = initial_key;
         Self {

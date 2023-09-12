@@ -62,9 +62,9 @@ impl SMP4Context {
         let a3 = ed448::random_in_Zq();
         let r2 = ed448::random_in_Zq();
         let r3 = ed448::random_in_Zq();
-        let c2 = ed448::hash_to_scalar(0x01, &(G * &r2));
+        let c2 = ed448::hash_point_to_scalar(0x01, &(G * &r2));
         let d2 = (q + r2 - &(&a2 * &c2).mod_floor(q)).mod_floor(q);
-        let c3 = ed448::hash_to_scalar(0x02, &(G * &r3));
+        let c3 = ed448::hash_point_to_scalar(0x02, &(G * &r3));
         let d3 = (q + r3 - &(&a3 * &c3).mod_floor(q)).mod_floor(q);
         let G2a = G * &a2;
         ed448::verify(&G2a).map_err(OTRError::CryptographicViolation)?;
@@ -113,11 +113,11 @@ impl SMP4Context {
             // verify and process data from TLV.
             let G = ed448::generator();
             let q = ed448::prime_order();
-            let c2_expected = ed448::hash_to_scalar(0x01, &(&(G * &d2) + &(&G2a * &c2)));
-            constant::verify_scalars(&c2_expected, &c2)
+            let c2_expected = ed448::hash_point_to_scalar(0x01, &(&(G * &d2) + &(&G2a * &c2)));
+            constant::compare_distinct_scalars(&c2_expected, &c2)
                 .map_err(OTRError::CryptographicViolation)?;
-            let c3_expected = ed448::hash_to_scalar(0x02, &(&(G * &d3) + &(&G3a * &c3)));
-            constant::verify_scalars(&c3_expected, &c3)
+            let c3_expected = ed448::hash_point_to_scalar(0x02, &(&(G * &d3) + &(&G3a * &c3)));
+            constant::compare_distinct_scalars(&c3_expected, &c3)
                 .map_err(OTRError::CryptographicViolation)?;
             // Generate Bob's counterparts to random secret data for the SMP.
             let secret = self.host.query_smp_secret(&question).ok_or(OTRError::SMPAborted(true))?;
@@ -130,9 +130,9 @@ impl SMP4Context {
             let r6 = ed448::random_in_Zq();
             let G2b = G * &b2;
             let G3b = G * &b3;
-            let c2 = ed448::hash_to_scalar(0x03, &(G * &r2));
+            let c2 = ed448::hash_point_to_scalar(0x03, &(G * &r2));
             let d2 = (q + &r2 - &(&b2 * &c2).mod_floor(q)).mod_floor(q);
-            let c3 = ed448::hash_to_scalar(0x04, &(G * &r3));
+            let c3 = ed448::hash_point_to_scalar(0x04, &(G * &r3));
             let d3 = (q + &r3 - &(&b3 * &c3).mod_floor(q)).mod_floor(q);
             // Prepare state for next message.
             let G2 = &G2a * &b2;
@@ -144,7 +144,7 @@ impl SMP4Context {
             ed448::verify(&Pb).map_err(OTRError::CryptographicViolation)?;
             let Qb = &(G * &r4) + &(&G2 * &y);
             ed448::verify(&Qb).map_err(OTRError::CryptographicViolation)?;
-            let cp = ed448::hash_to_scalar2(0x05, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
+            let cp = ed448::hash_point_to_scalar2(0x05, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
             let d5 = (q + &r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
             let d6 = (q + &r6 - (&y * &cp).mod_floor(q)).mod_floor(q);
             let smp2 = OTREncoder::new()
@@ -216,23 +216,23 @@ impl SMP4Context {
             let G = ed448::generator();
             ed448::verify(&G2b).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&G3b).map_err(OTRError::CryptographicViolation)?;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &c2,
-                &ed448::hash_to_scalar(0x03, &(&(G * &d2) + &(&G2b * &c2))),
+                &ed448::hash_point_to_scalar(0x03, &(&(G * &d2) + &(&G2b * &c2))),
             )
             .map_err(OTRError::CryptographicViolation)?;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &c3,
-                &ed448::hash_to_scalar(0x04, &(&(G * &d3) + &(&G3b * &c3))),
+                &ed448::hash_point_to_scalar(0x04, &(&(G * &d3) + &(&G3b * &c3))),
             )
             .map_err(OTRError::CryptographicViolation)?;
             let G2 = &G2b * &a2;
             ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
             let G3 = &G3b * &a3;
             ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &cp,
-                &ed448::hash_to_scalar2(
+                &ed448::hash_point_to_scalar2(
                     0x05,
                     &(&(&G3 * &d5) + &(&Pb * &cp)),
                     &(&(&(G * &d5) + &(&G2 * &d6)) + &(&Qb * &cp)),
@@ -249,11 +249,11 @@ impl SMP4Context {
             let G = ed448::generator();
             let Qa = &(G * &r4) + &(&G2 * &x);
             let DeltaQaQb = &Qa + &-&Qb;
-            let cp = ed448::hash_to_scalar2(0x06, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
+            let cp = ed448::hash_point_to_scalar2(0x06, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
             let d5 = (q + &r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
             let d6 = (q + &r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
             let Ra = &DeltaQaQb * &a3;
-            let cr = ed448::hash_to_scalar2(0x07, &(G * &r7), &(&DeltaQaQb * &r7));
+            let cr = ed448::hash_point_to_scalar2(0x07, &(G * &r7), &(&DeltaQaQb * &r7));
             let d7 = &(q + r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
             let smp3 = OTREncoder::new()
                 .write_ed448_point(&Pa)
@@ -328,9 +328,9 @@ impl SMP4Context {
             ed448::verify(&Pa).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&Qa).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&Ra).map_err(OTRError::CryptographicViolation)?;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &cp,
-                &ed448::hash_to_scalar2(
+                &ed448::hash_point_to_scalar2(
                     0x06,
                     &(&(&G3 * &d5) + &(&Pa * &cp)),
                     &(&(&(G * &d5) + &(&G2 * &d6)) + &(&Qa * &cp)),
@@ -338,9 +338,9 @@ impl SMP4Context {
             )
             .map_err(OTRError::CryptographicViolation)?;
             let DeltaQaQb = &Qa + &-&Qb;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &cr,
-                &ed448::hash_to_scalar2(
+                &ed448::hash_point_to_scalar2(
                     0x07,
                     &(&(G * &d7) + &(&G3a * &cr)),
                     &(&(&DeltaQaQb * &d7) + &(&Ra * &cr)),
@@ -350,7 +350,7 @@ impl SMP4Context {
             // Produce SMP-type 4 message.
             let r7 = ed448::random_in_Zq();
             let Rb = &DeltaQaQb * &b3;
-            let cr = ed448::hash_to_scalar2(0x08, &(G * &r7), &(&DeltaQaQb * &r7));
+            let cr = ed448::hash_point_to_scalar2(0x08, &(G * &r7), &(&DeltaQaQb * &r7));
             let q = ed448::prime_order();
             let d7 = (q + &r7 - (&b3 * &cr).mod_floor(q)).mod_floor(q);
             let smp4 = OTREncoder::new()
@@ -359,7 +359,7 @@ impl SMP4Context {
                 .write_ed448_scalar(&d7)
                 .to_vec();
             // Conclude the protocol by verifying if the secret is equal.
-            let success = constant::verify_points(&(Ra * b3), &(Pa + -&Pb)).is_ok();
+            let success = constant::compare_distinct_points(&(Ra * b3), &(Pa + -&Pb)).is_ok();
             self.state = State::ExpectSMP1;
             Ok((success, TLV(TLV_SMP_MESSAGE_4, smp4)))
         })();
@@ -404,9 +404,9 @@ impl SMP4Context {
             // Verify received data.
             let G = ed448::generator();
             ed448::verify(&Rb).map_err(OTRError::CryptographicViolation)?;
-            constant::verify_scalars(
+            constant::compare_distinct_scalars(
                 &cr,
-                &ed448::hash_to_scalar2(
+                &ed448::hash_point_to_scalar2(
                     0x08,
                     &(&(G * &d7) + &(&G3b * &cr)),
                     &(&(&DeltaQaQb * &d7) + &(&Rb * &cr)),
@@ -414,7 +414,7 @@ impl SMP4Context {
             )
             .map_err(OTRError::CryptographicViolation)?;
             // Process data and verify.
-            let success = constant::verify_points(&(&Rb * &a3), &DeltaPaPb).is_ok();
+            let success = constant::compare_distinct_points(&(&Rb * &a3), &DeltaPaPb).is_ok();
             self.state = State::ExpectSMP1;
             Ok(success)
         })();
@@ -648,12 +648,22 @@ mod tests {
             unimplemented!("DSA keypair is not necessary for tests")
         }
 
+        fn keypair_identity(&self) -> &crypto::ed448::KeyPair {
+            // FIXME implement: keypair_identity function for testing
+            todo!("implement: keypair_identity function for testing")
+        }
+
+        fn keypair_forging(&self) -> &crypto::ed448::KeyPair {
+            // FIXME implement: keypair_forging function for testing
+            todo!("implement: keypair_forging function for testing")
+        }
+
         fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
             assert_eq!(&self.0, question);
             Some(self.1.clone())
         }
 
-        fn client_profile(&self) -> &crate::clientprofile::ClientProfile {
+        fn client_profile(&self) -> Vec<u8> {
             unimplemented!("client profile is not necessary for tests")
         }
     }
