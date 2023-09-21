@@ -9,7 +9,8 @@ use crate::utils;
 
 static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
-// FIXME double-check all big-endian/little-endian use. (generate ECDH uses little-endian)
+// TODO double-check all big-endian/little-endian use. (generate ECDH uses little-endian)
+// TODO check on if/how to clear/drop BigUint values after use.
 
 #[allow(non_snake_case)]
 pub mod dh {
@@ -604,12 +605,16 @@ pub mod sha256 {
 }
 
 pub mod otr4 {
-    use super::{ed448, shake256};
+    use num_bigint::BigUint;
+
+    use crate::utils;
+
+    use super::{dh3072, ed448, shake256, CryptoError};
 
     const USAGE_FINGERPRINT: u8 = 0x00;
     pub const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
     const USAGE_BRACE_KEY: u8 = 0x02;
-    pub const USAGE_SHARED_SECRET: u8 = 0x03;
+    const USAGE_SHARED_SECRET: u8 = 0x03;
     pub const USAGE_SSID: u8 = 0x04;
     pub const USAGE_AUTH_R_BOB_CLIENT_PROFILE: u8 = 0x05;
     pub const USAGE_AUTH_R_ALICE_CLIENT_PROFILE: u8 = 0x06;
@@ -617,24 +622,171 @@ pub mod otr4 {
     pub const USAGE_AUTH_I_BOB_CLIENT_PROFILE: u8 = 0x08;
     pub const USAGE_AUTH_I_ALICE_CLIENT_PROFILE: u8 = 0x09;
     pub const USAGE_AUTH_I_PHI: u8 = 0x0A;
-    const USAGE_FIRST_ROOT_KEY: u8 = 0x0B;
-    const USAGE_TMP_KEY: u8 = 0x0C;
-    const USAGE_AUTH_MAC_KEY: u8 = 0x0D;
-    const USAGE_NONINT_AUTH_BOB_CLIENT_PROFILE: u8 = 0x0E;
-    const USAGE_NONINT_AUTH_ALICE_CLIENT_PROFILE: u8 = 0x0F;
-    const USAGE_NONINT_AUTH_PHI: u8 = 0x10;
-    const USAGE_AUTH_MAC: u8 = 0x11;
+    pub const USAGE_FIRST_ROOT_KEY: u8 = 0x0B;
+    //const USAGE_TMP_KEY: u8 = 0x0C;
+    //const USAGE_AUTH_MAC_KEY: u8 = 0x0D;
+    //const USAGE_NONINT_AUTH_BOB_CLIENT_PROFILE: u8 = 0x0E;
+    //const USAGE_NONINT_AUTH_ALICE_CLIENT_PROFILE: u8 = 0x0F;
+    //const USAGE_NONINT_AUTH_PHI: u8 = 0x10;
+    //const USAGE_AUTH_MAC: u8 = 0x11;
     const USAGE_ROOT_KEY: u8 = 0x12;
     const USAGE_CHAIN_KEY: u8 = 0x13;
-    const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
-    const USAGE_MESSAGE_KEY: u8 = 0x15;
-    const USAGE_MAC_KEY: u8 = 0x16;
-    const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
-    const USAGE_AUTHENTICATOR: u8 = 0x18;
+    //const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
+    //const USAGE_MESSAGE_KEY: u8 = 0x15;
+    //const USAGE_MAC_KEY: u8 = 0x16;
+    //const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
+    //const USAGE_AUTHENTICATOR: u8 = 0x18;
     pub const USAGE_SMP_SECRET: u8 = 0x19;
     pub const USAGE_AUTH: u8 = 0x1A;
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
+
+    pub const K_LENGTH_BYTES: usize = 64;
+    pub const ROOT_KEY_LENGTH_BYTES: usize = 64;
+    const BRACE_KEY_LENGTH_BYTES: usize = 32;
+    const CHAIN_KEY_LENGTH_BYTES: usize = 64;
+
+    pub struct DoubleRatchet {
+        shared_secret: MixedSharedSecret,
+        root_key: [u8; 64],
+        sender: Ratchet,
+        receiver: Ratchet,
+        next: Selector,
+        i: u32,
+        pn: u32,
+    }
+
+    impl DoubleRatchet {
+        pub fn initialize(
+            selector: &Selector,
+            shared_secret: MixedSharedSecret,
+            prev_root_key: [u8; ROOT_KEY_LENGTH_BYTES],
+        ) -> Self {
+            let k = shared_secret.k();
+            let root_key = kdf_2::<ROOT_KEY_LENGTH_BYTES>(USAGE_ROOT_KEY, &prev_root_key, &k);
+            // FIXME shouldn't use `k` here below again. Should be replaced.
+            let (sender, receiver, next) = match selector {
+                Selector::SENDER => (
+                    Ratchet::new(&prev_root_key, &k),
+                    Ratchet::dummy(),
+                    Selector::RECEIVER,
+                ),
+                Selector::RECEIVER => (
+                    Ratchet::dummy(),
+                    Ratchet::new(&prev_root_key, &k),
+                    Selector::SENDER,
+                ),
+            };
+            Self {
+                shared_secret,
+                root_key,
+                sender,
+                receiver,
+                next,
+                i: 0,
+                pn: 0,
+            }
+        }
+
+        pub fn next(&self) -> &Selector {
+            &self.next
+        }
+    }
+
+    struct Ratchet {
+        chain_key: [u8; CHAIN_KEY_LENGTH_BYTES],
+        message_id: u32,
+    }
+
+    impl Ratchet {
+        fn new(prev_root_key: &[u8; ROOT_KEY_LENGTH_BYTES], k: &[u8; K_LENGTH_BYTES]) -> Self {
+            Self {
+                chain_key: kdf_2(USAGE_CHAIN_KEY, prev_root_key, k),
+                message_id: 0,
+            }
+        }
+
+        fn dummy() -> Self {
+            // TODO ensure that assertions for any non-zero bytes are in place.
+            Self {
+                chain_key: [0u8; CHAIN_KEY_LENGTH_BYTES],
+                message_id: 0,
+            }
+        }
+    }
+
+    /// `Selector` is the selector for a specific ratchet, i.e. Sender or Receiver.
+    pub enum Selector {
+        SENDER,
+        RECEIVER,
+    }
+
+    pub struct MixedSharedSecret {
+        ecdh: ed448::KeyPair,
+        dh: dh3072::KeyPair,
+        public_ecdh: ed448::Point,
+        public_dh: BigUint,
+        brace_key: [u8; BRACE_KEY_LENGTH_BYTES],
+        k: [u8; K_LENGTH_BYTES],
+    }
+
+    impl MixedSharedSecret {
+        /// `new` constructs the next rotation of the mixed shared secret.
+        ///
+        /// # Errors
+        /// In case of invalid key material.
+        pub fn new(
+            ecdh0: ed448::KeyPair,
+            dh0: dh3072::KeyPair,
+            public_ecdh: ed448::Point,
+            public_dh: BigUint,
+        ) -> Result<Self, CryptoError> {
+            Self::next(
+                ecdh0,
+                dh0,
+                public_ecdh,
+                public_dh,
+                true,
+                [0u8; BRACE_KEY_LENGTH_BYTES],
+            )
+        }
+
+        fn next(
+            ecdh: ed448::KeyPair,
+            dh: dh3072::KeyPair,
+            public_ecdh: ed448::Point,
+            public_dh: BigUint,
+            third: bool,
+            brace_key_prev: [u8; BRACE_KEY_LENGTH_BYTES],
+        ) -> Result<Self, CryptoError> {
+            ed448::verify(&public_ecdh)?;
+            dh3072::verify(&public_dh)?;
+            // FIXME verification
+            let secret_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
+            let brace_key = if third {
+                let secret_dh =
+                    utils::biguint::to_bytes_le_fixed::<57>(&dh.generate_shared_secret(&public_dh));
+                kdf(USAGE_THIRD_BRACE_KEY, &secret_dh)
+            } else {
+                assert!(utils::bytes::any_nonzero(&brace_key_prev));
+                kdf(USAGE_BRACE_KEY, &brace_key_prev)
+            };
+            let k = kdf_2::<K_LENGTH_BYTES>(USAGE_SHARED_SECRET, &secret_ecdh, &brace_key);
+            // FIXME key material needs clearing/cleaning up
+            Ok(Self {
+                ecdh,
+                dh,
+                public_ecdh,
+                public_dh,
+                brace_key,
+                k,
+            })
+        }
+
+        pub fn k(&self) -> [u8; K_LENGTH_BYTES] {
+            self.k
+        }
+    }
 
     #[must_use]
     pub fn fingerprint(public_key: &ed448::Point, forging_key: &ed448::Point) -> [u8; 56] {
@@ -654,7 +806,6 @@ pub mod otr4 {
         kdf::<N>(usage, data)
     }
 
-    // TODO is pruning done after `kdf` in all cases? move into kdf function?
     #[must_use]
     pub fn kdf<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
         let mut buffer = Vec::with_capacity(6 + data.len());
@@ -664,7 +815,6 @@ pub mod otr4 {
         shake256::digest::<N>(&buffer)
     }
 
-    // TODO is pruning done after `kdf` in all cases? move into kdf function?
     #[must_use]
     pub fn kdf_2<const N: usize>(usage: u8, data1: &[u8], data2: &[u8]) -> [u8; N] {
         let mut buffer = Vec::with_capacity(6 + data1.len() + data2.len());
@@ -706,7 +856,7 @@ pub mod ed448 {
     use zeroize::Zeroize;
 
     use crate::{
-        crypto::otr4::{self, hwc, USAGE_AUTH},
+        crypto::otr4::{hwc, USAGE_AUTH},
         encoding::{OTRDecoder, OTREncodable, OTREncoder},
         utils::{self, bigint::ONE, bytes},
         OTRError,
@@ -894,6 +1044,8 @@ pub mod ed448 {
         BigUint::from_bytes_le(encoded).mod_floor(&*Q)
     }
 
+    // TODO currently cloning the keypair to re-obtain ownership. Is there a way to avoid that without too much borrow checker complexity?
+    #[derive(Clone)]
     pub struct KeyPair(BigUint, Point);
 
     impl KeyPair {
@@ -1172,7 +1324,7 @@ pub mod ed448 {
             let T1 = &*G * &self.r1 + A1 * &self.c1;
             let T2 = &*G * &self.r2 + A2 * &self.c2;
             let T3 = &*G * &self.r3 + A3 * &self.c3;
-            let h = otr4::hwc::<57>(
+            let c = hash_to_scalar(
                 USAGE_AUTH,
                 &OTREncoder::new()
                     .write_ed448_point(&G)
@@ -1186,9 +1338,8 @@ pub mod ed448 {
                     .write_data(m)
                     .to_vec(),
             );
-            let c = BigUint::from_bytes_le(&h).mod_floor(&Q);
             // FIXME make constant-time comparison, selection
-            constant::compare_distinct_scalars(&c, &(&self.c1 + &self.c2 + &self.c3).mod_floor(&Q))
+            constant::compare_scalars_distinct(&c, &(&self.c1 + &self.c2 + &self.c3).mod_floor(&*Q))
         }
 
         /// `sign` generates a ring signature.
@@ -1198,6 +1349,7 @@ pub mod ed448 {
         ///
         /// # Panics
         /// In case of implementation errors (bad usage).
+        #[allow(non_snake_case, clippy::similar_names)]
         pub fn sign(
             keypair: &KeyPair,
             A1: &Point,
@@ -1211,7 +1363,10 @@ pub mod ed448 {
             let eq1 = constant::compare_points(&keypair.1, A1).is_ok();
             let eq2 = constant::compare_points(&keypair.1, A2).is_ok();
             let eq3 = constant::compare_points(&keypair.1, A3).is_ok();
-            assert!((eq1 && !eq2 && !eq3) || (!eq1 && eq2 && !eq3) || (!eq1 && !eq2 && eq3));
+            match (eq1, eq2, eq3) {
+                (true, false, false) | (false, true, false) | (false, false, true) => {}
+                _ => panic!("BUG: illegal combination of public keys."),
+            }
             let t = random_in_Zq();
             let c1 = random_in_Zq();
             let c2 = random_in_Zq();
@@ -1219,79 +1374,78 @@ pub mod ed448 {
             let r1 = random_in_Zq();
             let r2 = random_in_Zq();
             let r3 = random_in_Zq();
-            let T1: Point;
-            let T2: Point;
-            let T3: Point;
             // FIXME make constant-time comparison, selection
-            if eq1 {
-                T1 = &*G * &t;
-                T2 = &*G * &r2 + A2 * &c2;
-                T3 = &*G * &r3 + A3 * &c3;
-            } else if eq2 {
-                T1 = &*G * &r1 + A1 * &c1;
-                T2 = &*G * &t;
-                T3 = &*G * &r3 + A3 * &c3;
-            } else if eq3 {
-                T1 = &*G * &r1 + A1 * &c1;
-                T2 = &*G * &r2 + A2 * &c2;
-                T3 = &*G * &t;
-            } else {
-                panic!("BUG: should not reach here.");
-            }
-            let mut enc = OTREncoder::new();
-            enc.write_ed448_point(&G);
-            enc.write_ed448_scalar(&Q);
-            enc.write_ed448_point(A1);
-            enc.write_ed448_point(A2);
-            enc.write_ed448_point(A3);
-            enc.write_ed448_point(&T1);
-            enc.write_ed448_point(&T2);
-            enc.write_ed448_point(&T3);
-            enc.write_data(m);
-            let c = hash_to_scalar(USAGE_AUTH, &enc.to_vec());
-            // FIXME "The order of elements passed to `H` and sent to the verifier must not depend on the secret known by the prover (otherwise, the key used to produce the proof can be inferred in practice)."
-            if eq1 {
-                //let c1 = &c - &c2 - &c3;
-                let c1 = (&c + &*Q - &c2 + &*Q - &c3).mod_floor(&*Q);
-                //let r1 = &t - &c1 * &keypair.0;
-                let r1 = &t + &*Q - &(&c1 * &keypair.0).mod_floor(&*Q);
-                return Ok(Self {
-                    c1,
-                    r1,
-                    c2,
-                    r2,
-                    c3,
-                    r3,
-                });
-            } else if eq2 {
-                //let c2 = &c - &c1 - &c3;
-                let c2 = (&c + &*Q - &c1 + &*Q - &c3).mod_floor(&*Q);
-                //let r2 = &t - &c2 * &keypair.0;
-                let r2 = &t + &*Q - &(&c2 * &keypair.0).mod_floor(&*Q);
-                return Ok(Self {
-                    c1,
-                    r1,
-                    c2,
-                    r2,
-                    c3,
-                    r3,
-                });
-            } else if eq3 {
-                //let c3 = &c - &c1 - &c2;
-                let c3 = (&c + &*Q - &c1 + &*Q - &c2).mod_floor(&*Q);
-                //let r3 = &t - &c3 * &keypair.0;
-                let r3 = &t + &*Q - &(&c3 * &keypair.0).mod_floor(&*Q);
-                return Ok(Self {
-                    c1,
-                    r1,
-                    c2,
-                    r2,
-                    c3,
-                    r3,
-                });
-            }
-            // FIXME securely delete t
-            panic!("BUG: should not reach here.");
+            let (T1, T2, T3) = match (eq1, eq2, eq3) {
+                (true, false, false) => (&*G * &t, &*G * &r2 + A2 * &c2, &*G * &r3 + A3 * &c3),
+                (false, true, false) => (&*G * &r1 + A1 * &c1, &*G * &t, &*G * &r3 + A3 * &c3),
+                (false, false, true) => (&*G * &r1 + A1 * &c1, &*G * &r2 + A2 * &c2, &*G * &t),
+                _ => panic!("BUG: illegal combination of public keys."),
+            };
+            let c = hash_to_scalar(
+                USAGE_AUTH,
+                &OTREncoder::new()
+                    .write_ed448_point(&G)
+                    .write_ed448_scalar(&Q)
+                    .write_ed448_point(A1)
+                    .write_ed448_point(A2)
+                    .write_ed448_point(A3)
+                    .write_ed448_point(&T1)
+                    .write_ed448_point(&T2)
+                    .write_ed448_point(&T3)
+                    .write_data(m)
+                    .to_vec(),
+            );
+            // TODO "The order of elements passed to `H` and sent to the verifier must not depend on the secret known by the prover (otherwise, the key used to produce the proof can be inferred in practice)."
+            let sigma = match (eq1, eq2, eq3) {
+                (true, false, false) => {
+                    //let c1 = &c - &c2 - &c3;
+                    let c1_derived = (&c + &*Q - &c2 + &*Q - &c3).mod_floor(&*Q);
+                    //let r1 = &t - &c1 * &keypair.0;
+                    let r1_derived =
+                        (&t + &*Q - &(&c1_derived * &keypair.0).mod_floor(&*Q)).mod_floor(&*Q);
+                    Self {
+                        c1: c1_derived,
+                        r1: r1_derived,
+                        c2,
+                        r2,
+                        c3,
+                        r3,
+                    }
+                }
+                (false, true, false) => {
+                    //let c2 = &c - &c1 - &c3;
+                    let c2_derived = (&c + &*Q - &c1 + &*Q - &c3).mod_floor(&*Q);
+                    //let r2 = &t - &c2 * &keypair.0;
+                    let r2_derived =
+                        (&t + &*Q - &(&c2_derived * &keypair.0).mod_floor(&*Q)).mod_floor(&*Q);
+                    Self {
+                        c1,
+                        r1,
+                        c2: c2_derived,
+                        r2: r2_derived,
+                        c3,
+                        r3,
+                    }
+                }
+                (false, false, true) => {
+                    //let c3 = &c - &c1 - &c2;
+                    let c3_derived = (&c + &*Q - &c1 + &*Q - &c2).mod_floor(&*Q);
+                    //let r3 = &t - &c3 * &keypair.0;
+                    let r3_derived =
+                        (&t + &*Q - &(&c3_derived * &keypair.0).mod_floor(&*Q)).mod_floor(&*Q);
+                    Self {
+                        c1,
+                        r1,
+                        c2,
+                        r2,
+                        c3: c3_derived,
+                        r3: r3_derived,
+                    }
+                }
+                _ => panic!("BUG: should not reach here."),
+            };
+            // TODO securely delete t
+            Ok(sigma)
         }
     }
 
@@ -1305,13 +1459,17 @@ pub mod ed448 {
     #[must_use]
     pub fn random_in_Zq() -> BigUint {
         let mut h = shake256::digest::<57>(&utils::random::secure_bytes::<57>());
-        prune(&mut h);
+        // TODO all-zero is possible but very unlikely. Maybe remove the assertion, as pruning will ensure there are non-zero bytes, but it would be highly suspicious nonetheless.
         assert!(bytes::any_nonzero(&h));
-        BigUint::from_bytes_le(&h).mod_floor(&Q)
+        prune(&mut h);
+        let v = decode_scalar(&h);
+        utils::bytes::clear(&mut h);
+        v
     }
 
-    /// `prune` prunes a byte-array that represents an encoded scalar value to ensure
-    /// that the scalar, when decoded, produces a valid scalar value.
+    /// `prune` prunes any byte-array representing a little-endian encoded scalar value to ensure
+    /// that the scalar, when decoded, produces a valid scalar value. `v` must be at least 57 bytes
+    /// in size.
     ///
     /// # Panics
     /// Panics if invalid input is provided. (sanity-checks)
@@ -1325,7 +1483,7 @@ pub mod ed448 {
 }
 
 // FIXME change name to refer to group identifier or something from otrv4
-pub mod dh2 {
+pub mod dh3072 {
     use num_bigint::BigUint;
     use once_cell::sync::Lazy;
 
@@ -1352,6 +1510,9 @@ pub mod dh2 {
 
     /// `verify` verifies a 3072-bit DH element to confirm that it satisfies the requirements of the
     /// group.
+    ///
+    /// # Errors
+    /// In case `v` fails verification.
     pub fn verify(v: &BigUint) -> Result<(), CryptoError> {
         if v < &G3 || v > &(&*P - &*G3) || v.modpow(&Q, &P) != *utils::biguint::ONE {
             return Err(CryptoError::VerificationFailure("element is invalid"));
@@ -1360,6 +1521,8 @@ pub mod dh2 {
     }
 
     /// `KeyPair` is a 3072 DH keypair.
+    // TODO currently cloning the keypair to re-obtain ownership. Is there a way to avoid that without too much borrow checker complexity?
+    #[derive(Clone)]
     pub struct KeyPair {
         private: BigUint,
         public: BigUint,
@@ -1402,7 +1565,7 @@ pub mod constant {
     /// # Panics
     /// Panics if instances `s1` and `s2` are the same.
     // FIXME need better name, 'distinct' bytes?
-    pub fn compare_distinct_scalars(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
+    pub fn compare_scalars_distinct(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
         assert!(!core::ptr::eq(s1, s2), "BUG: s1 and s2 are same instance");
         compare(
             &s1.to_bytes_le(),
@@ -1411,6 +1574,10 @@ pub mod constant {
         )
     }
 
+    /// `compare_scalars` compares two scalars in constant time and returns result.
+    ///
+    /// # Errors
+    /// In case comparison fails, i.e. scalars are not equal.
     pub fn compare_scalars(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
         compare(
             &s1.to_bytes_le(),
@@ -1428,7 +1595,7 @@ pub mod constant {
     /// # Panics
     /// Panics if instances `p1` and `p2` are the same.
     // FIXME need better name, 'distinct' bytes?
-    pub fn compare_distinct_points(
+    pub fn compare_points_distinct(
         p1: &ed448::Point,
         p2: &ed448::Point,
     ) -> Result<(), CryptoError> {
@@ -1436,6 +1603,10 @@ pub mod constant {
         compare(&p1.encode(), &p2.encode(), "verification of points failed")
     }
 
+    /// `compare_points` compares two points in constant time.
+    ///
+    /// # Errors
+    /// In case points fail comparison, i.e. are not equal.
     pub fn compare_points(p1: &ed448::Point, p2: &ed448::Point) -> Result<(), CryptoError> {
         compare(&p1.encode(), &p2.encode(), "verification of points failed")
     }
@@ -1449,7 +1620,7 @@ pub mod constant {
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
     // FIXME need better name, 'distinct' bytes?
-    pub fn compare_distinct_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
+    pub fn compare_bytes_distinct(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(data1, data2),
             "BUG: data1 and data2 parameters are same instance"
@@ -1457,6 +1628,10 @@ pub mod constant {
         compare(data1, data2, "verification of bytes failed")
     }
 
+    /// `compare_bytes` compares two byte-arrays in constant-time.
+    ///
+    /// # Errors
+    /// In case comparison fails, i.e. byte-arrays are not equal.
     pub fn compare_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         compare(data1, data2, "verification of bytes failed")
     }
@@ -1530,46 +1705,46 @@ mod tests {
         assert_eq!(dh::modulus(), dh::modulus());
         assert_eq!(dh::q(), dh::q());
         let k1 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k1.public()).is_ok());
+        assert!(dh::verify_public_key(k1.public()).is_ok());
         let k2 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k2.public()).is_ok());
+        assert!(dh::verify_public_key(k2.public()).is_ok());
         let k3 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k3.public()).is_ok());
+        assert!(dh::verify_public_key(k3.public()).is_ok());
         let k4 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k4.public()).is_ok());
+        assert!(dh::verify_public_key(k4.public()).is_ok());
         let k5 = dh::Keypair::generate();
-        assert!(dh::verify_public_key(&k5.public()).is_ok());
+        assert!(dh::verify_public_key(k5.public()).is_ok());
         assert_ne!(k1.public(), k2.public());
         assert_ne!(k2.public(), k3.public());
         assert_ne!(k3.public(), k4.public());
         assert_ne!(k4.public(), k5.public());
         assert_eq!(
-            k1.generate_shared_secret(&k2.public()),
-            k2.generate_shared_secret(&k1.public())
+            k1.generate_shared_secret(k2.public()),
+            k2.generate_shared_secret(k1.public())
         );
         assert_eq!(
-            k2.generate_shared_secret(&k3.public()),
-            k3.generate_shared_secret(&k2.public())
+            k2.generate_shared_secret(k3.public()),
+            k3.generate_shared_secret(k2.public())
         );
         assert_eq!(
-            k4.generate_shared_secret(&k3.public()),
-            k3.generate_shared_secret(&k4.public())
+            k4.generate_shared_secret(k3.public()),
+            k3.generate_shared_secret(k4.public())
         );
         assert_eq!(
-            k4.generate_shared_secret(&k5.public()),
-            k5.generate_shared_secret(&k4.public())
+            k4.generate_shared_secret(k5.public()),
+            k5.generate_shared_secret(k4.public())
         );
         assert_eq!(
-            k1.generate_shared_secret(&k5.public()),
-            k5.generate_shared_secret(&k1.public())
+            k1.generate_shared_secret(k5.public()),
+            k5.generate_shared_secret(k1.public())
         );
         assert_eq!(
-            k2.generate_shared_secret(&k4.public()),
-            k4.generate_shared_secret(&k2.public())
+            k2.generate_shared_secret(k4.public()),
+            k4.generate_shared_secret(k2.public())
         );
         assert_eq!(
-            k3.generate_shared_secret(&k3.public()),
-            k3.generate_shared_secret(&k3.public())
+            k3.generate_shared_secret(k3.public()),
+            k3.generate_shared_secret(k3.public())
         );
         assert!(dh::verify_public_key(&ZERO).is_err());
         assert!(dh::verify_public_key(&ONE).is_err());
@@ -1589,30 +1764,30 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_zero_length_slices() {
-        constant::compare_distinct_bytes(&[], &[]).unwrap();
+        constant::compare_bytes_distinct(&[], &[]).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_zero_slices() {
-        constant::compare_distinct_bytes(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
+        constant::compare_bytes_distinct(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
     }
 
     #[test]
     fn test_same_length_slices() {
         let s1 = b"Hello world";
         let s2 = *s1;
-        constant::compare_distinct_bytes(s1, &s2).unwrap();
+        constant::compare_bytes_distinct(s1, &s2).unwrap();
     }
 
     #[test]
     fn test_different_content() {
-        assert!(constant::compare_distinct_bytes(b"Hello!", b"Yo!").is_err());
+        assert!(constant::compare_bytes_distinct(b"Hello!", b"Yo!").is_err());
     }
 
     #[test]
     fn test_differing_length_slices() {
-        assert!(constant::compare_distinct_bytes(b"Hello!", b"Hello").is_err());
+        assert!(constant::compare_bytes_distinct(b"Hello!", b"Hello").is_err());
     }
 
     #[test]
@@ -1676,10 +1851,10 @@ mod tests {
 
     #[test]
     fn test_ring_sign_verify() -> Result<(), CryptoError> {
-        let m = utils::random::secure_bytes::<250>();
         let keypair = ed448::KeyPair::generate();
         let a2 = ed448::KeyPair::generate();
         let a3 = ed448::KeyPair::generate();
+        let m = utils::random::secure_bytes::<250>();
         let sigma = RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m)?;
         sigma.verify(keypair.public(), a2.public(), a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), keypair.public(), a3.public(), &m)?;

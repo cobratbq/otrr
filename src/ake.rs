@@ -284,7 +284,7 @@ impl AKEContext {
                 // Acquire g^x from previously sent encrypted/hashed g^x-derived data and ensure authenticity.
                 let gxmpi = msg.key.decrypt(&[0; 16], &state.gx_encrypted);
                 let gxmpihash = sha256::digest(&gxmpi);
-                constant::compare_distinct_bytes(&gxmpihash, &state.gx_hashed)
+                constant::compare_bytes_distinct(&gxmpihash, &state.gx_hashed)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("gxmpi verified: correct");
 
@@ -306,7 +306,7 @@ impl AKEContext {
                         .write_data(&msg.signature_encrypted)
                         .to_vec(),
                 );
-                constant::compare_distinct_bytes(&expected_signature_mac, &msg.signature_mac)
+                constant::compare_bytes_distinct(&expected_signature_mac, &msg.signature_mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("signature MAC verified: correct");
 
@@ -357,7 +357,7 @@ impl AKEContext {
                 let m_a = sha256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()
-                        .write_mpi(&state.our_dh_keypair.public())
+                        .write_mpi(state.our_dh_keypair.public())
                         .write_mpi(&gx)
                         .write_public_key(&keypair.public_key())
                         .write_u32(KEYID_A)
@@ -430,7 +430,7 @@ impl AKEContext {
                     &secrets.m2p,
                     &OTREncoder::new().write_data(&signature_encrypted).to_vec(),
                 );
-                constant::compare_distinct_bytes(&signature_mac, &mac)
+                constant::compare_bytes_distinct(&signature_mac, &mac)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("Signature MAC verified.");
                 let x_a = secrets.cp.decrypt(&[0; 16], &signature_encrypted);
@@ -458,7 +458,7 @@ impl AKEContext {
                     &secrets.m1p,
                     &OTREncoder::new()
                         .write_mpi(&state.gy)
-                        .write_mpi(&state.our_dh_keypair.public())
+                        .write_mpi(state.our_dh_keypair.public())
                         .write_public_key(&pub_a)
                         .write_u32(keyid_a)
                         .to_vec(),

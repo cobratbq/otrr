@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
+#![allow(dead_code)]
 
 pub mod alloc {
     #[must_use]
@@ -64,6 +65,11 @@ pub mod bytes {
             }
         }
         Ordering::Equal
+    }
+
+    /// `clear` fills provided byte-array with zeroes.
+    pub fn clear(data: &mut [u8]) {
+        data.fill(0);
     }
 }
 
@@ -151,9 +157,9 @@ pub mod slice {
 
     /// `fill` fills a slice with specified value.
     pub fn fill<T: Copy>(data: &mut [T], value: T) {
-        for i in 0..data.len() {
+        (0..data.len()).for_each(|i| {
             data[i] = value;
-        }
+        });
     }
 }
 

@@ -3,6 +3,9 @@
 		{
 			"name": "otrr",
 			"path": "."
+		},
+		{
+			"path": "../otrv4"
 		}
 	],
 	"settings": {

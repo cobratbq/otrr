@@ -114,10 +114,10 @@ impl SMP4Context {
             let G = ed448::generator();
             let q = ed448::prime_order();
             let c2_expected = ed448::hash_point_to_scalar(0x01, &(&(G * &d2) + &(&G2a * &c2)));
-            constant::compare_distinct_scalars(&c2_expected, &c2)
+            constant::compare_scalars_distinct(&c2_expected, &c2)
                 .map_err(OTRError::CryptographicViolation)?;
             let c3_expected = ed448::hash_point_to_scalar(0x02, &(&(G * &d3) + &(&G3a * &c3)));
-            constant::compare_distinct_scalars(&c3_expected, &c3)
+            constant::compare_scalars_distinct(&c3_expected, &c3)
                 .map_err(OTRError::CryptographicViolation)?;
             // Generate Bob's counterparts to random secret data for the SMP.
             let secret = self.host.query_smp_secret(&question).ok_or(OTRError::SMPAborted(true))?;
@@ -216,12 +216,12 @@ impl SMP4Context {
             let G = ed448::generator();
             ed448::verify(&G2b).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&G3b).map_err(OTRError::CryptographicViolation)?;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &c2,
                 &ed448::hash_point_to_scalar(0x03, &(&(G * &d2) + &(&G2b * &c2))),
             )
             .map_err(OTRError::CryptographicViolation)?;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &c3,
                 &ed448::hash_point_to_scalar(0x04, &(&(G * &d3) + &(&G3b * &c3))),
             )
@@ -230,7 +230,7 @@ impl SMP4Context {
             ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
             let G3 = &G3b * &a3;
             ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &cp,
                 &ed448::hash_point_to_scalar2(
                     0x05,
@@ -328,7 +328,7 @@ impl SMP4Context {
             ed448::verify(&Pa).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&Qa).map_err(OTRError::CryptographicViolation)?;
             ed448::verify(&Ra).map_err(OTRError::CryptographicViolation)?;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &cp,
                 &ed448::hash_point_to_scalar2(
                     0x06,
@@ -338,7 +338,7 @@ impl SMP4Context {
             )
             .map_err(OTRError::CryptographicViolation)?;
             let DeltaQaQb = &Qa + &-&Qb;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &cr,
                 &ed448::hash_point_to_scalar2(
                     0x07,
@@ -359,7 +359,7 @@ impl SMP4Context {
                 .write_ed448_scalar(&d7)
                 .to_vec();
             // Conclude the protocol by verifying if the secret is equal.
-            let success = constant::compare_distinct_points(&(Ra * b3), &(Pa + -&Pb)).is_ok();
+            let success = constant::compare_points_distinct(&(Ra * b3), &(Pa + -&Pb)).is_ok();
             self.state = State::ExpectSMP1;
             Ok((success, TLV(TLV_SMP_MESSAGE_4, smp4)))
         })();
@@ -404,7 +404,7 @@ impl SMP4Context {
             // Verify received data.
             let G = ed448::generator();
             ed448::verify(&Rb).map_err(OTRError::CryptographicViolation)?;
-            constant::compare_distinct_scalars(
+            constant::compare_scalars_distinct(
                 &cr,
                 &ed448::hash_point_to_scalar2(
                     0x08,
@@ -414,7 +414,7 @@ impl SMP4Context {
             )
             .map_err(OTRError::CryptographicViolation)?;
             // Process data and verify.
-            let success = constant::compare_distinct_points(&(&Rb * &a3), &DeltaPaPb).is_ok();
+            let success = constant::compare_points_distinct(&(&Rb * &a3), &DeltaPaPb).is_ok();
             self.state = State::ExpectSMP1;
             Ok(success)
         })();

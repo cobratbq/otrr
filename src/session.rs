@@ -265,21 +265,21 @@ impl Session {
                 }
                 instance.handle(msg)
             }
-            MessageType::Encoded(
-                msg @ EncodedMessage {
-                    version: _,
-                    sender: _,
-                    receiver: _,
-                    message: EncodedMessageType::Identity(_),
-                },
-            ) => {
+            MessageType::Encoded(EncodedMessage {
+                version: _,
+                sender: _,
+                receiver: _,
+                message: EncodedMessageType::Identity(_),
+            }) => {
                 // FIXME implement: handling receiving Identity message before instance tag is known/in use
                 todo!("implement: handling receiving Identity message before instance tag is known/in use")
             }
             MessageType::Encoded(msg) => {
                 log::debug!("Processing OTR-encoded message ..");
                 self.verify_encoded_message_header(&msg)?;
-                if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
+                if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3)
+                    || msg.version == Version::V4 && !self.details.policy.contains(Policy::ALLOW_V4)
+                {
                     return Ok(UserMessage::None);
                 }
                 self.instances
@@ -634,19 +634,19 @@ impl Instance {
                     }
                 }
             }
-            EncodedMessageType::Identity(msg) => {
+            EncodedMessageType::Identity(_) => {
                 // FIXME implement: handling DAKE Identity message
                 todo!("implement: handling DAKE Identity message")
             }
-            EncodedMessageType::AuthR(msg) => {
+            EncodedMessageType::AuthR(_) => {
                 // FIXME implement: handling DAKE Auth-R message type
                 todo!("implement: handling DAKE Auth-R message type")
             }
-            EncodedMessageType::AuthI(msg) => {
+            EncodedMessageType::AuthI(_) => {
                 // FIXME implement: handling DAKE Auth-I message type
                 todo!("implement: handling DAKE Auth-I message type")
             }
-            EncodedMessageType::Data4(msg) => {
+            EncodedMessageType::Data4(_) => {
                 // FIXME implement: handling OTRv4 Data Message
                 todo!("implement: handling OTRv4 Data Message")
             }

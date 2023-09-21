@@ -251,7 +251,7 @@ impl EncryptedOTR3State {
         let next_dh = self.keys.next_keys().1.public().clone();
         let shared_secret = self.keys.current_shared_secret();
         let secbytes = OTREncoder::new().write_mpi(&shared_secret).to_vec();
-        let secrets = otr::DataSecrets::derive(&our_dh.public(), receiver_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(our_dh.public(), receiver_key, &secbytes);
         let mut nonce = [0u8; 16];
         utils::slice::copy(&mut nonce, &ctr);
         let ciphertext = secrets
@@ -315,7 +315,7 @@ impl EncryptedOTR3State {
                 message,
             ),
         );
-        constant::compare_distinct_bytes(&message.authenticator, &authenticator)
+        constant::compare_bytes_distinct(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
         log::debug!("Authenticator of received confidential message verified.");
         self.keys.register_used_mac_key(receiving_mac_key);

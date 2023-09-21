@@ -33,10 +33,16 @@ impl ClientProfile {
             expiration,
             legacy_public_key: None,
         };
-        Self::validate(profile)
+        Self::validate(&profile)?;
+        Ok(profile)
     }
 
+    /// `from` reconstructs a client profile based on the payload.
+    ///
+    /// # Errors
+    /// In case of bad payload.
     pub fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
+        payload.validate()?;
         let ClientProfilePayload {
             owner: Some(owner),
             public_key: Some(public_key),
@@ -49,19 +55,22 @@ impl ClientProfile {
         } = payload else {
             return Err(OTRError::ProtocolViolation("Some components from the client profile are missing"))
         };
-        Ok(Self {
+        let profile = Self {
             owner,
             public_key,
             forging_key,
             versions,
             expiration,
             legacy_public_key,
-        })
+        };
+        Self::validate(&profile)?;
+        Ok(profile)
     }
 
-    fn validate(profile: Self) -> Result<Self, OTRError> {
-        // FIXME continue here
-        Ok(profile)
+    fn validate(profile: &Self) -> Result<(), OTRError> {
+        // FIXME implement: validation of ClientProfile content
+        todo!("implement: validation of ClientProfile content");
+        Ok(())
     }
 }
 
@@ -80,7 +89,7 @@ pub struct ClientProfilePayload {
 impl OTREncodable for ClientProfilePayload {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
         // TODO assumes payload is valid, i.e. unwrap will produce panics
-        encoder.write_u32(self.count_fields() as u32);
+        encoder.write_u32(u32::from(self.count_fields()));
         {
             let tag = self.owner.unwrap();
             encoder.write_u16(TYPE_OWNERINSTANCETAG);
@@ -119,6 +128,11 @@ impl OTREncodable for ClientProfilePayload {
 }
 
 impl ClientProfilePayload {
+    /// `decode` decodes a client profile payload from OTR-encoded byte-stream.
+    ///
+    /// # Errors
+    /// In case of failure to properly read and decode payload from bytes, or upon failing
+    /// validation.
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
         let n = decoder.read_u32()? as usize;
         let mut payload = Self {
@@ -186,7 +200,7 @@ fn parse_versions(data: &[u8]) -> Vec<Version> {
             b'3' => Version::V3,
             b'4' => Version::V4,
             _ => continue,
-        })
+        });
     }
     versions
 }
@@ -198,7 +212,7 @@ fn encode_versions(versions: &[Version]) -> Vec<u8> {
             Version::V3 => b'3',
             Version::V4 => b'4',
             _ => panic!("Illegal version"),
-        })
+        });
     }
     data
 }
