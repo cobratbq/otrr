@@ -72,7 +72,8 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let message_type = decoder.read_u8()?;
     let sender: InstanceTag = decoder.read_instance_tag()?;
     let receiver: InstanceTag = decoder.read_instance_tag()?;
-    let encoded = parse_encoded_content(message_type, decoder)?;
+    let encoded = parse_encoded_content(&version, message_type, &mut decoder)?;
+    decoder.done()?;
     Result::Ok(MessageType::Encoded(EncodedMessage {
         version,
         sender,
@@ -82,34 +83,40 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
 }
 
 fn parse_encoded_content(
+    version: &Version,
     message_type: u8,
-    mut decoder: OTRDecoder,
+    decoder: &mut OTRDecoder,
 ) -> Result<EncodedMessageType, OTRError> {
-    match message_type {
-        OTR_DH_COMMIT_TYPE_CODE => Ok(EncodedMessageType::DHCommit(ake::DHCommitMessage::decode(
-            &mut decoder,
-        )?)),
-        OTR_DH_KEY_TYPE_CODE => Ok(EncodedMessageType::DHKey(ake::DHKeyMessage::decode(
-            &mut decoder,
-        )?)),
-        OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(EncodedMessageType::RevealSignature(
-            ake::RevealSignatureMessage::decode(&mut decoder)?,
+    match (version, message_type) {
+        (Version::V3, OTR_DH_COMMIT_TYPE_CODE) => Ok(EncodedMessageType::DHCommit(
+            ake::DHCommitMessage::decode(decoder)?,
         )),
-        OTR_SIGNATURE_TYPE_CODE => Ok(EncodedMessageType::Signature(
-            ake::SignatureMessage::decode(&mut decoder)?,
+        (Version::V3, OTR_DH_KEY_TYPE_CODE) => Ok(EncodedMessageType::DHKey(
+            ake::DHKeyMessage::decode(decoder)?,
         )),
-        OTR_IDENTITY_TYPE_CODE => Ok(EncodedMessageType::Identity(dake::IdentityMessage::decode(
-            &mut decoder,
-        )?)),
-        OTR_AUTHR_TYPE_CODE => Ok(EncodedMessageType::AuthR(dake::AuthRMessage::decode(
-            &mut decoder,
-        )?)),
-        OTR_AUTHI_TYPE_CODE => Ok(EncodedMessageType::AuthI(dake::AuthIMessage::decode(
-            &mut decoder,
-        )?)),
-        OTR_DATA_TYPE_CODE => Ok(EncodedMessageType::Data(DataMessage::decode(&mut decoder)?)),
+        (Version::V3, OTR_REVEAL_SIGNATURE_TYPE_CODE) => Ok(EncodedMessageType::RevealSignature(
+            ake::RevealSignatureMessage::decode(decoder)?,
+        )),
+        (Version::V3, OTR_SIGNATURE_TYPE_CODE) => Ok(EncodedMessageType::Signature(
+            ake::SignatureMessage::decode(decoder)?,
+        )),
+        (Version::V3, OTR_DATA_TYPE_CODE) => {
+            Ok(EncodedMessageType::Data(DataMessage::decode(decoder)?))
+        }
+        (Version::V4, OTR_IDENTITY_TYPE_CODE) => Ok(EncodedMessageType::Identity(
+            dake::IdentityMessage::decode(decoder)?,
+        )),
+        (Version::V4, OTR_AUTHR_TYPE_CODE) => Ok(EncodedMessageType::AuthR(
+            dake::AuthRMessage::decode(decoder)?,
+        )),
+        (Version::V4, OTR_AUTHI_TYPE_CODE) => Ok(EncodedMessageType::AuthI(
+            dake::AuthIMessage::decode(decoder)?,
+        )),
+        (Version::V4, OTR_DATA_TYPE_CODE) => {
+            Ok(EncodedMessageType::Data4(DataMessage4::decode(decoder)?))
+        },
         _ => Err(OTRError::ProtocolViolation(
-            "Invalid or unknown message type.",
+            "Invalid or unknown message type, or incorrect protocol version for message type.",
         )),
     }
 }

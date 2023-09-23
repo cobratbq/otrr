@@ -150,16 +150,11 @@ pub mod slice {
         dst[..len].copy_from_slice(src);
     }
 
-    /// `clear` overwrites a slice with value `0`.
-    pub fn clear(data: &mut [u8]) {
-        fill(data, 0);
-    }
-
     /// `fill` fills a slice with specified value.
     pub fn fill<T: Copy>(data: &mut [T], value: T) {
-        (0..data.len()).for_each(|i| {
+        for i in 0..data.len() {
             data[i] = value;
-        });
+        }
     }
 }
 
@@ -203,6 +198,7 @@ pub mod u32 {
         }
     }
 
+    /// `verify_nonzero` verifies that `value` is non-zero or returns provided error.
     pub fn verify_nonzero<E>(value: u32, error: E) -> Result<(), E> {
         if value == 0 {
             Err(error)
@@ -212,6 +208,7 @@ pub mod u32 {
     }
 }
 
+/// `random` provides utils for `ring::rand` secure random generator.
 pub mod random {
     use once_cell::sync::Lazy;
     use ring::rand::{SecureRandom, SystemRandom};
@@ -226,6 +223,7 @@ pub mod random {
         bytes
     }
 
+    /// `fill_secure_bytes` fills provided buffer with bytes from (secure) random number generator.
     pub fn fill_secure_bytes(buffer: &mut [u8]) {
         RANDOM.fill(buffer).unwrap();
     }

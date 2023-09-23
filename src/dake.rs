@@ -7,15 +7,8 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    clientprofile::{self, ClientProfilePayload},
-    crypto::{
-        self,
-        otr4::{
-            self, ROOT_KEY_LENGTH_BYTES, USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-            USAGE_AUTH_I_BOB_CLIENT_PROFILE, USAGE_AUTH_I_PHI, USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-            USAGE_AUTH_R_BOB_CLIENT_PROFILE, USAGE_AUTH_R_PHI, USAGE_FIRST_ROOT_KEY, USAGE_SSID,
-        },
-    },
+    clientprofile::{self, ClientProfile, ClientProfilePayload},
+    crypto::{dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
     Host, OTRError,
 };
@@ -32,15 +25,20 @@ impl DAKEContext {
     /// # Errors
     /// In case of protocol violation or cryptographic failure.
     pub fn initiate(&mut self) -> Result<IdentityMessage, OTRError> {
+        if !matches!(self.state, State::Initial) {
+            return Err(OTRError::IncorrectState(
+                "Authenticated key exchange in progress.",
+            ));
+        }
         let profile_bytes = self.host.client_profile();
         let mut decoder = OTRDecoder::new(&profile_bytes);
         let profile = ClientProfilePayload::decode(&mut decoder)?;
         decoder.done()?;
-        let y = crypto::ed448::KeyPair::generate();
-        let b = crypto::dh3072::KeyPair::generate();
-        let ecdh0 = crypto::ed448::KeyPair::generate();
-        let dh0 = crypto::dh3072::KeyPair::generate();
-        let initial = IdentityMessage {
+        let y = ed448::KeyPair::generate();
+        let b = dh3072::KeyPair::generate();
+        let ecdh0 = ed448::KeyPair::generate();
+        let dh0 = dh3072::KeyPair::generate();
+        let identity_message = IdentityMessage {
             profile: profile.clone(),
             y: y.public().clone(),
             b: b.public().clone(),
@@ -53,40 +51,80 @@ impl DAKEContext {
             payload: profile,
             ecdh0,
             dh0,
+            identity_message: identity_message.clone(),
         };
-        Ok(initial)
+        Ok(identity_message)
+    }
+
+    pub fn abort(&mut self) {
+        self.state = State::Initial;
+        // FIXME need to send response when we abort?
     }
 
     /// `handle_identity` handles identity messages.
-    pub fn handle_identity(&mut self, message: IdentityMessage) -> Result<AuthRMessage, OTRError> {
-        if let State::Initial = self.state {
-            // No need to extract any data from state.
-        } else {
-            return Err(OTRError::ProtocolViolation(
-                "Unexpected message received. Ignoring.",
-            ));
+    ///
+    /// # Errors
+    /// In case of failure to validate message or failed to process due to protocol violation, e.g.
+    /// incorrect state.
+    // TODO Identity Message also needs to be handled in ENCRYPTED_MESSAGES and FINISHED states.
+    #[allow(clippy::too_many_lines)]
+    pub fn handle_identity(
+        &mut self,
+        message: IdentityMessage,
+    ) -> Result<Box<dyn OTREncodable>, OTRError> {
+        let profile_bob: ClientProfile;
+        match &self.state {
+            State::Initial
+            | State::AwaitingAuthI {
+                profile_alice: _,
+                profile_bob: _,
+                x: _,
+                y: _,
+                a: _,
+                b: _,
+                k: _,
+                ecdh0: _,
+                dh0: _,
+                ecdh0_other: _,
+                dh0_other: _,
+            } => {
+                profile_bob = message.validate()?;
+            }
+            State::AwaitingAuthR {
+                y: _,
+                b: _,
+                payload: _,
+                ecdh0: _,
+                dh0: _,
+                identity_message,
+            } => {
+                profile_bob = message.validate()?;
+                if identity_message.b > message.b {
+                    return Ok(Box::new(identity_message.clone()));
+                }
+            }
+            _ => {
+                return Err(OTRError::ProtocolViolation(
+                    "Unexpected message received. Ignoring.",
+                ))
+            }
         }
-        let profile_bob = message.profile.validate()?;
-        crypto::ed448::verify(&message.y).map_err(OTRError::CryptographicViolation)?;
-        crypto::dh3072::verify(&message.b).map_err(OTRError::CryptographicViolation)?;
-        crypto::ed448::verify(&message.ecdh0).map_err(OTRError::CryptographicViolation)?;
-        crypto::dh3072::verify(&message.dh0).map_err(OTRError::CryptographicViolation)?;
         // Generate own key material and construct Auth-R Message.
-        let profile_bytes = self.host.client_profile();
-        let mut profile_decoder = OTRDecoder::new(&profile_bytes);
+        let profile_payload = self.host.client_profile();
+        let mut profile_decoder = OTRDecoder::new(&profile_payload);
         let profile = ClientProfilePayload::decode(&mut profile_decoder)?;
         profile_decoder.done()?;
-        let x = crypto::ed448::KeyPair::generate();
-        let a = crypto::dh3072::KeyPair::generate();
+        let x = ed448::KeyPair::generate();
+        let a = dh3072::KeyPair::generate();
         // FIXME double check minimal size big-endian encoding.
         let mut tbytes = Vec::new();
         tbytes.push(0x00);
         tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_R_BOB_CLIENT_PROFILE,
+            otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
             &OTREncoder::new().write_encodable(&message.profile).to_vec(),
         ));
         tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
+            otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
             &OTREncoder::new().write_encodable(&profile).to_vec(),
         ));
         tbytes.extend_from_slice(&message.y.encode());
@@ -95,9 +133,9 @@ impl DAKEContext {
         tbytes.extend_from_slice(&message.b.to_bytes_be());
         tbytes.extend_from_slice(&a.public().to_bytes_be());
         let phi = self.generate_phi();
-        tbytes.extend_from_slice(&otr4::hwc::<64>(USAGE_AUTH_R_PHI, &phi));
+        tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_R_PHI, &phi));
         let identity_keypair = self.host.keypair_identity();
-        let sigma = crypto::ed448::RingSignature::sign(
+        let sigma = ed448::RingSignature::sign(
             identity_keypair,
             profile_bob.forging_key.point(),
             identity_keypair.public(),
@@ -105,8 +143,8 @@ impl DAKEContext {
             &tbytes,
         )
         .map_err(OTRError::CryptographicViolation)?;
-        let ecdh0 = crypto::ed448::KeyPair::generate();
-        let dh0 = crypto::dh3072::KeyPair::generate();
+        let ecdh0 = ed448::KeyPair::generate();
+        let dh0 = dh3072::KeyPair::generate();
         let response = AuthRMessage {
             profile_payload: profile.clone(),
             x: x.public().clone(),
@@ -133,199 +171,181 @@ impl DAKEContext {
             k,
             ecdh0,
             dh0,
-            ecdh0_public: message.ecdh0,
-            dh0_public: message.dh0,
+            ecdh0_other: message.ecdh0,
+            dh0_other: message.dh0,
         };
-        Ok(response)
+        Ok(Box::new(response))
     }
 
     pub fn handle_auth_r(&mut self, message: AuthRMessage) -> Result<AuthIMessage, OTRError> {
-        let y: &crypto::ed448::KeyPair;
-        let b: &crypto::dh3072::KeyPair;
-        let payload_bob: &ClientProfilePayload;
-        let ecdh0: &crypto::ed448::KeyPair;
-        let dh0: &crypto::dh3072::KeyPair;
         if let State::AwaitingAuthR {
-            y: y_,
-            b: b_,
-            payload: payload_,
-            ecdh0: ecdh0_,
-            dh0: dh0_,
+            y,
+            b,
+            payload: payload_bob,
+            ecdh0,
+            dh0,
+            identity_message,
         } = &self.state
         {
-            y = y_;
-            b = b_;
-            payload_bob = payload_;
-            ecdh0 = ecdh0_;
-            dh0 = dh0_;
-        } else {
-            return Err(OTRError::ProtocolViolation(
-                "Unexpected message received. Ignoring.",
+            let profile_alice = message.validate()?;
+            let mut tbytes: Vec<u8> = Vec::new();
+            tbytes.push(0);
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
             ));
-        };
-        let profile_alice = message.profile_payload.validate()?;
-        crypto::ed448::verify(&message.x).map_err(OTRError::CryptographicViolation)?;
-        crypto::dh3072::verify(&message.a).map_err(OTRError::CryptographicViolation)?;
-        crypto::ed448::verify(&message.ecdh0).map_err(OTRError::CryptographicViolation)?;
-        crypto::dh3072::verify(&message.dh0).map_err(OTRError::CryptographicViolation)?;
-        let mut tbytes: Vec<u8> = Vec::new();
-        tbytes.push(0);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new()
-                .write_encodable(&message.profile_payload)
-                .to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.public().encode());
-        tbytes.extend_from_slice(&message.x.encode());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
-        let phi = self.generate_phi();
-        tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_R_PHI, &phi));
-        let profile_bob = payload_bob.validate()?;
-        message
-            .sigma
-            .verify(
-                profile_bob.forging_key.point(),
-                profile_alice.public_key.point(),
-                y.public(),
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new()
+                    .write_encodable(&message.profile_payload)
+                    .to_vec(),
+            ));
+            tbytes.extend_from_slice(&y.public().encode());
+            tbytes.extend_from_slice(&message.x.encode());
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
+            let phi = self.generate_phi();
+            tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_R_PHI, &phi));
+            let profile_bob = payload_bob.validate()?;
+            message
+                .sigma
+                .verify(
+                    profile_bob.forging_key.point(),
+                    profile_alice.public_key.point(),
+                    y.public(),
+                    &tbytes,
+                )
+                .map_err(OTRError::CryptographicViolation)?;
+            // Generate response Auth-I Message.
+            let mut tbytes = Vec::new();
+            tbytes.push(0x01);
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+            ));
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new()
+                    .write_encodable(&message.profile_payload)
+                    .to_vec(),
+            ));
+            tbytes.extend_from_slice(&y.public().encode());
+            tbytes.extend_from_slice(&message.x.encode());
+            // FIXME double-check if it is big-endian byte-order, fixed-size byte-array.
+            tbytes.extend_from_slice(&b.public().to_bytes_be());
+            tbytes.extend_from_slice(&message.a.to_bytes_be());
+            tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_I_PHI, &phi));
+            let keypair_identity = self.host.keypair_identity();
+            let sigma = ed448::RingSignature::sign(
+                keypair_identity,
+                keypair_identity.public(),
+                profile_alice.forging_key.point(),
+                &message.x,
                 &tbytes,
             )
             .map_err(OTRError::CryptographicViolation)?;
-        // Generate response Auth-I Message.
-        let mut tbytes = Vec::new();
-        tbytes.push(0x01);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new()
-                .write_encodable(&message.profile_payload)
-                .to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.public().encode());
-        tbytes.extend_from_slice(&message.x.encode());
-        // FIXME double-check if it is big-endian byte-order, fixed-size byte-array.
-        tbytes.extend_from_slice(&b.public().to_bytes_be());
-        tbytes.extend_from_slice(&message.a.to_bytes_be());
-        tbytes.extend_from_slice(&otr4::hwc::<64>(USAGE_AUTH_I_PHI, &phi));
-        let keypair_identity = self.host.keypair_identity();
-        let sigma = crypto::ed448::RingSignature::sign(
-            keypair_identity,
-            keypair_identity.public(),
-            profile_alice.forging_key.point(),
-            &message.x,
-            &tbytes,
-        )
-        .map_err(OTRError::CryptographicViolation)?;
-        // Calculate cryptographic material.
-        let shared_secret =
-            otr4::MixedSharedSecret::new(y.clone(), b.clone(), message.x, message.a)
-                .map_err(OTRError::CryptographicViolation)?;
-        let k = shared_secret.k();
-        let ssid = otr4::hwc::<8>(USAGE_SSID, &k);
-        let prev_root_key = otr4::kdf::<ROOT_KEY_LENGTH_BYTES>(USAGE_FIRST_ROOT_KEY, &k);
-        let shared_secret =
-            otr4::MixedSharedSecret::new(ecdh0.clone(), dh0.clone(), message.ecdh0, message.dh0)
-                .map_err(OTRError::CryptographicViolation)?;
-        let double_ratchet =
-            otr4::DoubleRatchet::initialize(&otr4::Selector::RECEIVER, shared_secret, prev_root_key);
-        // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
-        // Transition to secure state.
-        // FIXME transition to secure (protocol) state, and/or reset to initial state.
-        self.state = State::Initial;
-        // FIXME transition to `ENCRYPTED_MESSAGES` state with gathered key material.
-        Ok(AuthIMessage { sigma })
+            // Calculate cryptographic material.
+            let shared_secret =
+                otr4::MixedSharedSecret::new(y.clone(), b.clone(), message.x, message.a)
+                    .map_err(OTRError::CryptographicViolation)?;
+            let k = shared_secret.k();
+            let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, &k);
+            let prev_root_key =
+                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH_BYTES }>(otr4::USAGE_FIRST_ROOT_KEY, &k);
+            let shared_secret = otr4::MixedSharedSecret::new(
+                ecdh0.clone(),
+                dh0.clone(),
+                message.ecdh0,
+                message.dh0,
+            )
+            .map_err(OTRError::CryptographicViolation)?;
+            let double_ratchet = otr4::DoubleRatchet::initialize(
+                &otr4::Selector::RECEIVER,
+                shared_secret,
+                prev_root_key,
+            );
+            // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
+            // Transition to secure state.
+            // FIXME transition to secure (protocol) state, and/or reset to initial state.
+            self.state = State::Initial;
+            // FIXME transition to `ENCRYPTED_MESSAGES` state with gathered key material.
+            Ok(AuthIMessage { sigma })
+        } else {
+            // FIXME double-check if we can use IncorrectState, as it seems to be tied closely to FINISHED state.
+            Err(OTRError::IncorrectState(
+                "Unexpected message received. Ignoring.",
+            ))
+        }
     }
 
     pub fn handle_auth_i(&mut self, message: &AuthIMessage) -> Result<(), OTRError> {
-        let payload_alice: &ClientProfilePayload;
-        let payload_bob: &ClientProfilePayload;
-        let x: &crypto::ed448::Point;
-        let y: &crypto::ed448::Point;
-        let a: &BigUint;
-        let b: &BigUint;
-        let k: &[u8; otr4::K_LENGTH_BYTES];
-        let ecdh0: &crypto::ed448::KeyPair;
-        let dh0: &crypto::dh3072::KeyPair;
-        let ecdh0_public: &crypto::ed448::Point;
-        let dh0_public: &BigUint;
         if let State::AwaitingAuthI {
-            profile_alice: payload_alice_,
-            profile_bob: payload_bob_,
-            x: x_,
-            y: y_,
-            a: a_,
-            b: b_,
-            k: k_,
-            ecdh0: ecdh0_,
-            dh0: dh0_,
-            ecdh0_public: ecdh0_public_,
-            dh0_public: dh0_public_,
+            profile_alice: payload_alice,
+            profile_bob: payload_bob,
+            x,
+            y,
+            a,
+            b,
+            k,
+            ecdh0,
+            dh0,
+            ecdh0_other,
+            dh0_other,
         } = &self.state
         {
-            payload_alice = payload_alice_;
-            payload_bob = payload_bob_;
-            x = x_;
-            y = y_;
-            a = a_;
-            b = b_;
-            k = k_;
-            ecdh0 = ecdh0_;
-            dh0 = dh0_;
-            ecdh0_public = ecdh0_public_;
-            dh0_public = dh0_public_;
-        } else {
-            return Err(OTRError::ProtocolViolation(
-                "Unexpected message received. Ignoring.",
+            let profile_alice = payload_alice.validate()?;
+            let keypair = self.host.keypair_identity();
+            let mut tbytes = Vec::new();
+            tbytes.push(0x01);
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
             ));
-        }
-        let profile_alice = payload_alice.validate()?;
-        let keypair = self.host.keypair_identity();
-        let mut tbytes = Vec::new();
-        tbytes.push(0x01);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_alice).to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.encode());
-        tbytes.extend_from_slice(&x.encode());
-        tbytes.extend_from_slice(&b.to_bytes_be());
-        tbytes.extend_from_slice(&a.to_bytes_be());
-        tbytes.extend_from_slice(&otr4::hwc::<64>(USAGE_AUTH_I_PHI, &self.generate_phi()));
-        message
-            .sigma
-            .verify(
-                keypair.public(),
-                profile_alice.public_key.point(),
-                x,
-                &tbytes,
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_alice).to_vec(),
+            ));
+            tbytes.extend_from_slice(&y.encode());
+            tbytes.extend_from_slice(&x.encode());
+            tbytes.extend_from_slice(&b.to_bytes_be());
+            tbytes.extend_from_slice(&a.to_bytes_be());
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_PHI,
+                &self.generate_phi(),
+            ));
+            message
+                .sigma
+                .verify(
+                    keypair.public(),
+                    profile_alice.public_key.point(),
+                    x,
+                    &tbytes,
+                )
+                .map_err(OTRError::CryptographicViolation)?;
+
+            // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
+            let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
+            let prev_root_key =
+                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH_BYTES }>(otr4::USAGE_FIRST_ROOT_KEY, k);
+            let shared_secret = otr4::MixedSharedSecret::new(
+                ecdh0.clone(),
+                dh0.clone(),
+                ecdh0_other.clone(),
+                dh0_other.clone(),
             )
             .map_err(OTRError::CryptographicViolation)?;
-
-        // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
-        let ssid = otr4::hwc::<8>(USAGE_SSID, k);
-        let prev_root_key = otr4::kdf::<ROOT_KEY_LENGTH_BYTES>(USAGE_FIRST_ROOT_KEY, k);
-        let shared_secret = otr4::MixedSharedSecret::new(
-            ecdh0.clone(),
-            dh0.clone(),
-            ecdh0_public.clone(),
-            dh0_public.clone(),
-        )
-        .map_err(OTRError::CryptographicViolation)?;
-        let ratchet = otr4::DoubleRatchet::initialize(&otr4::Selector::SENDER, shared_secret, prev_root_key);
-        // FIXME transition to secure session.
-        Ok(())
+            let ratchet = otr4::DoubleRatchet::initialize(
+                &otr4::Selector::SENDER,
+                shared_secret,
+                prev_root_key,
+            );
+            // FIXME transition to secure session.
+            Ok(())
+        } else {
+            Err(OTRError::IncorrectState(
+                "Unexpected message received. Ignoring.",
+            ))
+        }
     }
 
     fn generate_phi(&self) -> Vec<u8> {
@@ -342,34 +362,36 @@ enum State {
     Initial,
     /// `AwaitingAuthR` is the state for Alice as she awaits Bob's `AuthRMessage`.
     AwaitingAuthR {
-        y: crypto::ed448::KeyPair,
-        b: crypto::dh3072::KeyPair,
+        y: ed448::KeyPair,
+        b: dh3072::KeyPair,
         payload: ClientProfilePayload,
-        ecdh0: crypto::ed448::KeyPair,
-        dh0: crypto::dh3072::KeyPair,
+        ecdh0: ed448::KeyPair,
+        dh0: dh3072::KeyPair,
+        identity_message: IdentityMessage,
     },
     /// `AwaitingAuthI` is the state for Bob as he awaits Alice's `AuthIMessage`.
     // FIXME easier to have `expected_sigma` as bytes?
     AwaitingAuthI {
         profile_alice: clientprofile::ClientProfilePayload,
         profile_bob: clientprofile::ClientProfilePayload,
-        x: crypto::ed448::Point,
-        y: crypto::ed448::Point,
+        x: ed448::Point,
+        y: ed448::Point,
         a: BigUint,
         b: BigUint,
         k: [u8; otr4::K_LENGTH_BYTES],
-        ecdh0: crypto::ed448::KeyPair,
-        dh0: crypto::dh3072::KeyPair,
-        ecdh0_public: crypto::ed448::Point,
-        dh0_public: BigUint,
+        ecdh0: ed448::KeyPair,
+        dh0: dh3072::KeyPair,
+        ecdh0_other: ed448::Point,
+        dh0_other: BigUint,
     },
 }
 
+#[derive(Clone)]
 pub struct IdentityMessage {
     pub profile: ClientProfilePayload,
-    pub y: crypto::ed448::Point,
+    pub y: ed448::Point,
     pub b: BigUint,
-    pub ecdh0: crypto::ed448::Point,
+    pub ecdh0: ed448::Point,
     pub dh0: BigUint,
 }
 
@@ -400,15 +422,26 @@ impl IdentityMessage {
             dh0,
         })
     }
+
+    fn validate(&self) -> Result<ClientProfile, OTRError> {
+        // FIXME client profile's instance tag needs to be validated against instance tag in session to make sure message is properly constructed belonging to the instance tag of the message.
+        let profile_bob = self.profile.validate()?;
+        ed448::verify(&self.y).map_err(OTRError::CryptographicViolation)?;
+        dh3072::verify(&self.b).map_err(OTRError::CryptographicViolation)?;
+        ed448::verify(&self.ecdh0).map_err(OTRError::CryptographicViolation)?;
+        dh3072::verify(&self.dh0).map_err(OTRError::CryptographicViolation)?;
+        Ok(profile_bob)
+    }
 }
 
+#[derive(Clone)]
 pub struct AuthRMessage {
     // FIXME define auth-r message
     pub profile_payload: clientprofile::ClientProfilePayload,
-    pub x: crypto::ed448::Point,
+    pub x: ed448::Point,
     pub a: BigUint,
-    pub sigma: crypto::ed448::RingSignature,
-    pub ecdh0: crypto::ed448::Point,
+    pub sigma: ed448::RingSignature,
+    pub ecdh0: ed448::Point,
     pub dh0: BigUint,
 }
 
@@ -429,7 +462,7 @@ impl AuthRMessage {
         let profile_payload = ClientProfilePayload::decode(decoder)?;
         let x = decoder.read_ed448_point()?;
         let a = decoder.read_ed448_scalar()?;
-        let sigma = crypto::ed448::RingSignature::decode(decoder)?;
+        let sigma = ed448::RingSignature::decode(decoder)?;
         let ecdh0 = decoder.read_ed448_point()?;
         let dh0 = decoder.read_ed448_scalar()?;
         Ok(Self {
@@ -441,10 +474,21 @@ impl AuthRMessage {
             dh0,
         })
     }
+
+    fn validate(&self) -> Result<ClientProfile, OTRError> {
+        // FIXME client profile's instance tag needs to be validated against instance tag in session to make sure message is properly constructed belonging to the instance tag of the message.
+        let profile_alice = self.profile_payload.validate()?;
+        ed448::verify(&self.x).map_err(OTRError::CryptographicViolation)?;
+        dh3072::verify(&self.a).map_err(OTRError::CryptographicViolation)?;
+        ed448::verify(&self.ecdh0).map_err(OTRError::CryptographicViolation)?;
+        dh3072::verify(&self.dh0).map_err(OTRError::CryptographicViolation)?;
+        Ok(profile_alice)
+    }
 }
 
+#[derive(Clone)]
 pub struct AuthIMessage {
-    pub sigma: crypto::ed448::RingSignature,
+    pub sigma: ed448::RingSignature,
 }
 
 impl OTREncodable for AuthIMessage {
@@ -455,7 +499,7 @@ impl OTREncodable for AuthIMessage {
 
 impl AuthIMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
-        let sigma = crypto::ed448::RingSignature::decode(decoder)?;
+        let sigma = ed448::RingSignature::decode(decoder)?;
         Ok(Self { sigma })
     }
 }

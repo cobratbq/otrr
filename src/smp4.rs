@@ -25,7 +25,7 @@ impl Drop for SMP4Context {
     fn drop(&mut self) {
         self.initiator.fill(0);
         self.responder.fill(0);
-        utils::slice::clear(&mut self.ssid);
+        utils::bytes::clear(&mut self.ssid);
     }
 }
 

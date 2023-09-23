@@ -3,8 +3,6 @@
 use once_cell::sync::Lazy;
 use ring::rand::{self, SecureRandom};
 
-use crate::utils;
-
 pub const INSTANCE_ZERO: InstanceTag = 0;
 const INSTANCE_MIN_VALID: InstanceTag = 0x0000_0100;
 
@@ -14,7 +12,7 @@ static RAND: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 /// multiple clients using the same account. Introduced in OTR version 3, this tag allows treating
 /// multiple (chat) clients operating on the same account independently. The instance tag is used to
 /// identify individual clients as soon as the OTR protocol takes effect.
-/// 
+///
 /// Instance tag `0` (`INSTANCE_ZERO`) is reserved/special as it is used to indicate the lack of
 /// instance tag, both for OTR version 2 protocol and for operations before the protocol is (fully)
 /// in effect. Given that `otrr` does not support protocol version 2, instance tag zero is only used
@@ -35,7 +33,7 @@ pub(crate) fn random_tag() -> InstanceTag {
         (*RAND)
             .fill(&mut value)
             .expect("Failed to acquire random bytes");
-        let num = utils::u32::from_4byte_be(&value);
+        let num = u32::from_be_bytes(value);
         if num >= INSTANCE_MIN_VALID {
             return num;
         }

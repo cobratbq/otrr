@@ -5,7 +5,8 @@
 #![allow(
     clippy::unnecessary_unwrap,
     clippy::module_name_repetitions,
-    clippy::doc_markdown
+    clippy::doc_markdown,
+    clippy::needless_range_loop,
 )]
 
 use ake::AKEError;
@@ -149,8 +150,8 @@ const SUPPORTED_VERSIONS: [Version; 1] = [Version::V3];
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub enum Version {
     None,
-    // V1, // will not be supported.
-    // V2, // will not be supported.
+    // V1 will not be supported.
+    // V2 will not be supported.
     V3,
     V4,
     Unsupported(u16),

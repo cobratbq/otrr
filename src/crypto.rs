@@ -611,6 +611,11 @@ pub mod otr4 {
 
     use super::{dh3072, ed448, shake256, CryptoError};
 
+    pub const K_LENGTH_BYTES: usize = 64;
+    pub const ROOT_KEY_LENGTH_BYTES: usize = 64;
+    const BRACE_KEY_LENGTH_BYTES: usize = 32;
+    const CHAIN_KEY_LENGTH_BYTES: usize = 64;
+
     const USAGE_FINGERPRINT: u8 = 0x00;
     pub const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
     const USAGE_BRACE_KEY: u8 = 0x02;
@@ -641,11 +646,6 @@ pub mod otr4 {
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
-    pub const K_LENGTH_BYTES: usize = 64;
-    pub const ROOT_KEY_LENGTH_BYTES: usize = 64;
-    const BRACE_KEY_LENGTH_BYTES: usize = 32;
-    const CHAIN_KEY_LENGTH_BYTES: usize = 64;
-
     pub struct DoubleRatchet {
         shared_secret: MixedSharedSecret,
         root_key: [u8; 64],
@@ -657,6 +657,7 @@ pub mod otr4 {
     }
 
     impl DoubleRatchet {
+        #[must_use]
         pub fn initialize(
             selector: &Selector,
             shared_secret: MixedSharedSecret,
@@ -688,6 +689,7 @@ pub mod otr4 {
             }
         }
 
+        #[must_use]
         pub fn next(&self) -> &Selector {
             &self.next
         }
@@ -721,6 +723,7 @@ pub mod otr4 {
         RECEIVER,
     }
 
+    /// `MixedSharedSecret` represents the OTRv4 mixed shared secret value.
     pub struct MixedSharedSecret {
         ecdh: ed448::KeyPair,
         dh: dh3072::KeyPair,
@@ -783,6 +786,7 @@ pub mod otr4 {
             })
         }
 
+        #[must_use]
         pub fn k(&self) -> [u8; K_LENGTH_BYTES] {
             self.k
         }
@@ -1265,6 +1269,7 @@ pub mod ed448 {
     }
 
     // FIXME Ring signatures and other BigUint code (SMP4) is really waaaaay too slow. (undoubtedly my own fault)
+    #[derive(Clone)]
     pub struct RingSignature {
         c1: BigUint,
         r1: BigUint,
@@ -1867,15 +1872,15 @@ mod tests {
     fn test_ring_sign_verify_distinct() -> Result<(), CryptoError> {
         let m = utils::random::secure_bytes::<250>();
         let keypair = ed448::KeyPair::generate();
-        let A1 = keypair.public().clone();
+        let a1_public = keypair.public().clone();
         let a2 = ed448::KeyPair::generate();
         let a3 = ed448::KeyPair::generate();
-        let sigma = RingSignature::sign(&keypair, &A1, a2.public(), a3.public(), &m)?;
-        sigma.verify(&A1, a2.public(), a3.public(), &m)?;
-        let sigma = RingSignature::sign(&keypair, a2.public(), &A1, a3.public(), &m)?;
-        sigma.verify(a2.public(), &A1, a3.public(), &m)?;
-        let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), &A1, &m)?;
-        sigma.verify(a2.public(), a3.public(), &A1, &m)
+        let sigma = RingSignature::sign(&keypair, &a1_public, a2.public(), a3.public(), &m)?;
+        sigma.verify(&a1_public, a2.public(), a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), &a1_public, a3.public(), &m)?;
+        sigma.verify(a2.public(), &a1_public, a3.public(), &m)?;
+        let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), &a1_public, &m)?;
+        sigma.verify(a2.public(), a3.public(), &a1_public, &m)
     }
 
     #[test]

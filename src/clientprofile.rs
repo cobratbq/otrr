@@ -18,7 +18,7 @@ pub struct ClientProfile {
 
 // TODO consider method for including and signing with legacy DSA public key for transitional signature.
 impl ClientProfile {
-    fn new(
+    pub fn new(
         tag: InstanceTag,
         public_key: ed448::PublicKey,
         forging_key: ed448::PublicKey,
@@ -40,7 +40,7 @@ impl ClientProfile {
     /// `from` reconstructs a client profile based on the payload.
     ///
     /// # Errors
-    /// In case of bad payload.
+    /// In case of bad client profile payload.
     pub fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
         payload.validate()?;
         let ClientProfilePayload {
@@ -50,8 +50,8 @@ impl ClientProfile {
             versions,
             expiration: Some(expiration),
             legacy_public_key,
-            transitional_sig,
-            signature: Some(signature),
+            transitional_sig: _,
+            signature: Some(_),
         } = payload else {
             return Err(OTRError::ProtocolViolation("Some components from the client profile are missing"))
         };
@@ -70,7 +70,6 @@ impl ClientProfile {
     fn validate(profile: &Self) -> Result<(), OTRError> {
         // FIXME implement: validation of ClientProfile content
         todo!("implement: validation of ClientProfile content");
-        Ok(())
     }
 }
 
@@ -176,8 +175,14 @@ impl ClientProfilePayload {
         Ok(payload)
     }
 
+    /// `validate` validates a client profile payload and returns the client profile with relevant
+    /// fields after successful validation.
+    ///
+    /// # Errors
+    /// In case anything does not check out with the client profile.
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
         // FIXME perform verification of payload and validation against signature
+        // FIXME make sure transitional sig and DSA public key are verified and correspond
         todo!("perform field validation of payload");
     }
 
@@ -216,8 +221,6 @@ fn encode_versions(versions: &[Version]) -> Vec<u8> {
     }
     data
 }
-
-const DEFAULT_EXPIRATION: i64 = 7 * 24 * 3600;
 
 const TYPE_OWNERINSTANCETAG: u16 = 1;
 const TYPE_ED448_PUBLIC_KEY: u16 = 2;
