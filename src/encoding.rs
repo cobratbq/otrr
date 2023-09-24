@@ -9,7 +9,7 @@ use crate::{
     crypto::{dsa, ed448},
     crypto::{dsa::Signature, ed448::LENGTH_BYTES},
     instancetag::{verify_instance_tag, InstanceTag},
-    utils, OTRError, TLVType,
+    utils, OTRError, TLVType, SSID,
 };
 
 bitflags! {
@@ -334,7 +334,7 @@ impl OTREncoder {
     }
 
     pub fn write_i64(&mut self, v: i64) -> &mut Self {
-        let bytes: [u8; 8] = v.to_be_bytes();
+        let bytes: SSID = v.to_be_bytes();
         self.buffer.extend_from_slice(&bytes);
         self
     }
@@ -444,7 +444,7 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_ssid(&mut self, ssid: &[u8; 8]) -> &mut Self {
+    pub fn write_ssid(&mut self, ssid: &SSID) -> &mut Self {
         self.buffer.extend_from_slice(ssid);
         self
     }

@@ -5,13 +5,14 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{constant, dh, dsa, otr, sha1},
-    encoding::{MessageFlags, OTRDecoder, OTREncoder, MAC_LEN, TLV, FINGERPRINT_LEN},
+    crypto::{constant, dh, dsa, otr, sha1, otr4},
+    encoding::{MessageFlags, OTRDecoder, OTREncoder, FINGERPRINT_LEN, MAC_LEN, TLV},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
+    messages::{encode_authenticator_data, DataMessage, DataMessage4, EncodedMessageType},
     smp::SMPContext,
     smp4::SMP4Context,
-    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID, messages::{DataMessage, EncodedMessageType, encode_authenticator_data, DataMessage4},
+    utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
 };
 
 /// `TLV_TYPE_0_PADDING` is the TLV that can be used to introduce arbitrary-length padding to an
@@ -34,13 +35,9 @@ pub trait ProtocolState {
     fn secure(
         &self,
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
-        ssid: SSID,
-        our_dh: dh::Keypair,
-        their_dh: BigUint,
-        their_dsa: dsa::PublicKey,
+        material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState>;
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
     /// prepare prepares a message for sending in accordance with the active protocol state.
@@ -78,25 +75,37 @@ impl ProtocolState for PlaintextState {
     fn secure(
         &self,
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
-        ssid: SSID,
-        our_dh: dh::Keypair,
-        their_dh: BigUint,
-        their_dsa: dsa::PublicKey,
+        material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState> {
-        let their_fingerprint = otr::fingerprint(&their_dsa);
-        Box::new(EncryptedOTR3State::new(
-            host,
-            version,
-            our_instance,
-            their_instance,
-            ssid,
-            our_dh,
-            their_dh,
-            their_fingerprint,
-        ))
+        match material {
+            ProtocolMaterial::AKE {
+                ssid,
+                our_dh,
+                their_dh,
+                their_dsa,
+            } => Box::new(EncryptedOTR3State::new(
+                host,
+                our_instance,
+                their_instance,
+                ssid,
+                our_dh,
+                their_dh,
+                otr::fingerprint(&their_dsa),
+            )),
+            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+                our_instance,
+                their_instance,
+                double_ratchet,
+                smp: SMP4Context::new(
+                    host,
+                    &utils::random::secure_bytes::<56>(),
+                    &utils::random::secure_bytes::<56>(),
+                    ssid,
+                ),
+            }),
+        }
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
@@ -123,7 +132,6 @@ impl ProtocolState for PlaintextState {
 }
 
 pub struct EncryptedOTR3State {
-    version: Version,
     our_instance: InstanceTag,
     their_instance: InstanceTag,
     keys: KeyManager,
@@ -136,7 +144,7 @@ impl ProtocolState for EncryptedOTR3State {
     }
 
     fn version(&self) -> Version {
-        self.version.clone()
+        Version::V3
     }
 
     fn handle(
@@ -169,28 +177,40 @@ impl ProtocolState for EncryptedOTR3State {
     fn secure(
         &self,
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
-        ssid: SSID,
-        our_dh: dh::Keypair,
-        their_dh: BigUint,
-        their_dsa: dsa::PublicKey,
+        material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState> {
-        let their_fingerprint = otr::fingerprint(&their_dsa);
         // There is no indication in the OTRv3 spec that there are issues with re-transitioning into
         // `MSGSTATE_ENCRYPTED`. There does not seem to be an issue, and it also means that AKEs
         // during `MSGSTATE_ENCRYPTED` are possible as well.
-        Box::new(Self::new(
-            host,
-            version,
-            our_instance,
-            their_instance,
-            ssid,
-            our_dh,
-            their_dh,
-            their_fingerprint,
-        ))
+        match material {
+            ProtocolMaterial::AKE {
+                ssid,
+                our_dh,
+                their_dh,
+                their_dsa,
+            } => Box::new(Self::new(
+                host,
+                our_instance,
+                their_instance,
+                ssid,
+                our_dh,
+                their_dh,
+                otr::fingerprint(&their_dsa),
+            )),
+            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+                our_instance,
+                their_instance,
+                double_ratchet,
+                smp: SMP4Context::new(
+                    host,
+                    &utils::random::secure_bytes::<56>(),
+                    &utils::random::secure_bytes::<56>(),
+                    ssid,
+                ),
+            }),
+        }
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
@@ -227,7 +247,6 @@ impl EncryptedOTR3State {
     #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     fn new(
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
         ssid: SSID,
@@ -236,7 +255,6 @@ impl EncryptedOTR3State {
         their_fingerprint: [u8; FINGERPRINT_LEN],
     ) -> Self {
         Self {
-            version,
             our_instance,
             their_instance,
             keys: KeyManager::new((1, our_dh), (1, their_dh)),
@@ -279,7 +297,7 @@ impl EncryptedOTR3State {
         let authenticator = sha1::hmac(
             &secrets.sender_mac_key(),
             &encode_authenticator_data(
-                &self.version,
+                &Version::V3,
                 self.our_instance,
                 self.their_instance,
                 &data_message,
@@ -309,7 +327,7 @@ impl EncryptedOTR3State {
         let authenticator = sha1::hmac(
             &receiving_mac_key,
             &encode_authenticator_data(
-                &self.version,
+                &Version::V3,
                 self.their_instance,
                 self.our_instance,
                 message,
@@ -359,6 +377,7 @@ fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
 pub struct EncryptedOTR4State {
     our_instance: InstanceTag,
     their_instance: InstanceTag,
+    double_ratchet: otr4::DoubleRatchet,
     smp: SMP4Context,
 }
 
@@ -381,25 +400,31 @@ impl ProtocolState for EncryptedOTR4State {
     fn secure(
         &self,
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
-        ssid: SSID,
-        our_dh: dh::Keypair,
-        their_dh: BigUint,
-        their_dsa: dsa::PublicKey,
+        material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState> {
-        // FIXME to be implemented
-        Box::new(EncryptedOTR4State {
-            our_instance,
-            their_instance,
-            smp: SMP4Context::new(
-                host,
-                &utils::random::secure_bytes::<56>(),
-                &utils::random::secure_bytes::<56>(),
-                utils::random::secure_bytes::<8>(),
-            ),
-        })
+        match material {
+            ProtocolMaterial::AKE {
+                ssid: _,
+                our_dh: _,
+                their_dh: _,
+                their_dsa: _,
+            } => {
+                panic!("BUG: do not allow transitioning to a lower version of the OTR protocol.")
+            }
+            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(Self {
+                our_instance,
+                their_instance,
+                double_ratchet,
+                smp: SMP4Context::new(
+                    host,
+                    &utils::random::secure_bytes::<56>(),
+                    &utils::random::secure_bytes::<56>(),
+                    ssid,
+                ),
+            }),
+        }
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
@@ -431,7 +456,6 @@ impl ProtocolState for EncryptedOTR4State {
 }
 
 impl EncryptedOTR4State {
-
     fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
         // FIXME implement: encrypt DataMessage4 message
         todo!("implement: encrypt DataMessage4 message")
@@ -459,25 +483,40 @@ impl ProtocolState for FinishedState {
     fn secure(
         &self,
         host: Rc<dyn Host>,
-        version: Version,
         our_instance: InstanceTag,
         their_instance: InstanceTag,
-        ssid: SSID,
-        our_dh: dh::Keypair,
-        their_dh: BigUint,
-        their_dsa: dsa::PublicKey,
+        material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState> {
-        let their_fingerprint = otr::fingerprint(&their_dsa);
-        Box::new(EncryptedOTR3State::new(
-            host,
-            version,
-            our_instance,
-            their_instance,
-            ssid,
-            our_dh,
-            their_dh,
-            their_fingerprint,
-        ))
+        // There is no indication in the OTRv3 spec that there are issues with re-transitioning into
+        // `MSGSTATE_ENCRYPTED`. There does not seem to be an issue, and it also means that AKEs
+        // during `MSGSTATE_ENCRYPTED` are possible as well.
+        match material {
+            ProtocolMaterial::AKE {
+                ssid,
+                our_dh,
+                their_dh,
+                their_dsa,
+            } => Box::new(EncryptedOTR3State::new(
+                host,
+                our_instance,
+                their_instance,
+                ssid,
+                our_dh,
+                their_dh,
+                otr::fingerprint(&their_dsa),
+            )),
+            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+                our_instance,
+                their_instance,
+                double_ratchet,
+                smp: SMP4Context::new(
+                    host,
+                    &utils::random::secure_bytes::<56>(),
+                    &utils::random::secure_bytes::<56>(),
+                    ssid,
+                ),
+            }),
+        }
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
@@ -499,6 +538,21 @@ impl ProtocolState for FinishedState {
             "SMP is not available when protocol is in Finished state.",
         ))
     }
+}
+
+// TODO consider moving instance tags and protocol version into here.
+#[allow(clippy::large_enum_variant)]
+pub enum ProtocolMaterial {
+    /// AKE is the OTRv2/v3 key material.
+    AKE {
+        ssid: SSID,
+        our_dh: dh::Keypair,
+        their_dh: BigUint,
+        their_dsa: dsa::PublicKey,
+    },
+    /// DAKE is the OTRv4 DAKE mixed key material.
+    // FIXME fix instance tags wherever the enum variant is used.
+    DAKE { ssid: SSID, double_ratchet: otr4::DoubleRatchet },
 }
 
 pub enum Message {

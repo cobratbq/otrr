@@ -10,7 +10,8 @@ use crate::{
     clientprofile::{self, ClientProfile, ClientProfilePayload},
     crypto::{dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
-    Host, OTRError,
+    messages::EncodedMessageType,
+    Host, OTRError, SSID,
 };
 
 /// `DAKEContext` is the struct maintaining the state.
@@ -20,11 +21,18 @@ pub struct DAKEContext {
 }
 
 impl DAKEContext {
+    pub fn new(host: Rc<dyn Host>) -> Self {
+        Self {
+            host,
+            state: State::Initial,
+        }
+    }
+
     /// `initiate` initiates a new DAKE.
     ///
     /// # Errors
     /// In case of protocol violation or cryptographic failure.
-    pub fn initiate(&mut self) -> Result<IdentityMessage, OTRError> {
+    pub fn initiate(&mut self) -> Result<EncodedMessageType, OTRError> {
         if !matches!(self.state, State::Initial) {
             return Err(OTRError::IncorrectState(
                 "Authenticated key exchange in progress.",
@@ -53,7 +61,7 @@ impl DAKEContext {
             dh0,
             identity_message: identity_message.clone(),
         };
-        Ok(identity_message)
+        Ok(EncodedMessageType::Identity(identity_message))
     }
 
     pub fn abort(&mut self) {
@@ -71,7 +79,7 @@ impl DAKEContext {
     pub fn handle_identity(
         &mut self,
         message: IdentityMessage,
-    ) -> Result<Box<dyn OTREncodable>, OTRError> {
+    ) -> Result<EncodedMessageType, OTRError> {
         let profile_bob: ClientProfile;
         match &self.state {
             State::Initial
@@ -99,14 +107,10 @@ impl DAKEContext {
                 identity_message,
             } => {
                 profile_bob = message.validate()?;
+                // FIXME we need to compare the proper values (hashes of `B`)
                 if identity_message.b > message.b {
-                    return Ok(Box::new(identity_message.clone()));
+                    return Ok(EncodedMessageType::Identity(identity_message.clone()));
                 }
-            }
-            _ => {
-                return Err(OTRError::ProtocolViolation(
-                    "Unexpected message received. Ignoring.",
-                ))
             }
         }
         // Generate own key material and construct Auth-R Message.
@@ -174,17 +178,24 @@ impl DAKEContext {
             ecdh0_other: message.ecdh0,
             dh0_other: message.dh0,
         };
-        Ok(Box::new(response))
+        Ok(EncodedMessageType::AuthR(response))
     }
 
-    pub fn handle_auth_r(&mut self, message: AuthRMessage) -> Result<AuthIMessage, OTRError> {
+    /// `handle_auth_r` handles incoming Auth-R messages.
+    ///
+    /// # Errors
+    /// In case of violation of protocol or cryptographic failures.
+    pub fn handle_auth_r(
+        &mut self,
+        message: AuthRMessage,
+    ) -> Result<(MixedKeyMaterial, EncodedMessageType), OTRError> {
         if let State::AwaitingAuthR {
             y,
             b,
             payload: payload_bob,
             ecdh0,
             dh0,
-            identity_message,
+            identity_message: _,
         } = &self.state
         {
             let profile_alice = message.validate()?;
@@ -265,11 +276,14 @@ impl DAKEContext {
                 prev_root_key,
             );
             // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
-            // Transition to secure state.
-            // FIXME transition to secure (protocol) state, and/or reset to initial state.
             self.state = State::Initial;
-            // FIXME transition to `ENCRYPTED_MESSAGES` state with gathered key material.
-            Ok(AuthIMessage { sigma })
+            Ok((
+                MixedKeyMaterial {
+                    ssid,
+                    double_ratchet,
+                },
+                EncodedMessageType::AuthI(AuthIMessage { sigma }),
+            ))
         } else {
             // FIXME double-check if we can use IncorrectState, as it seems to be tied closely to FINISHED state.
             Err(OTRError::IncorrectState(
@@ -278,7 +292,13 @@ impl DAKEContext {
         }
     }
 
-    pub fn handle_auth_i(&mut self, message: &AuthIMessage) -> Result<(), OTRError> {
+    /// `handle_auth_i` processes a received Auth-I message and returns, if user secret matches,
+    /// the key material needed for the encrypted session, or if the secret does not match, nothing
+    /// useful.
+    ///
+    /// # Errors
+    /// In case of protocol violations or cryptographic failures.
+    pub fn handle_auth_i(&mut self, message: &AuthIMessage) -> Result<MixedKeyMaterial, OTRError> {
         if let State::AwaitingAuthI {
             profile_alice: payload_alice,
             profile_bob: payload_bob,
@@ -334,13 +354,15 @@ impl DAKEContext {
                 dh0_other.clone(),
             )
             .map_err(OTRError::CryptographicViolation)?;
-            let ratchet = otr4::DoubleRatchet::initialize(
+            let double_ratchet = otr4::DoubleRatchet::initialize(
                 &otr4::Selector::SENDER,
                 shared_secret,
                 prev_root_key,
             );
-            // FIXME transition to secure session.
-            Ok(())
+            Ok(MixedKeyMaterial {
+                ssid,
+                double_ratchet,
+            })
         } else {
             Err(OTRError::IncorrectState(
                 "Unexpected message received. Ignoring.",
@@ -352,6 +374,13 @@ impl DAKEContext {
         // FIXME implement: generating phi value
         todo!("implement: generating phi value")
     }
+}
+
+/// `MixedKeyMaterial` represents the result of the OTRv4 DAKE that includes the mixed shared
+/// secret and initialized double ratchet.
+pub struct MixedKeyMaterial {
+    ssid: SSID,
+    double_ratchet: otr4::DoubleRatchet,
 }
 
 /// Interactive DAKE states.

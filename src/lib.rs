@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+// NOTES:
+// - keeping score (significant OTRv4 spec errors): 1.) use of secret key material after clearing because receiving messages out of expected order.; 2.) need to process message numbers provisionally because these are early steps leading up to message authentication, therefore cannot be trusted; 3.) merging protocol state machine and DAKE state machine provides opening to Denial-of-Service attacks.
+
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
 #![allow(

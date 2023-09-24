@@ -9,7 +9,7 @@ use zeroize::Zeroize;
 use crate::{
     crypto::{self, constant, ed448, otr4},
     encoding::{OTRDecoder, OTREncoder, TLV},
-    utils, OTRError, TLVType, Host,
+    utils, OTRError, TLVType, Host, SSID,
 };
 
 // TODO ensure `Drop` implementation is up-to-date after fully implementing SMP4.
@@ -18,7 +18,7 @@ pub struct SMP4Context {
     host: Rc<dyn Host>,
     initiator: [u8; 56],
     responder: [u8; 56],
-    ssid: [u8; 8],
+    ssid: SSID,
 }
 
 impl Drop for SMP4Context {
@@ -40,7 +40,7 @@ const TLV_SMP_ABORT: TLVType = 6;
 // TODO SMP processing is very slow.
 #[allow(non_snake_case)]
 impl SMP4Context {
-    pub fn new(host: Rc<dyn Host>, initiator: &[u8; 56], responder: &[u8; 56], ssid: [u8; 8]) -> SMP4Context {
+    pub fn new(host: Rc<dyn Host>, initiator: &[u8; 56], responder: &[u8; 56], ssid: SSID) -> SMP4Context {
         Self {
             state: State::ExpectSMP1,
             host,

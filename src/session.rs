@@ -4,13 +4,14 @@ use std::{collections, rc::Rc};
 
 use crate::{
     ake::{AKEContext, CryptographicMaterial},
+    dake::DAKEContext,
     encoding::{MessageFlags, OTREncoder},
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     messages::{
         self, encode_message, serialize_message, EncodedMessage, EncodedMessageType, MessageType,
     },
-    protocol::{self, Message},
+    protocol::{self, Message, ProtocolMaterial},
     smp::{self, SMPStatus},
     utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID, SUPPORTED_VERSIONS,
 };
@@ -210,7 +211,7 @@ impl Session {
                 log::debug!("Processing whitespace-tagged message ..");
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = select_version(&self.details.policy, &versions) {
-                        self.initiate(&selected, INSTANCE_ZERO);
+                        self.initiate(selected, INSTANCE_ZERO)?;
                     }
                 }
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -222,7 +223,7 @@ impl Session {
             MessageType::Query(versions) => {
                 log::debug!("Processing query message ..");
                 if let Some(selected) = select_version(&self.details.policy, &versions) {
-                    self.initiate(&selected, INSTANCE_ZERO);
+                    self.initiate(selected, INSTANCE_ZERO)?;
                 }
                 Ok(UserMessage::None)
             }
@@ -383,7 +384,11 @@ impl Session {
     }
 
     /// `initiate` initiates the OTR protocol for designated receiver.
-    pub fn initiate(&mut self, version: &Version, receiver: InstanceTag) -> UserMessage {
+    ///
+    /// # Errors
+    /// In case of in-progress (D)AKE session, which requires manually aborting first.
+    // TODO now that `initiate` may return an error, check if this needs handling or whether propagation is fine.
+    pub fn initiate(&mut self, version: Version, receiver: InstanceTag) -> Result<UserMessage, OTRError> {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
@@ -499,6 +504,7 @@ struct Instance {
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
+    dake: DAKEContext,
 }
 
 /// `Instance` represents a single instance, a communication session with a single client of an
@@ -515,6 +521,7 @@ impl Instance {
     ) -> Self {
         Self {
             ake: AKEContext::new(Rc::clone(&host)),
+            dake: DAKEContext::new(Rc::clone(&host)),
             details,
             host,
             address,
@@ -528,11 +535,14 @@ impl Instance {
         self.state.status()
     }
 
-    fn initiate(&mut self, version: &Version) -> UserMessage {
-        assert_eq!(*version, Version::V3);
-        let msg = self.ake.initiate();
-        self.inject(self.ake.version(), msg);
-        UserMessage::None
+    fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
+        let initiator = match version {
+            Version::V3 => self.ake.initiate(),
+            Version::V4 => self.dake.initiate()?,
+            Version::None | Version::Unsupported(_) => panic!("BUG: incorrect use of API"),
+        };
+        self.inject(version, initiator);
+        Ok(UserMessage::None)
     }
 
     fn transfer_akecontext(&self) -> Result<AKEContext, OTRError> {
@@ -564,20 +574,22 @@ impl Instance {
                 Ok(UserMessage::None)
             }
             EncodedMessageType::RevealSignature(msg) => {
-                let (CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa}, response) = self
+                let (CryptographicMaterial{ssid, our_dh, their_dh, their_dsa}, response) = self
                     .ake
                     .handle_reveal_signature(msg).map_err(OTRError::AuthenticationError)?;
-                self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
-                    encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag,
+                    encoded_message.sender, ProtocolMaterial::AKE { ssid, our_dh, their_dh, their_dsa });
+                assert_eq!(ProtocolStatus::Encrypted, self.state.status());
                 self.inject(self.ake.version(), response);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::Signature(msg) => {
-                let CryptographicMaterial{version, ssid, our_dh, their_dh, their_dsa} = self
+                let CryptographicMaterial{ssid, our_dh, their_dh, their_dsa} = self
                     .ake
                     .handle_signature(msg).map_err(OTRError::AuthenticationError)?;
-                self.state = self.state.secure(Rc::clone(&self.host), version, self.details.tag,
-                    encoded_message.sender, ssid, our_dh, their_dh, their_dsa);
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag,
+                    encoded_message.sender, ProtocolMaterial::AKE { ssid, our_dh, their_dh, their_dsa });
+                assert_eq!(ProtocolStatus::Encrypted, self.state.status());
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::Data(msg) => {

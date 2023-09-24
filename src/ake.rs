@@ -14,7 +14,6 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 
 pub struct AKEContext {
-    version: Version,
     host: Rc<dyn Host>,
     state: AKEState,
 }
@@ -22,16 +21,16 @@ pub struct AKEContext {
 impl AKEContext {
     pub fn new(host: Rc<dyn Host>) -> Self {
         Self {
-            version: Version::V3,
             host,
             state: AKEState::None,
         }
     }
 
     pub fn version(&self) -> Version {
-        self.version.clone()
+        Version::V3
     }
 
+    // TODO we currently do not require _aborting_ any in-progress AKE negotiation.
     pub fn initiate(&mut self) -> EncodedMessageType {
         log::info!("Initiating AKE.");
         let keypair = dh::Keypair::generate();
@@ -57,7 +56,6 @@ impl AKEContext {
     pub fn transfer(&self) -> Result<AKEContext, AKEError> {
         match &self.state {
             AKEState::AwaitingDHKey(state) => Ok(Self {
-                version: self.version.clone(),
                 host: Rc::clone(&self.host),
                 state: AKEState::AwaitingDHKey(AwaitingDHKey {
                     our_dh_keypair: state.our_dh_keypair.clone(),
@@ -386,7 +384,6 @@ impl AKEContext {
                 (
                     Ok((
                         CryptographicMaterial {
-                            version: self.version.clone(),
                             ssid: secrets.ssid,
                             our_dh: (*state.our_dh_keypair).clone(),
                             their_dh: gx,
@@ -476,7 +473,6 @@ impl AKEContext {
                 log::debug!("M_A signature verified.");
                 (
                     Ok(CryptographicMaterial {
-                        version: self.version.clone(),
                         ssid: secrets.ssid,
                         our_dh: (*state.our_dh_keypair).clone(),
                         their_dh: state.gy.clone(),
@@ -496,7 +492,6 @@ impl AKEContext {
 /// The AKE always uses keyid 1 for both parties, so no point in including these.
 // TODO something about highlighting certain part of ssid if comparing values, so need to double-check.
 pub struct CryptographicMaterial {
-    pub version: Version,
     pub ssid: SSID,
     pub our_dh: dh::Keypair,
     pub their_dh: BigUint,

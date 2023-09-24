@@ -188,12 +188,12 @@ pub mod dh {
 pub mod otr {
     use num_bigint::{BigUint, ModInverse};
 
-    use crate::encoding::OTREncoder;
+    use crate::{encoding::OTREncoder, SSID};
 
     use super::{aes128, dsa, sha1, sha256};
 
     pub struct AKESecrets {
-        pub ssid: [u8; 8],
+        pub ssid: SSID,
         pub c: aes128::Key,
         pub cp: aes128::Key,
         pub m1: [u8; 32],
