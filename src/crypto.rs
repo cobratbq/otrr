@@ -1661,7 +1661,7 @@ pub enum CryptoError {
 #[cfg(test)]
 mod tests {
     use crate::{
-        crypto::{self},
+        crypto,
         utils::{
             self,
             biguint::{ONE, TWO, ZERO},

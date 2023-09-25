@@ -11,10 +11,11 @@ use crate::{
     crypto::{dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
     messages::EncodedMessageType,
-    Host, OTRError, SSID,
+    Host, OTRError, SSID, Version,
 };
 
 /// `DAKEContext` is the struct maintaining the state.
+// TODO in general, review the DAKE error handling and whether to propagate all errors.
 pub struct DAKEContext {
     host: Rc<dyn Host>,
     state: State,
@@ -26,6 +27,10 @@ impl DAKEContext {
             host,
             state: State::Initial,
         }
+    }
+
+    pub fn version(&self) -> Version {
+        Version::V4
     }
 
     /// `initiate` initiates a new DAKE.
@@ -298,7 +303,7 @@ impl DAKEContext {
     ///
     /// # Errors
     /// In case of protocol violations or cryptographic failures.
-    pub fn handle_auth_i(&mut self, message: &AuthIMessage) -> Result<MixedKeyMaterial, OTRError> {
+    pub fn handle_auth_i(&mut self, message: AuthIMessage) -> Result<MixedKeyMaterial, OTRError> {
         if let State::AwaitingAuthI {
             profile_alice: payload_alice,
             profile_bob: payload_bob,
@@ -333,6 +338,7 @@ impl DAKEContext {
                 otr4::USAGE_AUTH_I_PHI,
                 &self.generate_phi(),
             ));
+            // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
             message
                 .sigma
                 .verify(
@@ -342,7 +348,6 @@ impl DAKEContext {
                     &tbytes,
                 )
                 .map_err(OTRError::CryptographicViolation)?;
-
             // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
             let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
             let prev_root_key =
@@ -379,8 +384,8 @@ impl DAKEContext {
 /// `MixedKeyMaterial` represents the result of the OTRv4 DAKE that includes the mixed shared
 /// secret and initialized double ratchet.
 pub struct MixedKeyMaterial {
-    ssid: SSID,
-    double_ratchet: otr4::DoubleRatchet,
+    pub ssid: SSID,
+    pub double_ratchet: otr4::DoubleRatchet,
 }
 
 /// Interactive DAKE states.
@@ -399,7 +404,6 @@ enum State {
         identity_message: IdentityMessage,
     },
     /// `AwaitingAuthI` is the state for Bob as he awaits Alice's `AuthIMessage`.
-    // FIXME easier to have `expected_sigma` as bytes?
     AwaitingAuthI {
         profile_alice: clientprofile::ClientProfilePayload,
         profile_bob: clientprofile::ClientProfilePayload,

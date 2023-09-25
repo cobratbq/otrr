@@ -5,7 +5,7 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{constant, dh, dsa, otr, sha1, otr4},
+    crypto::{constant, dh, dsa, otr, otr4, sha1},
     encoding::{MessageFlags, OTRDecoder, OTREncoder, FINGERPRINT_LEN, MAC_LEN, TLV},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
@@ -30,6 +30,10 @@ pub trait ProtocolState {
         &mut self,
         msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
+    fn handle4(
+        &mut self,
+        msg: &DataMessage4,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     // TODO consider defining a common EncryptedState trait to be shared with OTR2/OTR3 and OTR4.
     #[allow(clippy::too_many_arguments)]
     fn secure(
@@ -48,6 +52,8 @@ pub trait ProtocolState {
     ) -> Result<EncodedMessageType, OTRError>;
     fn smp(&self) -> Result<&SMPContext, OTRError>;
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError>;
+    fn smp4(&self) -> Result<&SMP4Context, OTRError>;
+    fn smp4_mut(&mut self) -> Result<&mut SMP4Context, OTRError>;
 }
 
 pub fn new_state() -> Box<dyn ProtocolState> {
@@ -68,6 +74,13 @@ impl ProtocolState for PlaintextState {
     fn handle(
         &mut self,
         _: &DataMessage,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
+    }
+
+    fn handle4(
+        &mut self,
+        msg: &DataMessage4,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
@@ -94,7 +107,10 @@ impl ProtocolState for PlaintextState {
                 their_dh,
                 otr::fingerprint(&their_dsa),
             )),
-            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+            ProtocolMaterial::DAKE {
+                ssid,
+                double_ratchet,
+            } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
@@ -127,6 +143,18 @@ impl ProtocolState for PlaintextState {
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
         Err(OTRError::IncorrectState(
             "SMP is not available when protocol is in Plaintext state.",
+        ))
+    }
+
+    fn smp4(&self) -> Result<&SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in Plaintext state.",
+        ))
+    }
+
+    fn smp4_mut(&mut self) -> Result<&mut SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in Plaintext state.",
         ))
     }
 }
@@ -174,6 +202,13 @@ impl ProtocolState for EncryptedOTR3State {
         }
     }
 
+    fn handle4(
+        &mut self,
+        msg: &DataMessage4,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        (Err(OTRError::UnreadableMessage(self.their_instance)), None)
+    }
+
     fn secure(
         &self,
         host: Rc<dyn Host>,
@@ -199,7 +234,10 @@ impl ProtocolState for EncryptedOTR3State {
                 their_dh,
                 otr::fingerprint(&their_dsa),
             )),
-            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+            ProtocolMaterial::DAKE {
+                ssid,
+                double_ratchet,
+            } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
@@ -240,6 +278,18 @@ impl ProtocolState for EncryptedOTR3State {
 
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
         Ok(&mut self.smp)
+    }
+
+    fn smp4(&self) -> Result<&SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in OTRv3 Encrypted state.",
+        ))
+    }
+
+    fn smp4_mut(&mut self) -> Result<&mut SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in OTRv3 Encrypted state.",
+        ))
     }
 }
 
@@ -394,7 +444,15 @@ impl ProtocolState for EncryptedOTR4State {
         &mut self,
         msg: &DataMessage,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        todo!()
+        (Err(OTRError::UnreadableMessage(self.their_instance)), None)
+    }
+
+    fn handle4(
+        &mut self,
+        msg: &DataMessage4,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        // FIXME implement: handling data-message for OTRv4
+        todo!("implement: handling data-message for OTRv4")
     }
 
     fn secure(
@@ -413,7 +471,10 @@ impl ProtocolState for EncryptedOTR4State {
             } => {
                 panic!("BUG: do not allow transitioning to a lower version of the OTR protocol.")
             }
-            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(Self {
+            ProtocolMaterial::DAKE {
+                ssid,
+                double_ratchet,
+            } => Box::new(Self {
                 our_instance,
                 their_instance,
                 double_ratchet,
@@ -447,11 +508,23 @@ impl ProtocolState for EncryptedOTR4State {
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {
-        todo!()
+        Err(OTRError::IncorrectState(
+            "SMP (version 3) is not available when protocol is in OTRv4 Encrypted state.",
+        ))
     }
 
     fn smp_mut(&mut self) -> Result<&mut SMPContext, OTRError> {
-        todo!()
+        Err(OTRError::IncorrectState(
+            "SMP (version 3) is not available when protocol is in OTRv4 Encrypted state.",
+        ))
+    }
+
+    fn smp4(&self) -> Result<&SMP4Context, OTRError> {
+        Ok(&self.smp)
+    }
+
+    fn smp4_mut(&mut self) -> Result<&mut SMP4Context, OTRError> {
+        Ok(&mut self.smp)
     }
 }
 
@@ -476,6 +549,13 @@ impl ProtocolState for FinishedState {
     fn handle(
         &mut self,
         _: &DataMessage,
+    ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
+    }
+
+    fn handle4(
+        &mut self,
+        msg: &DataMessage4,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
@@ -505,7 +585,10 @@ impl ProtocolState for FinishedState {
                 their_dh,
                 otr::fingerprint(&their_dsa),
             )),
-            ProtocolMaterial::DAKE { ssid, double_ratchet } => Box::new(EncryptedOTR4State {
+            ProtocolMaterial::DAKE {
+                ssid,
+                double_ratchet,
+            } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
@@ -538,6 +621,18 @@ impl ProtocolState for FinishedState {
             "SMP is not available when protocol is in Finished state.",
         ))
     }
+
+    fn smp4(&self) -> Result<&SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in Finished state.",
+        ))
+    }
+
+    fn smp4_mut(&mut self) -> Result<&mut SMP4Context, OTRError> {
+        Err(OTRError::IncorrectState(
+            "SMP4 is not available when protocol is in Finished state.",
+        ))
+    }
 }
 
 // TODO consider moving instance tags and protocol version into here.
@@ -552,7 +647,10 @@ pub enum ProtocolMaterial {
     },
     /// DAKE is the OTRv4 DAKE mixed key material.
     // FIXME fix instance tags wherever the enum variant is used.
-    DAKE { ssid: SSID, double_ratchet: otr4::DoubleRatchet },
+    DAKE {
+        ssid: SSID,
+        double_ratchet: otr4::DoubleRatchet,
+    },
 }
 
 pub enum Message {

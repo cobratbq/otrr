@@ -5,7 +5,9 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
-    ake, crypto, dake,
+    ake,
+    crypto::ed448,
+    dake,
     encoding::{MessageFlags, OTRDecoder, OTREncodable, OTREncoder, CTR_LEN, MAC4_LEN, MAC_LEN},
     instancetag::InstanceTag,
     utils, OTRError, Version,
@@ -114,7 +116,7 @@ fn parse_encoded_content(
         )),
         (Version::V4, OTR_DATA_TYPE_CODE) => {
             Ok(EncodedMessageType::Data4(DataMessage4::decode(decoder)?))
-        },
+        }
         _ => Err(OTRError::ProtocolViolation(
             "Invalid or unknown message type, or incorrect protocol version for message type.",
         )),
@@ -331,7 +333,7 @@ pub struct DataMessage4 {
     pub pn: u32,
     pub i: u32,
     pub j: u32,
-    pub ecdh: crypto::ed448::Point,
+    pub ecdh: ed448::Point,
     pub dh: BigUint,
     pub encrypted: Vec<u8>,
     pub authenticator: [u8; MAC4_LEN],

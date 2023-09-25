@@ -14,22 +14,14 @@ use crate::{
     Host, OTRError, TLVType, SSID, TLV,
 };
 
-pub fn any_smp_tlv(tlvs: &[TLV]) -> bool {
-    tlvs.iter().any(is_smp_tlv)
-}
-
 pub fn is_smp_tlv(tlv: &TLV) -> bool {
-    TLV_TYPES.contains(&tlv.0)
+    tlv.0 == TLV_TYPE_SMP_MESSAGE_1
+        || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q
+        || tlv.0 == TLV_TYPE_SMP_MESSAGE_2
+        || tlv.0 == TLV_TYPE_SMP_MESSAGE_3
+        || tlv.0 == TLV_TYPE_SMP_MESSAGE_4
+        || tlv.0 == TLV_TYPE_SMP_ABORT
 }
-
-const TLV_TYPES: [u16; 6] = [
-    TLV_TYPE_SMP_MESSAGE_1,
-    TLV_TYPE_SMP_MESSAGE_1Q,
-    TLV_TYPE_SMP_MESSAGE_2,
-    TLV_TYPE_SMP_MESSAGE_3,
-    TLV_TYPE_SMP_MESSAGE_4,
-    TLV_TYPE_SMP_ABORT,
-];
 
 /// TLV for initiating SMP
 const TLV_TYPE_SMP_MESSAGE_1: TLVType = 2;
@@ -135,7 +127,7 @@ impl SMPContext {
             Ok(tlv) => Some(tlv),
             Err(OTRError::SMPSuccess(response)) => {
                 self.state = SMPState::Expect1;
-                self.status = SMPStatus::Success;
+                self.status = SMPStatus::Completed;
                 response
             }
             Err(OTRError::SMPFailed(response)) => {
@@ -722,7 +714,7 @@ impl Drop for SMPState {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum SMPStatus {
     /// Initial status: no SMP session, no activity.
     Initial,
@@ -730,8 +722,8 @@ pub enum SMPStatus {
     InProgress,
     /// SMP deliberately aborted, either by local user action, or through received abort-TLV.
     Aborted(Vec<u8>),
-    /// SMP process succeeded.
-    Success,
+    /// SMP process completed.
+    Completed,
 }
 
 const SMP_VERSION: u8 = 1;
@@ -833,14 +825,14 @@ mod tests {
         assert_eq!(SMPStatus::InProgress, bob.status());
         let reply = bob.handle(&reply).unwrap();
         assert_eq!(SMPStatus::InProgress, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
 
         // Alice: finish on Bob's reply
         assert_eq!(SMPStatus::InProgress, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
         assert!(alice.handle(&reply).is_none());
-        assert_eq!(SMPStatus::Success, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
     }
 
     #[test]
@@ -884,15 +876,15 @@ mod tests {
         assert_eq!(SMPStatus::InProgress, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         let reply = alice.handle(&reply).unwrap();
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
 
         // Bob: Finish on Alice's reply
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         assert!(bob.handle(&reply).is_none());
-        assert_eq!(SMPStatus::Success, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
     }
 
     #[test]
@@ -935,15 +927,15 @@ mod tests {
         assert_eq!(SMPStatus::InProgress, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         let reply = alice.handle(&reply).unwrap();
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
 
         // Bob: Finish on Alice's reply
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         assert!(bob.handle(&reply).is_none());
-        assert_eq!(SMPStatus::Success, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
     }
 
     #[test]
@@ -986,28 +978,28 @@ mod tests {
         assert_eq!(SMPStatus::InProgress, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         let reply = alice.handle(&reply).unwrap();
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
 
         // Bob: Finish on Alice's reply
-        assert_eq!(SMPStatus::Success, alice.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
         assert_eq!(SMPStatus::InProgress, bob.status());
         assert!(bob.handle(&reply).is_none());
-        assert_eq!(SMPStatus::Success, alice.status());
-        assert_eq!(SMPStatus::Success, bob.status());
+        assert_eq!(SMPStatus::Completed, alice.status());
+        assert_eq!(SMPStatus::Completed, bob.status());
 
         for i in 1..3 {
             println!("iteration {:}", i + 1);
 
             // Bob: initiate SMP
-            assert_eq!(SMPStatus::Success, alice.status());
-            assert_eq!(SMPStatus::Success, bob.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
+            assert_eq!(SMPStatus::Completed, bob.status());
             let reply = bob.initiate(&secret, &[]).unwrap();
-            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
             assert_eq!(SMPStatus::InProgress, bob.status());
 
             // Alice: Follow up on Bob
-            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
             assert_eq!(SMPStatus::InProgress, bob.status());
             let reply = alice.handle(&reply).unwrap();
             assert_eq!(SMPStatus::InProgress, alice.status());
@@ -1024,15 +1016,15 @@ mod tests {
             assert_eq!(SMPStatus::InProgress, alice.status());
             assert_eq!(SMPStatus::InProgress, bob.status());
             let reply = alice.handle(&reply).unwrap();
-            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
             assert_eq!(SMPStatus::InProgress, bob.status());
 
             // Bob: Finish on Alice's reply
-            assert_eq!(SMPStatus::Success, alice.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
             assert_eq!(SMPStatus::InProgress, bob.status());
             assert!(bob.handle(&reply).is_none());
-            assert_eq!(SMPStatus::Success, alice.status());
-            assert_eq!(SMPStatus::Success, bob.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
+            assert_eq!(SMPStatus::Completed, bob.status());
         }
     }
 
@@ -1336,14 +1328,14 @@ mod tests {
             assert_eq!(SMPStatus::InProgress, bob.status());
             let reply = bob.handle(&reply).unwrap();
             assert_eq!(SMPStatus::InProgress, alice.status());
-            assert_eq!(SMPStatus::Success, bob.status());
+            assert_eq!(SMPStatus::Completed, bob.status());
 
             // Alice: finish on Bob's reply
             assert_eq!(SMPStatus::InProgress, alice.status());
-            assert_eq!(SMPStatus::Success, bob.status());
+            assert_eq!(SMPStatus::Completed, bob.status());
             assert!(alice.handle(&reply).is_none());
-            assert_eq!(SMPStatus::Success, alice.status());
-            assert_eq!(SMPStatus::Success, bob.status());
+            assert_eq!(SMPStatus::Completed, alice.status());
+            assert_eq!(SMPStatus::Completed, bob.status());
         }
     }
 

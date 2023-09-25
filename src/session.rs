@@ -4,7 +4,7 @@ use std::{collections, rc::Rc};
 
 use crate::{
     ake::{AKEContext, CryptographicMaterial},
-    dake::DAKEContext,
+    dake::{DAKEContext, MixedKeyMaterial},
     encoding::{MessageFlags, OTREncoder},
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
@@ -13,7 +13,8 @@ use crate::{
     },
     protocol::{self, Message, ProtocolMaterial},
     smp::{self, SMPStatus},
-    utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID, SUPPORTED_VERSIONS,
+    smp4::{self, SMP4Status}, utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID,
+    SUPPORTED_VERSIONS,
 };
 
 pub struct Account {
@@ -388,7 +389,11 @@ impl Session {
     /// # Errors
     /// In case of in-progress (D)AKE session, which requires manually aborting first.
     // TODO now that `initiate` may return an error, check if this needs handling or whether propagation is fine.
-    pub fn initiate(&mut self, version: Version, receiver: InstanceTag) -> Result<UserMessage, OTRError> {
+    pub fn initiate(
+        &mut self,
+        version: Version,
+        receiver: InstanceTag,
+    ) -> Result<UserMessage, OTRError> {
         self.instances
             .entry(receiver)
             .or_insert_with(|| {
@@ -554,6 +559,7 @@ impl Instance {
     }
 
     // TODO should established OTR sessions respond to query? (should not re-establish all active sessions, i.e. multiple instances)
+    #[allow(clippy::too_many_lines)]
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         // Given that we are processing an actual (OTR-)encoded message intended for this instance,
         // we should reset the assembler now.
@@ -601,11 +607,12 @@ impl Instance {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(Message::Confidential(_, tlvs)) if smp::any_smp_tlv(&tlvs) => {
+                    Ok(Message::Confidential(_, tlvs)) if tlvs.iter().any(smp::is_smp_tlv) => {
                         // REMARK we completely ignore the content for messages with SMP TLVs.
                         // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
                         let tlv = tlvs.into_iter().find(smp::is_smp_tlv).unwrap();
                         // Socialist Millionaire Protocol (SMP) handling.
+                        // FIXME call to `smp_mut()` is not guaranteed anymore, because we already transition states above, if we get a state change returned.
                         if let Some(reply_tlv) = self.state.smp_mut().unwrap().handle(&tlv) {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
@@ -617,7 +624,7 @@ impl Instance {
                         }
                         match self.state.smp().unwrap().status() {
                             SMPStatus::InProgress => Ok(UserMessage::None),
-                            SMPStatus::Success => Ok(UserMessage::SMPSucceeded(self.receiver)),
+                            SMPStatus::Completed => Ok(UserMessage::SMPSucceeded(self.receiver)),
                             SMPStatus::Aborted(_) => Ok(UserMessage::SMPFailed(self.receiver)),
                             SMPStatus::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
@@ -646,21 +653,79 @@ impl Instance {
                     }
                 }
             }
-            EncodedMessageType::Identity(_) => {
-                // FIXME implement: handling DAKE Identity message
-                todo!("implement: handling DAKE Identity message")
+            EncodedMessageType::Identity(message) => {
+                let response = self.dake.handle_identity(message)?;
+                self.inject(self.dake.version(), response);
+                Ok(UserMessage::None)
             }
-            EncodedMessageType::AuthR(_) => {
-                // FIXME implement: handling DAKE Auth-R message type
-                todo!("implement: handling DAKE Auth-R message type")
+            EncodedMessageType::AuthR(message) => {
+                let (MixedKeyMaterial{ssid, double_ratchet}, response) = self.dake.handle_auth_r(message)?;
+                self.inject(self.dake.version(), response);
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet });
+                assert_eq!(ProtocolStatus::Encrypted, self.state.status());
+                Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
-            EncodedMessageType::AuthI(_) => {
-                // FIXME implement: handling DAKE Auth-I message type
-                todo!("implement: handling DAKE Auth-I message type")
+            EncodedMessageType::AuthI(message) => {
+                let MixedKeyMaterial{ssid, double_ratchet} = self.dake.handle_auth_i(message)?;
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet });
+                assert_eq!(ProtocolStatus::Encrypted, self.state.status());
+                Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
-            EncodedMessageType::Data4(_) => {
-                // FIXME implement: handling OTRv4 Data Message
-                todo!("implement: handling OTRv4 Data Message")
+            EncodedMessageType::Data4(msg) => {
+                // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
+                // protocol. Other TLVs that are their own protocol or function, therefore must be
+                // handled separately.
+                let (message, transition) = self.state.handle4(&msg);
+                if transition.is_some() {
+                    self.state = transition.unwrap();
+                }
+                // FIXME review this match logic; copied from DataMessage.
+                match message {
+                    Ok(Message::Confidential(_, tlvs)) if tlvs.iter().any(smp4::is_smp_tlv) => {
+                        // REMARK we completely ignore the content for messages with SMP TLVs.
+                        // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
+                        let tlv = tlvs.into_iter().find(smp4::is_smp_tlv).unwrap();
+                        // Socialist Millionaire Protocol (SMP) handling.
+                        // FIXME unwrap is not okay, might fail due to transition few lines above this line.
+                        if let Some(response) = self.state.smp4_mut().unwrap().handle(&tlv) {
+                            let otr_message = self.state.prepare(
+                                MessageFlags::IGNORE_UNREADABLE,
+                                &OTREncoder::new()
+                                    .write_u8(0)
+                                    .write_tlv(&response)
+                                    .to_vec())?;
+                            self.inject(self.state.version(), otr_message);
+                        }
+                        match self.state.smp4().unwrap().status() {
+                            SMP4Status::InProgress => Ok(UserMessage::None),
+                            SMP4Status::Completed => Ok(UserMessage::SMPSucceeded(self.receiver)),
+                            SMP4Status::Aborted(_) => Ok(UserMessage::SMPFailed(self.receiver)),
+                            SMP4Status::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
+                        }
+                    }
+                    Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
+                    Ok(Message::ConfidentialFinished(content)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver, content)),
+                    Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
+                        // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
+                        // need to send an OTR Error response, to indicate to the other user that
+                        // we no longer have a correctly established OTR session.
+                        self.host.inject(&self.address, &serialize_message(&MessageType::Error(
+                            Vec::from("unreadable message")
+                        )));
+                        Ok(UserMessage::None)
+                    }
+                    Err(OTRError::UnreadableMessage(_)) => {
+                        self.host.inject(&self.address, &serialize_message(&MessageType::Error(
+                            Vec::from("unreadable message")
+                        )));
+                        Err(OTRError::UnreadableMessage(self.receiver))
+                    }
+                    Err(error) => {
+                        // TODO do all these errors require Error Message response to other party?
+                        log::debug!("Received unexpected error-type: {:?}", &error);
+                        Err(error)
+                    }
+                }
             }
             EncodedMessageType::Unencoded(_) => panic!("BUG: this message-type is used as a placeholder. It can never be an incoming message-type to be handled."),
         }
