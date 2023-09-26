@@ -82,6 +82,7 @@ impl ProtocolState for PlaintextState {
         &mut self,
         msg: &DataMessage4,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -206,6 +207,7 @@ impl ProtocolState for EncryptedOTR3State {
         &mut self,
         msg: &DataMessage4,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(self.their_instance)), None)
     }
 
@@ -480,6 +482,7 @@ impl ProtocolState for EncryptedOTR4State {
                 double_ratchet,
                 smp: SMP4Context::new(
                     host,
+                    // FIXME replace with actual content!
                     &utils::random::secure_bytes::<56>(),
                     &utils::random::secure_bytes::<56>(),
                     ssid,
@@ -557,6 +560,7 @@ impl ProtocolState for FinishedState {
         &mut self,
         msg: &DataMessage4,
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -636,7 +640,7 @@ impl ProtocolState for FinishedState {
 }
 
 // TODO consider moving instance tags and protocol version into here.
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, clippy::upper_case_acronyms)]
 pub enum ProtocolMaterial {
     /// AKE is the OTRv2/v3 key material.
     AKE {

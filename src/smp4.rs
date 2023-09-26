@@ -111,6 +111,7 @@ impl SMP4Context {
         Ok(TLV(TLV_SMP_MESSAGE_1, smp1))
     }
 
+    // TODO we can probably extract a common trait for both SMPContext and SMP4Context.
     pub fn handle(&mut self, tlv: &TLV) -> Option<TLV> {
         match self.dispatch(tlv) {
             Err(_) => {
@@ -301,7 +302,7 @@ impl SMP4Context {
         let d6 = (q + &r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
         let Ra = &DeltaQaQb * &a3;
         let cr = ed448::hash_point_to_scalar2(0x07, &(G * &r7), &(&DeltaQaQb * &r7));
-        let d7 = &(q + r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
+        let d7 = &(q + &r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
         let smp3 = OTREncoder::new()
             .write_ed448_point(&Pa)
             .write_ed448_point(&Qa)
@@ -480,7 +481,7 @@ impl SMP4Context {
 }
 
 /// `SMP4Status` indicates the current status of an SMP4 session.
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SMP4Status {
     /// `Initial` status: no SMP4 session, no activity.
     Initial,

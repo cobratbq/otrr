@@ -220,7 +220,7 @@ impl Assembler {
     }
 }
 
-#[derive(std::fmt::Debug)]
+#[derive(Debug)]
 pub enum FragmentError {
     /// Fragment contains invalid part information that would result in an invalid partitioning of
     /// the content.

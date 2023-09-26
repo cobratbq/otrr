@@ -267,7 +267,7 @@ impl DAKEContext {
             let k = shared_secret.k();
             let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, &k);
             let prev_root_key =
-                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH_BYTES }>(otr4::USAGE_FIRST_ROOT_KEY, &k);
+                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, &k);
             let shared_secret = otr4::MixedSharedSecret::new(
                 ecdh0.clone(),
                 dh0.clone(),
@@ -351,7 +351,7 @@ impl DAKEContext {
             // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
             let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
             let prev_root_key =
-                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH_BYTES }>(otr4::USAGE_FIRST_ROOT_KEY, k);
+                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, k);
             let shared_secret = otr4::MixedSharedSecret::new(
                 ecdh0.clone(),
                 dh0.clone(),
@@ -411,7 +411,7 @@ enum State {
         y: ed448::Point,
         a: BigUint,
         b: BigUint,
-        k: [u8; otr4::K_LENGTH_BYTES],
+        k: [u8; otr4::K_LENGTH],
         ecdh0: ed448::KeyPair,
         dh0: dh3072::KeyPair,
         ecdh0_other: ed448::Point,

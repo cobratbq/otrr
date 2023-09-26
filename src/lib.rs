@@ -77,7 +77,7 @@ pub mod session;
 
 /// `UserMessage` represents the resulting Message intended for the messaging client, possibly
 /// containing content relevant to display to the user.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum UserMessage {
     /// Nothing received that is relevant to report/transfer back to the messaging client.
     None,
@@ -104,7 +104,7 @@ pub enum UserMessage {
 }
 
 /// `OTRError` is the enum containing the various errors that can occur.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum OTRError {
     /// Message contained invalid data according to the OTR protocol.
     ProtocolViolation(&'static str),
@@ -150,7 +150,7 @@ pub enum ProtocolStatus {
 const SUPPORTED_VERSIONS: [Version; 1] = [Version::V3];
 
 /// `Version` contains the various supported OTR protocol versions.
-#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Version {
     None,
     // V1 will not be supported.

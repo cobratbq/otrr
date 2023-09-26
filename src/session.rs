@@ -23,6 +23,7 @@ pub struct Account {
     sessions: collections::HashMap<Vec<u8>, Session>,
 }
 
+// TODO set up a heartbeat timer that checks up on sessions and sends heartbeat messages if necessary.
 impl Account {
     // FIXME need method for acquiring session for specified address (create or retrieve)
     pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
@@ -702,6 +703,7 @@ impl Instance {
                             SMP4Status::Aborted(_) => Ok(UserMessage::SMPFailed(self.receiver)),
                             SMP4Status::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
+                        // TODO do we want/need to call back to host to signal SMP-verified account?
                     }
                     Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
                     Ok(Message::ConfidentialFinished(content)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver, content)),
@@ -977,10 +979,10 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
-        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
+        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
+        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
+        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
+        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1006,8 +1008,8 @@ mod tests {
         messages_alice
             .borrow_mut()
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
-        assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
-        assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
+        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(tag_alice))));
+        assert!(matches!(bob.status(tag_alice), Some(ProtocolStatus::Plaintext)));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
@@ -1025,8 +1027,8 @@ mod tests {
             alice.send(tag_bob, b"Hey, wait up!!!"),
             Err(OTRError::IncorrectState(_))
         ));
-        assert_eq!(Ok(UserMessage::Reset(tag_bob)), alice.end(tag_bob));
-        assert_eq!(Some(ProtocolStatus::Plaintext), alice.status(tag_bob));
+        assert!(matches!(alice.end(tag_bob), Ok(UserMessage::Reset(tag_bob))));
+        assert!(matches!(alice.status(tag_bob), Some(ProtocolStatus::Plaintext)));
         assert!(messages_bob.borrow().is_empty());
         assert!(messages_alice.borrow().is_empty());
     }
@@ -1058,10 +1060,10 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
-        assert_eq!(None, handle_messages("Alice", &mut messages_alice, alice));
-        assert_eq!(None, handle_messages("Bob", &mut messages_bob, bob));
+        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
+        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
+        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
+        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1087,8 +1089,8 @@ mod tests {
         messages_alice
             .borrow_mut()
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
-        assert_eq!(Ok(UserMessage::Reset(tag_alice)), bob.end(tag_alice));
-        assert_eq!(Some(ProtocolStatus::Plaintext), bob.status(tag_alice));
+        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(tag_alice))));
+        assert!(matches!(bob.status(tag_alice), Some(ProtocolStatus::Plaintext)));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
@@ -1106,8 +1108,8 @@ mod tests {
             alice.send(tag_bob, b"Hey, wait up!!!"),
             Err(OTRError::IncorrectState(_))
         ));
-        assert_eq!(Ok(UserMessage::Reset(tag_bob)), alice.end(tag_bob));
-        assert_eq!(Some(ProtocolStatus::Plaintext), alice.status(tag_bob));
+        assert!(matches!(alice.end(tag_bob), Ok(UserMessage::Reset(tag_bob))));
+        assert!(matches!(alice.status(tag_bob), Some(ProtocolStatus::Plaintext)));
         assert!(messages_bob.borrow().is_empty());
         assert!(messages_alice.borrow().is_empty());
     }

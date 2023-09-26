@@ -626,7 +626,7 @@ impl SignatureMessage {
 }
 
 /// `AKEError` contains the variants of errors produced during AKE.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum AKEError {
     /// AKE message processing produced an error due to a cryptographic violation.
     CryptographicViolation(CryptoError),

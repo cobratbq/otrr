@@ -714,7 +714,7 @@ impl Drop for SMPState {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SMPStatus {
     /// Initial status: no SMP session, no activity.
     Initial,

@@ -611,13 +611,13 @@ pub mod otr4 {
 
     use super::{dh3072, ed448, shake256, CryptoError};
 
-    pub const K_LENGTH_BYTES: usize = 64;
-    pub const ROOT_KEY_LENGTH_BYTES: usize = 64;
-    const BRACE_KEY_LENGTH_BYTES: usize = 32;
-    const CHAIN_KEY_LENGTH_BYTES: usize = 64;
+    pub const K_LENGTH: usize = 64;
+    pub const ROOT_KEY_LENGTH: usize = 64;
+    const BRACE_KEY_LENGTH: usize = 32;
+    const CHAIN_KEY_LENGTH: usize = 64;
 
     const USAGE_FINGERPRINT: u8 = 0x00;
-    pub const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
+    const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
     const USAGE_BRACE_KEY: u8 = 0x02;
     const USAGE_SHARED_SECRET: u8 = 0x03;
     pub const USAGE_SSID: u8 = 0x04;
@@ -636,9 +636,9 @@ pub mod otr4 {
     //const USAGE_AUTH_MAC: u8 = 0x11;
     const USAGE_ROOT_KEY: u8 = 0x12;
     const USAGE_CHAIN_KEY: u8 = 0x13;
-    //const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
-    //const USAGE_MESSAGE_KEY: u8 = 0x15;
-    //const USAGE_MAC_KEY: u8 = 0x16;
+    const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
+    const USAGE_MESSAGE_KEY: u8 = 0x15;
+    const USAGE_MAC_KEY: u8 = 0x16;
     //const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
     //const USAGE_AUTHENTICATOR: u8 = 0x18;
     pub const USAGE_SMP_SECRET: u8 = 0x19;
@@ -656,31 +656,47 @@ pub mod otr4 {
         pn: u32,
     }
 
+    impl Drop for DoubleRatchet {
+        fn drop(&mut self) {
+            utils::bytes::clear(&mut self.root_key);
+        }
+    }
+
     impl DoubleRatchet {
         #[must_use]
         pub fn initialize(
             selector: &Selector,
             shared_secret: MixedSharedSecret,
-            prev_root_key: [u8; ROOT_KEY_LENGTH_BYTES],
+            prev_root_key: [u8; ROOT_KEY_LENGTH],
         ) -> Self {
             let k = shared_secret.k();
-            let root_key = kdf_2::<ROOT_KEY_LENGTH_BYTES>(USAGE_ROOT_KEY, &prev_root_key, &k);
-            // FIXME shouldn't use `k` here below again. Should be replaced.
             let (sender, receiver, next) = match selector {
                 Selector::SENDER => (
-                    Ratchet::new(&prev_root_key, &k),
-                    Ratchet::dummy(),
+                    Ratchet {
+                        chain_key: kdf2(USAGE_CHAIN_KEY, &prev_root_key, &k),
+                        message_id: 0,
+                    },
+                    Ratchet {
+                        chain_key: [0u8; CHAIN_KEY_LENGTH],
+                        message_id: 0,
+                    },
                     Selector::RECEIVER,
                 ),
                 Selector::RECEIVER => (
-                    Ratchet::dummy(),
-                    Ratchet::new(&prev_root_key, &k),
+                    Ratchet {
+                        chain_key: [0u8; CHAIN_KEY_LENGTH],
+                        message_id: 0,
+                    },
+                    Ratchet {
+                        chain_key: kdf2(USAGE_CHAIN_KEY, &prev_root_key, &k),
+                        message_id: 0,
+                    },
                     Selector::SENDER,
                 ),
             };
             Self {
                 shared_secret,
-                root_key,
+                root_key: kdf2(USAGE_ROOT_KEY, &prev_root_key, &k),
                 sender,
                 receiver,
                 next,
@@ -693,31 +709,92 @@ pub mod otr4 {
         pub fn next(&self) -> &Selector {
             &self.next
         }
-    }
 
-    struct Ratchet {
-        chain_key: [u8; CHAIN_KEY_LENGTH_BYTES],
-        message_id: u32,
-    }
-
-    impl Ratchet {
-        fn new(prev_root_key: &[u8; ROOT_KEY_LENGTH_BYTES], k: &[u8; K_LENGTH_BYTES]) -> Self {
+        /// `rotate_sender` rotates the sender keys of the Double Ratchet.
+        ///
+        /// # Panics
+        /// In case `rotate_sender` is used before its turn to rotate. (See `next`)
+        #[must_use]
+        pub fn rotate_sender(&self) -> DoubleRatchet {
+            assert_eq!(Selector::SENDER, self.next);
+            let new_shared_secret = self.shared_secret.rotate_keypairs(self.i % 3 == 0);
+            let new_k = new_shared_secret.k();
+            // FIXME clear k?
             Self {
-                chain_key: kdf_2(USAGE_CHAIN_KEY, prev_root_key, k),
-                message_id: 0,
+                shared_secret: new_shared_secret,
+                root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
+                sender: Ratchet {
+                    chain_key: kdf2::<CHAIN_KEY_LENGTH>(USAGE_CHAIN_KEY, &self.root_key, &new_k),
+                    message_id: 0,
+                },
+                receiver: self.receiver.clone(),
+                next: Selector::RECEIVER,
+                i: self.i + 1,
+                pn: self.sender.message_id,
             }
         }
 
-        fn dummy() -> Self {
-            // TODO ensure that assertions for any non-zero bytes are in place.
-            Self {
-                chain_key: [0u8; CHAIN_KEY_LENGTH_BYTES],
-                message_id: 0,
-            }
+        /// `rotate_receiver` rotates the other party's public keys.
+        ///
+        /// # Errors
+        /// In case the public keys are illegal.
+        ///
+        /// # Panics
+        /// In case `rotate_receiver` is used before its turn to rotate. (see `next`)
+        pub fn rotate_receiver(
+            &self,
+            ecdh_next: ed448::Point,
+            dh_next: Option<BigUint>,
+        ) -> Result<DoubleRatchet, CryptoError> {
+            assert_eq!(Selector::RECEIVER, self.next);
+            let new_shared_secret =
+                self.shared_secret
+                    .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
+            let new_k = new_shared_secret.k();
+            // FIXME clear k?
+            Ok(Self {
+                shared_secret: new_shared_secret,
+                root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
+                sender: self.sender.clone(),
+                receiver: Ratchet {
+                    chain_key: kdf2::<CHAIN_KEY_LENGTH>(USAGE_CHAIN_KEY, &self.root_key, &new_k),
+                    message_id: 0,
+                },
+                next: Selector::SENDER,
+                i: self.i + 1,
+                pn: self.pn,
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct Ratchet {
+        chain_key: [u8; CHAIN_KEY_LENGTH],
+        message_id: u32,
+    }
+
+    impl Drop for Ratchet {
+        fn drop(&mut self) {
+            utils::bytes::clear(&mut self.chain_key);
+        }
+    }
+
+    impl Ratchet {
+        fn rotate(&mut self) {
+            self.chain_key = kdf(USAGE_NEXT_CHAIN_KEY, &self.chain_key);
+            self.message_id += 1;
+        }
+
+        fn keys(&self) -> ([u8; 64], [u8; 64]) {
+            assert!(utils::bytes::any_nonzero(&self.chain_key));
+            let mk_enc = kdf::<64>(USAGE_MESSAGE_KEY, &self.chain_key);
+            let mk_mac = kdf::<64>(USAGE_MAC_KEY, &mk_enc);
+            (mk_enc, mk_mac)
         }
     }
 
     /// `Selector` is the selector for a specific ratchet, i.e. Sender or Receiver.
+    #[derive(Debug, PartialEq, Eq)]
     pub enum Selector {
         SENDER,
         RECEIVER,
@@ -729,8 +806,15 @@ pub mod otr4 {
         dh: dh3072::KeyPair,
         public_ecdh: ed448::Point,
         public_dh: BigUint,
-        brace_key: [u8; BRACE_KEY_LENGTH_BYTES],
-        k: [u8; K_LENGTH_BYTES],
+        brace_key: [u8; BRACE_KEY_LENGTH],
+        k: [u8; K_LENGTH],
+    }
+
+    impl Drop for MixedSharedSecret {
+        fn drop(&mut self) {
+            utils::bytes::clear(&mut self.brace_key);
+            utils::bytes::clear(&mut self.k);
+        }
     }
 
     impl MixedSharedSecret {
@@ -750,7 +834,50 @@ pub mod otr4 {
                 public_ecdh,
                 public_dh,
                 true,
-                [0u8; BRACE_KEY_LENGTH_BYTES],
+                [0u8; BRACE_KEY_LENGTH],
+            )
+        }
+
+        /// `rotate_keypairs` rotates the user's keypairs.
+        ///
+        /// # Panics
+        /// Should only panic in case of a bug in the implementation.
+        #[must_use]
+        pub fn rotate_keypairs(&self, third: bool) -> Self {
+            let ecdh = ed448::KeyPair::generate();
+            let dh = dh3072::KeyPair::generate();
+            Self::next(
+                ecdh,
+                dh,
+                self.public_ecdh.clone(),
+                self.public_dh.clone(),
+                third,
+                self.brace_key,
+            ).expect("BUG: failure should not occur because only the keypairs are changed, meaning that all changes are within our control. Any bad data should have been detected earlier.")
+        }
+
+        /// `rotate_others` rotates the other party's public keys.
+        ///
+        /// # Errors
+        /// In case of bad public keys.
+        ///
+        /// # Panics
+        /// In case third-brace-key flag does not correspond with the presence/absence of the next
+        /// DH public key.
+        pub fn rotate_others(
+            &self,
+            third: bool,
+            ecdh_next: ed448::Point,
+            dh_next: Option<BigUint>,
+        ) -> Result<Self, CryptoError> {
+            assert_eq!(third, dh_next.is_some());
+            Self::next(
+                self.ecdh.clone(),
+                self.dh.clone(),
+                ecdh_next,
+                dh_next.unwrap_or(self.public_dh.clone()),
+                third,
+                self.brace_key,
             )
         }
 
@@ -760,22 +887,22 @@ pub mod otr4 {
             public_ecdh: ed448::Point,
             public_dh: BigUint,
             third: bool,
-            brace_key_prev: [u8; BRACE_KEY_LENGTH_BYTES],
+            brace_key_prev: [u8; BRACE_KEY_LENGTH],
         ) -> Result<Self, CryptoError> {
             ed448::verify(&public_ecdh)?;
             dh3072::verify(&public_dh)?;
             // FIXME verification
-            let secret_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
+            let k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
             let brace_key = if third {
-                let secret_dh =
+                let k_dh =
                     utils::biguint::to_bytes_le_fixed::<57>(&dh.generate_shared_secret(&public_dh));
-                kdf(USAGE_THIRD_BRACE_KEY, &secret_dh)
+                kdf(USAGE_THIRD_BRACE_KEY, &k_dh)
             } else {
                 assert!(utils::bytes::any_nonzero(&brace_key_prev));
                 kdf(USAGE_BRACE_KEY, &brace_key_prev)
             };
-            let k = kdf_2::<K_LENGTH_BYTES>(USAGE_SHARED_SECRET, &secret_ecdh, &brace_key);
-            // FIXME key material needs clearing/cleaning up
+            let k = kdf2::<K_LENGTH>(USAGE_SHARED_SECRET, &k_ecdh, &brace_key);
+            // FIXME key material needs clearing/cleaning up (depends on sender/receiver purpose)
             Ok(Self {
                 ecdh,
                 dh,
@@ -787,7 +914,7 @@ pub mod otr4 {
         }
 
         #[must_use]
-        pub fn k(&self) -> [u8; K_LENGTH_BYTES] {
+        pub fn k(&self) -> [u8; K_LENGTH] {
             self.k
         }
     }
@@ -820,13 +947,29 @@ pub mod otr4 {
     }
 
     #[must_use]
-    pub fn kdf_2<const N: usize>(usage: u8, data1: &[u8], data2: &[u8]) -> [u8; N] {
+    pub fn kdf2<const N: usize>(usage: u8, data1: &[u8], data2: &[u8]) -> [u8; N] {
         let mut buffer = Vec::with_capacity(6 + data1.len() + data2.len());
         buffer.extend_from_slice(&PREFIX);
         buffer.push(usage);
         buffer.extend_from_slice(data1);
         buffer.extend_from_slice(data2);
         shake256::digest::<N>(&buffer)
+    }
+}
+
+// REMARK nonce is _always_ set to zero, according to spec.
+pub mod chacha20 {
+
+    const NONCE: [u8; 12] = [0u8; 12];
+
+    pub fn encrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
+        // FIXME implement: ChaCha20 encryption
+        todo!("implement: ChaCha20 encryption")
+    }
+
+    pub fn decrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
+        // FIXME implement: ChaCha20 decryption
+        todo!("implement: ChaCha20 decryption")
     }
 }
 
@@ -1653,7 +1796,7 @@ fn verify_nonzero(data: &[u8]) -> Result<(), CryptoError> {
     utils::bytes::verify_nonzero(data, CryptoError::VerificationFailure("all zero-bytes"))
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum CryptoError {
     VerificationFailure(&'static str),
 }
