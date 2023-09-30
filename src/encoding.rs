@@ -6,8 +6,8 @@ use bitflags::bitflags;
 use num_bigint::BigUint;
 
 use crate::{
+    crypto::dsa::Signature,
     crypto::{dsa, ed448},
-    crypto::{dsa::Signature, ed448::LENGTH_BYTES},
     instancetag::{verify_instance_tag, InstanceTag},
     utils, OTRError, TLVType, SSID,
 };
@@ -425,7 +425,9 @@ impl OTREncoder {
 
     pub fn write_ed448_scalar(&mut self, scalar: &BigUint) -> &mut Self {
         self.buffer
-            .extend_from_slice(&utils::biguint::to_bytes_le_fixed::<LENGTH_BYTES>(scalar));
+            .extend_from_slice(&utils::biguint::to_bytes_le_fixed::<
+                { ed448::ENCODED_LENGTH },
+            >(scalar));
         self
     }
 

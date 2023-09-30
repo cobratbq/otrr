@@ -400,7 +400,7 @@ pub mod dsa {
     use super::CryptoError;
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
-    const PARAM_Q_LENGTH_BYTES: usize = 20;
+    const PARAM_Q_LENGTH: usize = 20;
 
     pub struct Keypair {
         sk: SigningKey,
@@ -450,7 +450,7 @@ pub mod dsa {
             g: BigUint,
             y: BigUint,
         ) -> Result<Self, CryptoError> {
-            if q.bits() != PARAM_Q_LENGTH_BYTES * 8 {
+            if q.bits() != PARAM_Q_LENGTH * 8 {
                 return Err(CryptoError::VerificationFailure(
                     "Number of bits in component Q does not correspond to prescribed length of 20.",
                 ));
@@ -506,12 +506,12 @@ pub mod dsa {
     impl Signature {
         #[must_use]
         pub const fn size() -> usize {
-            2 * PARAM_Q_LENGTH_BYTES
+            2 * PARAM_Q_LENGTH
         }
 
         #[must_use]
         pub const fn parameter_size() -> usize {
-            PARAM_Q_LENGTH_BYTES
+            PARAM_Q_LENGTH
         }
 
         #[must_use]
@@ -607,7 +607,7 @@ pub mod sha256 {
 pub mod otr4 {
     use num_bigint::BigUint;
 
-    use crate::utils;
+    use crate::{utils, crypto::otr4};
 
     use super::{dh3072, ed448, shake256, CryptoError};
 
@@ -615,6 +615,7 @@ pub mod otr4 {
     pub const ROOT_KEY_LENGTH: usize = 64;
     const BRACE_KEY_LENGTH: usize = 32;
     const CHAIN_KEY_LENGTH: usize = 64;
+    pub const MAC_LENGTH: usize = 64;
 
     const USAGE_FINGERPRINT: u8 = 0x00;
     const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
@@ -639,13 +640,16 @@ pub mod otr4 {
     const USAGE_NEXT_CHAIN_KEY: u8 = 0x14;
     const USAGE_MESSAGE_KEY: u8 = 0x15;
     const USAGE_MAC_KEY: u8 = 0x16;
-    //const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
-    //const USAGE_AUTHENTICATOR: u8 = 0x18;
+    const USAGE_EXTRA_SYMMETRIC_KEY: u8 = 0x17;
+    pub const USAGE_AUTHENTICATOR: u8 = 0x18;
     pub const USAGE_SMP_SECRET: u8 = 0x19;
     pub const USAGE_AUTH: u8 = 0x1A;
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
+    pub type Fingerprint = [u8; 56];
+
+    #[derive(Clone)]
     pub struct DoubleRatchet {
         shared_secret: MixedSharedSecret,
         root_key: [u8; 64],
@@ -715,7 +719,7 @@ pub mod otr4 {
         /// # Panics
         /// In case `rotate_sender` is used before its turn to rotate. (See `next`)
         #[must_use]
-        pub fn rotate_sender(&self) -> DoubleRatchet {
+        pub fn rotate_sender(&self) -> Self {
             assert_eq!(Selector::SENDER, self.next);
             let new_shared_secret = self.shared_secret.rotate_keypairs(self.i % 3 == 0);
             let new_k = new_shared_secret.k();
@@ -734,6 +738,11 @@ pub mod otr4 {
             }
         }
 
+        pub fn rotate_sender_chainkey(&mut self) {
+            assert_eq!(otr4::Selector::RECEIVER, self.next);
+            self.sender.rotate();
+        }
+
         /// `rotate_receiver` rotates the other party's public keys.
         ///
         /// # Errors
@@ -741,12 +750,14 @@ pub mod otr4 {
         ///
         /// # Panics
         /// In case `rotate_receiver` is used before its turn to rotate. (see `next`)
+        // FIXME dh_next optional or expect same to be provided repeatedly, which may help with out-of-order messages.
         pub fn rotate_receiver(
             &self,
             ecdh_next: ed448::Point,
-            dh_next: Option<BigUint>,
-        ) -> Result<DoubleRatchet, CryptoError> {
+            dh_next: BigUint,
+        ) -> Result<Self, CryptoError> {
             assert_eq!(Selector::RECEIVER, self.next);
+            assert!((self.i % 3 != 0) == (dh_next == self.shared_secret.public_dh));
             let new_shared_secret =
                 self.shared_secret
                     .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
@@ -765,8 +776,53 @@ pub mod otr4 {
                 pn: self.pn,
             })
         }
+
+        pub fn rotate_receiver_chainkey(&mut self) {
+            self.receiver.rotate();
+        }
+
+        pub fn i(&self) -> u32 {
+            self.i
+        }
+
+        pub fn j(&self) -> u32 {
+            self.sender.id()
+        }
+
+        pub fn k(&self) -> u32 {
+            self.receiver.id()
+        }
+
+        pub fn pn(&self) -> u32 {
+            self.pn
+        }
+
+        pub fn ecdh_public(&self) -> &ed448::Point {
+            self.shared_secret.ecdh.public()
+        }
+
+        pub fn dh_public(&self) -> &BigUint {
+            self.shared_secret.dh.public()
+        }
+
+        pub fn other_ecdh(&self) -> &ed448::Point {
+            &self.shared_secret.public_ecdh
+        }
+
+        pub fn other_dh(&self) -> &BigUint {
+            &self.shared_secret.public_dh
+        }
+
+        pub fn sender_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
+            self.sender.keys()
+        }
+
+        pub fn receiver_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
+            self.receiver.keys()
+        }
     }
 
+    /// `Ratchet` is the single ratchet of the two in the `DoubleRatchet` data structure.
     #[derive(Clone)]
     struct Ratchet {
         chain_key: [u8; CHAIN_KEY_LENGTH],
@@ -780,27 +836,36 @@ pub mod otr4 {
     }
 
     impl Ratchet {
+        /// `id` returns the current message id for the ratchet.
+        fn id(&self) -> u32 {
+            self.message_id
+        }
+
+        /// `rotate` rotates the chain key for the next message in the ratchet.
         fn rotate(&mut self) {
             self.chain_key = kdf(USAGE_NEXT_CHAIN_KEY, &self.chain_key);
             self.message_id += 1;
         }
 
-        fn keys(&self) -> ([u8; 64], [u8; 64]) {
+        /// `keys` produces the MK_enc, MK_mac and extra symmetric key respectively.
+        fn keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
             assert!(utils::bytes::any_nonzero(&self.chain_key));
             let mk_enc = kdf::<64>(USAGE_MESSAGE_KEY, &self.chain_key);
             let mk_mac = kdf::<64>(USAGE_MAC_KEY, &mk_enc);
-            (mk_enc, mk_mac)
+            let esk = kdf2(USAGE_EXTRA_SYMMETRIC_KEY, &[0xff], &self.chain_key);
+            (mk_enc, mk_mac, esk)
         }
     }
 
     /// `Selector` is the selector for a specific ratchet, i.e. Sender or Receiver.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Selector {
         SENDER,
         RECEIVER,
     }
 
     /// `MixedSharedSecret` represents the OTRv4 mixed shared secret value.
+    #[derive(Clone)]
     pub struct MixedSharedSecret {
         ecdh: ed448::KeyPair,
         dh: dh3072::KeyPair,
@@ -868,14 +933,15 @@ pub mod otr4 {
             &self,
             third: bool,
             ecdh_next: ed448::Point,
-            dh_next: Option<BigUint>,
+            dh_next: BigUint,
         ) -> Result<Self, CryptoError> {
-            assert_eq!(third, dh_next.is_some());
+            assert_eq!(third, dh_next != self.public_dh);
+            // FIXME double-check, but prly need to clear ecdh.private and dh.private now, after having rotated others' public keys.
             Self::next(
                 self.ecdh.clone(),
                 self.dh.clone(),
                 ecdh_next,
-                dh_next.unwrap_or(self.public_dh.clone()),
+                dh_next,
                 third,
                 self.brace_key,
             )
@@ -921,20 +987,26 @@ pub mod otr4 {
 
     #[must_use]
     pub fn fingerprint(public_key: &ed448::Point, forging_key: &ed448::Point) -> [u8; 56] {
-        let mut buffer = Vec::new();
-        buffer.extend_from_slice(&public_key.encode());
-        buffer.extend_from_slice(&forging_key.encode());
-        hwc::<56>(USAGE_FINGERPRINT, &buffer)
+        hwc2(
+            USAGE_FINGERPRINT,
+            &public_key.encode(),
+            &forging_key.encode(),
+        )
     }
 
     #[must_use]
     pub fn hwc<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
-        kdf::<N>(usage, data)
+        kdf(usage, data)
+    }
+
+    #[must_use]
+    pub fn hwc2<const N: usize>(usage: u8, data1: &[u8], data2: &[u8]) -> [u8; N] {
+        kdf2(usage, data1, data2)
     }
 
     #[must_use]
     pub fn hcmac<const N: usize>(usage: u8, data: &[u8]) -> [u8; N] {
-        kdf::<N>(usage, data)
+        kdf(usage, data)
     }
 
     #[must_use]
@@ -943,7 +1015,7 @@ pub mod otr4 {
         buffer.extend_from_slice(&PREFIX);
         buffer.push(usage);
         buffer.extend_from_slice(data);
-        shake256::digest::<N>(&buffer)
+        shake256::digest(&buffer)
     }
 
     #[must_use]
@@ -953,23 +1025,29 @@ pub mod otr4 {
         buffer.push(usage);
         buffer.extend_from_slice(data1);
         buffer.extend_from_slice(data2);
-        shake256::digest::<N>(&buffer)
+        shake256::digest(&buffer)
     }
 }
 
-// REMARK nonce is _always_ set to zero, according to spec.
 pub mod chacha20 {
+
+    use chacha20::{cipher::{KeyIvInit,StreamCipher}, ChaCha20};
 
     const NONCE: [u8; 12] = [0u8; 12];
 
     pub fn encrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
-        // FIXME implement: ChaCha20 encryption
-        todo!("implement: ChaCha20 encryption")
+        crypt(key, m)
     }
 
     pub fn decrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
-        // FIXME implement: ChaCha20 decryption
-        todo!("implement: ChaCha20 decryption")
+        crypt(key, m)
+    }
+
+    fn crypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
+        let mut cipher = ChaCha20::new(&key.into(), &NONCE.into());
+        let mut buffer = Vec::from(m);
+        cipher.apply_keystream(&mut buffer);
+        buffer
     }
 }
 
@@ -1011,7 +1089,7 @@ pub mod ed448 {
 
     use super::{constant, shake256, CryptoError};
 
-    pub const LENGTH_BYTES: usize = 57;
+    pub const ENCODED_LENGTH: usize = 57;
 
     // G = (x=22458004029592430018760433409989603624678964163256413424612546168695
     //        0415467406032909029192869357953282578032075146446173674602635247710,
@@ -1130,7 +1208,7 @@ pub mod ed448 {
     }
 
     #[derive(Clone)]
-    pub struct Signature([u8; 2 * LENGTH_BYTES]);
+    pub struct Signature([u8; 2 * ENCODED_LENGTH]);
 
     impl OTREncodable for Signature {
         fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
@@ -1140,7 +1218,7 @@ pub mod ed448 {
 
     impl Signature {
         #[must_use]
-        pub fn from(data: [u8; 2 * LENGTH_BYTES]) -> Self {
+        pub fn from(data: [u8; 2 * ENCODED_LENGTH]) -> Self {
             Self(data)
         }
     }

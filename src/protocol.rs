@@ -5,11 +5,11 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{constant, dh, dsa, otr, otr4, sha1},
+    crypto::{chacha20, constant, dh, dh3072, dsa, ed448, otr, otr4, sha1},
     encoding::{MessageFlags, OTRDecoder, OTREncoder, FINGERPRINT_LEN, MAC_LEN, TLV},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
-    messages::{encode_authenticator_data, DataMessage, DataMessage4, EncodedMessageType},
+    messages::{self, encode_authenticator_data, DataMessage, DataMessage4, EncodedMessageType},
     smp::SMPContext,
     smp4::SMP4Context,
     utils, Host, OTRError, ProtocolStatus, TLVType, Version, SSID,
@@ -29,10 +29,12 @@ pub trait ProtocolState {
     fn handle(
         &mut self,
         msg: &DataMessage,
+        authenticator: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     fn handle4(
         &mut self,
         msg: &DataMessage4,
+        authenticator: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>);
     // TODO consider defining a common EncryptedState trait to be shared with OTR2/OTR3 and OTR4.
     #[allow(clippy::too_many_arguments)]
@@ -74,13 +76,15 @@ impl ProtocolState for PlaintextState {
     fn handle(
         &mut self,
         _: &DataMessage,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
     fn handle4(
         &mut self,
-        msg: &DataMessage4,
+        _: &DataMessage4,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
@@ -117,8 +121,9 @@ impl ProtocolState for PlaintextState {
                 double_ratchet,
                 smp: SMP4Context::new(
                     host,
-                    &utils::random::secure_bytes::<56>(),
-                    &utils::random::secure_bytes::<56>(),
+                    // FIXME replace with actual content!
+                    utils::random::secure_bytes(),
+                    utils::random::secure_bytes(),
                     ssid,
                 ),
             }),
@@ -179,13 +184,14 @@ impl ProtocolState for EncryptedOTR3State {
     fn handle(
         &mut self,
         msg: &DataMessage,
+        authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         if msg.revealed.len() % 20 != 0
             || (!msg.revealed.is_empty() && utils::bytes::all_zero(&msg.revealed))
         {
             log::info!("NOTE: revealed MAC keys in received data message do not satisfy protocol expectations.");
         }
-        match self.decrypt_message(msg) {
+        match self.decrypt_message(msg, authenticator_data) {
             Ok(decrypted) => match parse_message(&decrypted) {
                 msg @ Ok(Message::ConfidentialFinished(_)) => {
                     (msg, Some(Box::new(FinishedState {})))
@@ -205,7 +211,8 @@ impl ProtocolState for EncryptedOTR3State {
 
     fn handle4(
         &mut self,
-        msg: &DataMessage4,
+        _: &DataMessage4,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(self.their_instance)), None)
@@ -245,8 +252,8 @@ impl ProtocolState for EncryptedOTR3State {
                 double_ratchet,
                 smp: SMP4Context::new(
                     host,
-                    &utils::random::secure_bytes::<56>(),
-                    &utils::random::secure_bytes::<56>(),
+                    utils::random::secure_bytes(),
+                    utils::random::secure_bytes(),
                     ssid,
                 ),
             }),
@@ -363,7 +370,11 @@ impl EncryptedOTR3State {
         data_message
     }
 
-    fn decrypt_message(&mut self, message: &DataMessage) -> Result<Vec<u8>, OTRError> {
+    fn decrypt_message(
+        &mut self,
+        message: &DataMessage,
+        authenticator_data: &[u8],
+    ) -> Result<Vec<u8>, OTRError> {
         log::debug!("Decrypting confidential message ...");
         // "Uses Diffie-Hellman to compute a shared secret from the two keys labelled by keyidA and
         //  keyidB, and generates the receiving AES key, ek, and the receiving MAC key, mk, as
@@ -376,15 +387,7 @@ impl EncryptedOTR3State {
         let secrets = otr::DataSecrets::derive(&our_dh.public(), their_key, &secbytes);
         // "Uses mk to verify MACmk(TA)."
         let receiving_mac_key = secrets.receiver_mac_key();
-        let authenticator = sha1::hmac(
-            &receiving_mac_key,
-            &encode_authenticator_data(
-                &Version::V3,
-                self.their_instance,
-                self.our_instance,
-                message,
-            ),
-        );
+        let authenticator = sha1::hmac(&receiving_mac_key, authenticator_data);
         constant::compare_bytes_distinct(&message.authenticator, &authenticator)
             .map_err(OTRError::CryptographicViolation)?;
         log::debug!("Authenticator of received confidential message verified.");
@@ -408,24 +411,6 @@ impl EncryptedOTR3State {
     }
 }
 
-fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
-    let mut decoder = OTRDecoder::new(raw_content);
-    let content = decoder.read_bytes_null_terminated();
-    let tlvs: Vec<TLV> = decoder
-        .read_tlvs()?
-        .into_iter()
-        .filter(|t| t.0 != TLV_TYPE_0_PADDING)
-        .collect();
-    decoder.done()?;
-    if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
-        log::debug!("Received confidential message with type 1 TLV (DISCONNECT)");
-        Ok(Message::ConfidentialFinished(content))
-    } else {
-        log::debug!("Received confidential message.");
-        Ok(Message::Confidential(content, tlvs))
-    }
-}
-
 pub struct EncryptedOTR4State {
     our_instance: InstanceTag,
     their_instance: InstanceTag,
@@ -444,7 +429,8 @@ impl ProtocolState for EncryptedOTR4State {
 
     fn handle(
         &mut self,
-        msg: &DataMessage,
+        _: &DataMessage,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(self.their_instance)), None)
     }
@@ -452,9 +438,33 @@ impl ProtocolState for EncryptedOTR4State {
     fn handle4(
         &mut self,
         msg: &DataMessage4,
+        authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
-        // FIXME implement: handling data-message for OTRv4
-        todo!("implement: handling data-message for OTRv4")
+        // FIXME ensure instance tags have been checked.
+        if let Err(error) = ed448::verify(&msg.ecdh).map_err(OTRError::CryptographicViolation) {
+            return (Err(error), None);
+        }
+        if let Err(error) = dh3072::verify(&msg.dh).map_err(OTRError::CryptographicViolation) {
+            return (Err(error), None);
+        }
+        // FIXME strictly verify data message: (drop early to avoid unnecessary speculative rotation) at most 1 ratchet difference, receiver must be expected to rotate next, ...
+        match self.decrypt_message(msg, authenticator_data) {
+            Ok(decrypted) => match parse_message(&decrypted) {
+                msg @ Ok(Message::ConfidentialFinished(_)) => {
+                    (msg, Some(Box::new(FinishedState {})))
+                }
+                msg @ Ok(_) => (msg, None),
+                err @ Err(_) => {
+                    // TODO if parsing message produces error, should we transition to different state or ignore? (protocol violation) ERROR_START_AKE seems to indicate that we need to assume the session is lost if OTR Error is received.
+                    (err, None)
+                }
+            },
+            Err(_) => {
+                // TODO consider logging the details of the error message, but for the client it is not relevant
+                // TODO use ERROR_2 error code
+                (Err(OTRError::UnreadableMessage(self.their_instance)), None)
+            }
+        }
     }
 
     fn secure(
@@ -483,8 +493,8 @@ impl ProtocolState for EncryptedOTR4State {
                 smp: SMP4Context::new(
                     host,
                     // FIXME replace with actual content!
-                    &utils::random::secure_bytes::<56>(),
-                    &utils::random::secure_bytes::<56>(),
+                    utils::random::secure_bytes(),
+                    utils::random::secure_bytes(),
                     ssid,
                 ),
             }),
@@ -533,8 +543,88 @@ impl ProtocolState for EncryptedOTR4State {
 
 impl EncryptedOTR4State {
     fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
-        // FIXME implement: encrypt DataMessage4 message
-        todo!("implement: encrypt DataMessage4 message")
+        if *self.double_ratchet.next() == otr4::Selector::SENDER {
+            self.double_ratchet = self.double_ratchet.rotate_sender();
+        }
+        let keys = self.double_ratchet.sender_keys();
+        let encrypted = chacha20::encrypt(Self::extract_encryption_key(&keys.0), content);
+        let mut message = DataMessage4 {
+            flags,
+            pn: self.double_ratchet.pn(),
+            i: self.double_ratchet.i(),
+            j: self.double_ratchet.j(),
+            ecdh: self.double_ratchet.ecdh_public().clone(),
+            dh: self.double_ratchet.dh_public().clone(),
+            encrypted,
+            authenticator: [0u8; otr4::MAC_LENGTH],
+            revealed: Vec::new(),
+        };
+        let authenticator_data = messages::encode_authenticator_data4(
+            &self.version(),
+            self.our_instance,
+            self.their_instance,
+            &message,
+        );
+        message.authenticator = otr4::kdf2::<{ otr4::MAC_LENGTH }>(
+            otr4::USAGE_AUTHENTICATOR,
+            &keys.1,
+            &authenticator_data,
+        );
+        // FIXME temporary logic to verify produced data message.
+        message
+            .validate()
+            .expect("BUG: we should be producing valid data-messages.");
+        message
+    }
+
+    fn decrypt_message(
+        &mut self,
+        msg: &DataMessage4,
+        authenticator_data: &[u8],
+    ) -> Result<Vec<u8>, OTRError> {
+        assert!(msg.i <= self.double_ratchet.i() + 1);
+        // TODO take into account max(self.double_ratchet.i(), 0) for starting situation.
+        let mut speculate: otr4::DoubleRatchet;
+        if msg.i < self.double_ratchet.i()
+            || (msg.i == self.double_ratchet.i() && msg.j < self.double_ratchet.k())
+        {
+            // FIXME 1. get key from stored-keys-store
+            return Err(OTRError::UserError(
+                "Stored message keys are not supported yet.",
+            ));
+        } else if msg.i == self.double_ratchet.i() + 1 {
+            assert_eq!(otr4::Selector::RECEIVER, *self.double_ratchet.next());
+            speculate = self.double_ratchet.clone();
+            speculate = speculate
+                .rotate_receiver(msg.ecdh.clone(), msg.dh.clone())
+                .map_err(OTRError::CryptographicViolation)?;
+            assert_eq!(msg.i, speculate.i());
+        } else {
+            speculate = self.double_ratchet.clone();
+        }
+        // TODO should we perform a sanity check in order to not go to far out in the chainkey message id counter?
+        while speculate.k() < msg.j {
+            speculate.rotate_receiver_chainkey();
+        }
+        let keys = speculate.receiver_keys();
+        let authenticator = otr4::kdf2::<{ otr4::MAC_LENGTH }>(
+            otr4::USAGE_AUTHENTICATOR,
+            &keys.1,
+            authenticator_data,
+        );
+        constant::compare_bytes_distinct(&authenticator, &msg.authenticator)
+            .map_err(OTRError::CryptographicViolation)?;
+        self.double_ratchet = speculate;
+        Ok(chacha20::decrypt(
+            Self::extract_encryption_key(&keys.0),
+            &msg.encrypted,
+        ))
+    }
+
+    fn extract_encryption_key(mk_enc: &[u8; 64]) -> [u8; 32] {
+        let mut key = [0u8; 32];
+        key.clone_from_slice(&mk_enc[..32]);
+        key
     }
 }
 
@@ -552,13 +642,15 @@ impl ProtocolState for FinishedState {
     fn handle(
         &mut self,
         _: &DataMessage,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
     fn handle4(
         &mut self,
-        msg: &DataMessage4,
+        _: &DataMessage4,
+        _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
@@ -598,8 +690,9 @@ impl ProtocolState for FinishedState {
                 double_ratchet,
                 smp: SMP4Context::new(
                     host,
-                    &utils::random::secure_bytes::<56>(),
-                    &utils::random::secure_bytes::<56>(),
+                    // FIXME replace with actual content!
+                    utils::random::secure_bytes(),
+                    utils::random::secure_bytes(),
                     ssid,
                 ),
             }),
@@ -655,6 +748,24 @@ pub enum ProtocolMaterial {
         ssid: SSID,
         double_ratchet: otr4::DoubleRatchet,
     },
+}
+
+fn parse_message(raw_content: &[u8]) -> Result<Message, OTRError> {
+    let mut decoder = OTRDecoder::new(raw_content);
+    let content = decoder.read_bytes_null_terminated();
+    let tlvs: Vec<TLV> = decoder
+        .read_tlvs()?
+        .into_iter()
+        .filter(|t| t.0 != TLV_TYPE_0_PADDING)
+        .collect();
+    decoder.done()?;
+    if tlvs.iter().any(|e| e.0 == TLV_TYPE_1_DISCONNECT) {
+        log::debug!("Received confidential message with type 1 TLV (DISCONNECT)");
+        Ok(Message::ConfidentialFinished(content))
+    } else {
+        log::debug!("Received confidential message.");
+        Ok(Message::Confidential(content, tlvs))
+    }
 }
 
 pub enum Message {

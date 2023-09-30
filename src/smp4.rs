@@ -51,16 +51,16 @@ const TLV_SMP_ABORT: TLVType = 6;
 impl SMP4Context {
     pub fn new(
         host: Rc<dyn Host>,
-        initiator: &[u8; 56],
-        responder: &[u8; 56],
+        initiator: otr4::Fingerprint,
+        responder: otr4::Fingerprint,
         ssid: SSID,
     ) -> SMP4Context {
         Self {
             state: State::ExpectSMP1,
             status: SMP4Status::Initial,
             host,
-            initiator: *initiator,
-            responder: *responder,
+            initiator,
+            responder,
             ssid,
         }
     }
@@ -568,9 +568,9 @@ mod tests {
         let secret = Vec::from("It's a secret :-P");
         let question = Vec::from("What is your great great great great great great great great grandmother's maiden name?");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         assert!(matches!(alice_smp.status(), SMP4Status::Initial));
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         assert!(matches!(bob_smp.status(), SMP4Status::Initial));
 
         let before_initiate = Instant::now();
@@ -611,8 +611,8 @@ mod tests {
         let ssid = random::secure_bytes::<8>();
         let question = Vec::from("What is the best artist of all time?");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), Vec::from("DragonForce")));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         let init_tlv = alice_smp.initiate(b"Nightwish", &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle(&tlv2).unwrap();
@@ -632,8 +632,8 @@ mod tests {
         let question = Vec::from("What is the best artist of all time?");
         let secret = Vec::from("DragonForce");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         let mut init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         assert!(matches!(alice_smp.status(), SMP4Status::InProgress));
         utils::random::fill_secure_bytes(&mut init_tlv.1);
@@ -650,8 +650,8 @@ mod tests {
         let question = Vec::from("What is the best artist of all time?");
         let secret = Vec::from("Nightwish");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let mut tlv2 = bob_smp.handle(&init_tlv).unwrap();
         assert!(matches!(bob_smp.status(), SMP4Status::InProgress));
@@ -669,8 +669,8 @@ mod tests {
         let question = Vec::from("What is the best artist of all time?");
         let secret = Vec::from("Sonata Arctica");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let mut tlv3 = alice_smp.handle(&tlv2).unwrap();
@@ -688,8 +688,8 @@ mod tests {
         let question = Vec::from("What is the best artist of all time?");
         let secret = Vec::from("Sonata Arctica");
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
-        let mut alice_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
-        let mut bob_smp = SMP4Context::new(Rc::clone(&host), &initiator, &responder, ssid);
+        let mut alice_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
+        let mut bob_smp = SMP4Context::new(Rc::clone(&host), initiator, responder, ssid);
         let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle(&tlv2).unwrap();

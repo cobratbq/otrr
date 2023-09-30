@@ -9,7 +9,7 @@
     clippy::unnecessary_unwrap,
     clippy::module_name_repetitions,
     clippy::doc_markdown,
-    clippy::needless_range_loop,
+    clippy::needless_range_loop
 )]
 
 use ake::AKEError;
@@ -21,6 +21,7 @@ use instancetag::InstanceTag;
 extern crate aes_ctr;
 extern crate base64;
 extern crate bitflags;
+extern crate chacha20;
 extern crate hex;
 extern crate log;
 extern crate num_bigint;
@@ -31,6 +32,7 @@ extern crate regex;
 extern crate ring;
 
 mod ake;
+mod clientprofile;
 mod dake;
 mod encoding;
 mod fragment;
@@ -42,7 +44,6 @@ mod smp4;
 mod utils;
 
 // TODO evaluate for each `pub mod` members whether to expose outside of crate
-pub mod clientprofile;
 pub mod crypto;
 pub mod instancetag;
 pub mod session;
@@ -184,7 +185,7 @@ bitflags! {
     // ERROR_START_AKE
     //     Start the OTR AKE when you receive an OTR Error Message.
     const ERROR_START_AKE = 0b0100_0000;
-    const ALLOW_V4 = 0b0001_0000_0000;
+    const ALLOW_V4 = 0b0000_0001_0000_0000;
     }
 }
 

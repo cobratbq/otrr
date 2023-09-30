@@ -13,8 +13,8 @@ use crate::{
     },
     protocol::{self, Message, ProtocolMaterial},
     smp::{self, SMPStatus},
-    smp4::{self, SMP4Status}, utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID,
-    SUPPORTED_VERSIONS,
+    smp4::{self, SMP4Status},
+    utils, Host, OTRError, Policy, ProtocolStatus, UserMessage, Version, SSID, SUPPORTED_VERSIONS,
 };
 
 pub struct Account {
@@ -564,6 +564,9 @@ impl Instance {
     fn handle(&mut self, encoded_message: EncodedMessage) -> Result<UserMessage, OTRError> {
         // Given that we are processing an actual (OTR-)encoded message intended for this instance,
         // we should reset the assembler now.
+        let version = encoded_message.version;
+        let sender = encoded_message.sender;
+        let receiver = encoded_message.receiver;
         self.assembler.reset();
         match encoded_message.message {
             EncodedMessageType::DHCommit(msg) => {
@@ -603,7 +606,8 @@ impl Instance {
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
-                let (message, transition) = self.state.handle(&msg);
+                let authenticator_data = messages::encode_authenticator_data(&version, sender, receiver, &msg);
+                let (message, transition) = self.state.handle(&msg, &authenticator_data);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
@@ -676,7 +680,8 @@ impl Instance {
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
-                let (message, transition) = self.state.handle4(&msg);
+                let authenticator_data = messages::encode_authenticator_data4(&version, sender, receiver, &msg);
+                let (message, transition) = self.state.handle4(&msg, &authenticator_data);
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
@@ -873,6 +878,8 @@ struct AccountDetails {
 fn select_version(policy: &Policy, versions: &[Version]) -> Option<Version> {
     if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
         Some(Version::V3)
+    } else if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
+        Some(Version::V4)
     } else {
         None
     }
@@ -882,6 +889,8 @@ fn select_version(policy: &Policy, versions: &[Version]) -> Option<Version> {
 fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
     if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
         vec![Version::V3]
+    } else if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
+        vec![Version::V4]
     } else {
         Vec::new()
     }
@@ -979,10 +988,22 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
-        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
-        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
-        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, bob),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, bob),
+            None
+        ));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1008,8 +1029,14 @@ mod tests {
         messages_alice
             .borrow_mut()
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
-        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(tag_alice))));
-        assert!(matches!(bob.status(tag_alice), Some(ProtocolStatus::Plaintext)));
+        assert!(matches!(
+            bob.end(tag_alice),
+            Ok(UserMessage::Reset(tag_alice))
+        ));
+        assert!(matches!(
+            bob.status(tag_alice),
+            Some(ProtocolStatus::Plaintext)
+        ));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
@@ -1027,8 +1054,14 @@ mod tests {
             alice.send(tag_bob, b"Hey, wait up!!!"),
             Err(OTRError::IncorrectState(_))
         ));
-        assert!(matches!(alice.end(tag_bob), Ok(UserMessage::Reset(tag_bob))));
-        assert!(matches!(alice.status(tag_bob), Some(ProtocolStatus::Plaintext)));
+        assert!(matches!(
+            alice.end(tag_bob),
+            Ok(UserMessage::Reset(tag_bob))
+        ));
+        assert!(matches!(
+            alice.status(tag_bob),
+            Some(ProtocolStatus::Plaintext)
+        ));
         assert!(messages_bob.borrow().is_empty());
         assert!(messages_alice.borrow().is_empty());
     }
@@ -1060,10 +1093,22 @@ mod tests {
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
-        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
-        assert!(matches!(handle_messages("Alice", &mut messages_alice, alice), None));
-        assert!(matches!(handle_messages("Bob", &mut messages_bob, bob), None));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, bob),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Alice", &mut messages_alice, alice),
+            None
+        ));
+        assert!(matches!(
+            handle_messages("Bob", &mut messages_bob, bob),
+            None
+        ));
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1089,8 +1134,14 @@ mod tests {
         messages_alice
             .borrow_mut()
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
-        assert!(matches!(bob.end(tag_alice), Ok(UserMessage::Reset(tag_alice))));
-        assert!(matches!(bob.status(tag_alice), Some(ProtocolStatus::Plaintext)));
+        assert!(matches!(
+            bob.end(tag_alice),
+            Ok(UserMessage::Reset(tag_alice))
+        ));
+        assert!(matches!(
+            bob.status(tag_alice),
+            Some(ProtocolStatus::Plaintext)
+        ));
         assert!(matches!(
             handle_messages("Alice", &mut messages_alice, alice),
             Some(UserMessage::Confidential(_, _, _))
@@ -1108,8 +1159,14 @@ mod tests {
             alice.send(tag_bob, b"Hey, wait up!!!"),
             Err(OTRError::IncorrectState(_))
         ));
-        assert!(matches!(alice.end(tag_bob), Ok(UserMessage::Reset(tag_bob))));
-        assert!(matches!(alice.status(tag_bob), Some(ProtocolStatus::Plaintext)));
+        assert!(matches!(
+            alice.end(tag_bob),
+            Ok(UserMessage::Reset(tag_bob))
+        ));
+        assert!(matches!(
+            alice.status(tag_bob),
+            Some(ProtocolStatus::Plaintext)
+        ));
         assert!(messages_bob.borrow().is_empty());
         assert!(messages_alice.borrow().is_empty());
     }

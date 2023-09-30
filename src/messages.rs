@@ -6,7 +6,7 @@ use regex::bytes::Regex;
 
 use crate::{
     ake,
-    crypto::ed448,
+    crypto::{ed448, otr4},
     dake,
     encoding::{MessageFlags, OTRDecoder, OTREncodable, OTREncoder, CTR_LEN, MAC4_LEN, MAC_LEN},
     instancetag::InstanceTag,
@@ -382,6 +382,18 @@ impl OTREncodable for DataMessage4 {
     }
 }
 
+impl DataMessage4 {
+    pub fn validate(&self) -> Result<(), OTRError> {
+        if self.revealed.len() % otr4::MAC_LENGTH != 0 {
+            return Err(OTRError::ProtocolViolation(
+                "Revealed MACs data does not have expected length.",
+            ));
+        }
+        // FIXME implement: validation of DataMessage4
+        todo!("implement: validation of DataMessage4")
+    }
+}
+
 pub fn encode_message(
     version: Version,
     sender: InstanceTag,
@@ -477,6 +489,27 @@ pub fn encode_authenticator_data(
         .write_u32(message.receiver_keyid)
         .write_mpi(&message.dh_y)
         .write_ctr(&message.ctr)
+        .write_data(&message.encrypted)
+        .to_vec()
+}
+
+pub fn encode_authenticator_data4(
+    version: &Version,
+    sender: InstanceTag,
+    receiver: InstanceTag,
+    message: &DataMessage4,
+) -> Vec<u8> {
+    OTREncoder::new()
+        .write_u16(encode_version(version))
+        .write_u8(OTR_DATA_TYPE_CODE)
+        .write_u32(sender)
+        .write_u32(receiver)
+        .write_u8(message.flags.bits())
+        .write_u32(message.pn)
+        .write_u32(message.i)
+        .write_u32(message.j)
+        .write_ed448_point(&message.ecdh)
+        .write_mpi(&message.dh)
         .write_data(&message.encrypted)
         .to_vec()
 }
