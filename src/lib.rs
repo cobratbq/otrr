@@ -32,7 +32,6 @@ extern crate regex;
 extern crate ring;
 
 mod ake;
-mod clientprofile;
 mod dake;
 mod encoding;
 mod fragment;
@@ -44,6 +43,7 @@ mod smp4;
 mod utils;
 
 // TODO evaluate for each `pub mod` members whether to expose outside of crate
+pub mod clientprofile;
 pub mod crypto;
 pub mod instancetag;
 pub mod session;
@@ -223,15 +223,19 @@ pub trait Host {
     fn keypair(&self) -> &dsa::Keypair;
 
     /// keypair_identity is the OTRv4 long-term (identity) keypair.
-    fn keypair_identity(&self) -> &ed448::KeyPair;
+    fn keypair_identity(&self) -> &ed448::EdDSAKeyPair;
 
     /// keypair_forging is the OTRv4 forging keypair.
-    fn keypair_forging(&self) -> &ed448::KeyPair;
+    fn keypair_forging(&self) -> &ed448::EdDSAKeyPair;
 
     /// `query_smp_secret` triggers a query in the host application (chat client) to ask for the
     /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 
-    // `client_profile` retries the client profile from the host application.
+    /// `client_profile` retries the client profile from the host application.
     fn client_profile(&self) -> Vec<u8>;
+
+    /// `update_client_profile` sends the host an encoded client profile payload to be stored for
+    /// use and restoring.
+    fn update_client_profile(&self, encoded_payload: &[u8]);
 }

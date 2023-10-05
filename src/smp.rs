@@ -1350,12 +1350,12 @@ mod tests {
             &self.0
         }
 
-        fn keypair_identity(&self) -> &crate::crypto::ed448::KeyPair {
+        fn keypair_identity(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
             // FIXME implement: keypair_identity function for testing
             todo!("implement: keypair_identity function for testing")
         }
 
-        fn keypair_forging(&self) -> &crate::crypto::ed448::KeyPair {
+        fn keypair_forging(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
             // FIXME implement: keypair_forging function for testing
             todo!("implement: keypair_forging function for testing")
         }
@@ -1366,7 +1366,11 @@ mod tests {
         }
 
         fn client_profile(&self) -> Vec<u8> {
-            panic!("BUG: client profile should not be needed for OTRv3 SMP")
+            unimplemented!("client profile is not necessary for tests")
+        }
+
+        fn update_client_profile(&self, encoded_payload: &[u8]) {
+            unimplemented!("client profile is not necessary for tests")
         }
     }
 }

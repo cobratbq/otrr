@@ -397,6 +397,8 @@ pub mod dsa {
     };
     use num_bigint::BigUint;
 
+    use crate::{encoding::OTREncodable, utils, OTRError};
+
     use super::CryptoError;
 
     /// Signature type represents a DSA signature in IEEE-P1363 representation.
@@ -503,30 +505,28 @@ pub mod dsa {
     #[derive(Clone, Debug)]
     pub struct Signature(dsa::Signature);
 
+    impl OTREncodable for Signature {
+        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+            // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
+            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
+                self.0.r(),
+            ));
+            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
+                self.0.s(),
+            ));
+        }
+    }
+
     impl Signature {
-        #[must_use]
-        pub const fn size() -> usize {
-            2 * PARAM_Q_LENGTH
-        }
-
-        #[must_use]
-        pub const fn parameter_size() -> usize {
-            PARAM_Q_LENGTH
-        }
-
-        #[must_use]
-        pub fn from_components(r: BigUint, s: BigUint) -> Self {
-            Self(dsa::Signature::from_components(r, s))
-        }
-
-        #[must_use]
-        pub fn r(&self) -> &BigUint {
-            self.0.r()
-        }
-
-        #[must_use]
-        pub fn s(&self) -> &BigUint {
-            self.0.s()
+        /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
+        pub fn decode(decoder: &mut crate::encoding::OTRDecoder) -> Result<Self, OTRError> {
+            log::trace!("read signature");
+            let r = decoder.read::<PARAM_Q_LENGTH>()?;
+            let s = decoder.read::<PARAM_Q_LENGTH>()?;
+            Ok(Self(dsa::Signature::from_components(
+                BigUint::from_bytes_be(&r),
+                BigUint::from_bytes_be(&s),
+            )))
         }
     }
 }
@@ -607,7 +607,7 @@ pub mod sha256 {
 pub mod otr4 {
     use num_bigint::BigUint;
 
-    use crate::{utils, crypto::otr4};
+    use crate::{crypto::otr4, utils};
 
     use super::{dh3072, ed448, shake256, CryptoError};
 
@@ -738,6 +738,12 @@ pub mod otr4 {
             }
         }
 
+        /// `rotate_sender_chainkey` rotates the sender chainkey for the next message (in the same
+        /// ratchet).
+        ///
+        /// # Panics
+        /// In case of improper use: rotation of the sender chainkey is not allowed according to the
+        /// protocol. This means that sender keypair rotation is required first.
         pub fn rotate_sender_chainkey(&mut self) {
             assert_eq!(otr4::Selector::RECEIVER, self.next);
             self.sender.rotate();
@@ -781,42 +787,52 @@ pub mod otr4 {
             self.receiver.rotate();
         }
 
+        #[must_use]
         pub fn i(&self) -> u32 {
             self.i
         }
 
+        #[must_use]
         pub fn j(&self) -> u32 {
             self.sender.id()
         }
 
+        #[must_use]
         pub fn k(&self) -> u32 {
             self.receiver.id()
         }
 
+        #[must_use]
         pub fn pn(&self) -> u32 {
             self.pn
         }
 
+        #[must_use]
         pub fn ecdh_public(&self) -> &ed448::Point {
             self.shared_secret.ecdh.public()
         }
 
+        #[must_use]
         pub fn dh_public(&self) -> &BigUint {
             self.shared_secret.dh.public()
         }
 
+        #[must_use]
         pub fn other_ecdh(&self) -> &ed448::Point {
             &self.shared_secret.public_ecdh
         }
 
+        #[must_use]
         pub fn other_dh(&self) -> &BigUint {
             &self.shared_secret.public_dh
         }
 
+        #[must_use]
         pub fn sender_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
             self.sender.keys()
         }
 
+        #[must_use]
         pub fn receiver_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
             self.receiver.keys()
         }
@@ -867,7 +883,7 @@ pub mod otr4 {
     /// `MixedSharedSecret` represents the OTRv4 mixed shared secret value.
     #[derive(Clone)]
     pub struct MixedSharedSecret {
-        ecdh: ed448::KeyPair,
+        ecdh: ed448::ECDHKeyPair,
         dh: dh3072::KeyPair,
         public_ecdh: ed448::Point,
         public_dh: BigUint,
@@ -888,7 +904,7 @@ pub mod otr4 {
         /// # Errors
         /// In case of invalid key material.
         pub fn new(
-            ecdh0: ed448::KeyPair,
+            ecdh0: ed448::ECDHKeyPair,
             dh0: dh3072::KeyPair,
             public_ecdh: ed448::Point,
             public_dh: BigUint,
@@ -909,7 +925,7 @@ pub mod otr4 {
         /// Should only panic in case of a bug in the implementation.
         #[must_use]
         pub fn rotate_keypairs(&self, third: bool) -> Self {
-            let ecdh = ed448::KeyPair::generate();
+            let ecdh = ed448::ECDHKeyPair::generate();
             let dh = dh3072::KeyPair::generate();
             Self::next(
                 ecdh,
@@ -948,7 +964,7 @@ pub mod otr4 {
         }
 
         fn next(
-            ecdh: ed448::KeyPair,
+            ecdh: ed448::ECDHKeyPair,
             dh: dh3072::KeyPair,
             public_ecdh: ed448::Point,
             public_dh: BigUint,
@@ -1031,14 +1047,19 @@ pub mod otr4 {
 
 pub mod chacha20 {
 
-    use chacha20::{cipher::{KeyIvInit,StreamCipher}, ChaCha20};
+    use chacha20::{
+        cipher::{KeyIvInit, StreamCipher},
+        ChaCha20,
+    };
 
     const NONCE: [u8; 12] = [0u8; 12];
 
+    #[must_use]
     pub fn encrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
         crypt(key, m)
     }
 
+    #[must_use]
     pub fn decrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
         crypt(key, m)
     }
@@ -1144,66 +1165,22 @@ pub mod ed448 {
         &Q
     }
 
-    #[derive(Clone)]
-    pub struct PublicKey(Point);
+    // FIXME implement Ed448Keypair
+    pub struct EdDSAKeyPair(BigUint, Point);
 
-    impl OTREncodable for PublicKey {
-        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-            encoder.write_u16_le(0x0010);
-            encoder.write_ed448_point(&self.0);
-        }
-    }
-
-    impl PublicKey {
-        /// `decode` decodes a public key from its OTR-encoding.
-        ///
-        /// # Errors
-        /// In case of bad input data.
-        pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
-            if decoder.read_u16_le()? != 0x0010 {
-                return Err(OTRError::ProtocolViolation(
-                    "Expected public key type: 0x0010",
-                ));
-            }
-            Ok(Self(decoder.read_ed448_point()?))
+    impl EdDSAKeyPair {
+        pub fn generate() -> Self {
+            // FIXME implement: Ed448KeyPair generation
+            todo!("implement: Ed448KeyPair generation")
         }
 
-        /// `from` extracts the public key from encoded point data.
-        ///
-        /// # Errors
-        /// In case of bad input data.
-        pub fn from(bytes: &[u8; 57]) -> Result<Self, OTRError> {
-            Ok(Self(
-                Point::decode(bytes).map_err(OTRError::CryptographicViolation)?,
-            ))
+        pub fn public(&self) -> &Point {
+            &self.1
         }
 
-        #[must_use]
-        pub fn point(&self) -> &Point {
-            &self.0
-        }
-    }
-
-    // NOTE: there is also the Ed448 Preshared PreKey (type 0x0011). Not yet implemented.
-
-    pub struct ForgingKey(Point);
-
-    impl OTREncodable for ForgingKey {
-        fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-            encoder.write_u16_le(0x0012);
-            encoder.write_ed448_point(&self.0);
-        }
-    }
-
-    impl ForgingKey {
-        /// `from` extracts the forging key from encoded point data.
-        ///
-        /// # Errors
-        /// In case of bad input data.
-        pub fn from(data: &[u8; 57]) -> Result<Self, OTRError> {
-            Ok(Self(
-                Point::decode(data).map_err(OTRError::CryptographicViolation)?,
-            ))
+        pub fn sign(&self, m: &[u8]) -> Signature {
+            // FIXME implement: signing for EdDSAKeyPair
+            todo!("implement: signing for EdDSAKeyPair")
         }
     }
 
@@ -1217,9 +1194,19 @@ pub mod ed448 {
     }
 
     impl Signature {
+        /// `decode` decodes an OTR-encoded EdDSA signature.
+        pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+            // FIXME implement: implement decoding of EdDSA signature
+            todo!("implement: implement decoding of EdDSA signature")
+        }
         #[must_use]
         pub fn from(data: [u8; 2 * ENCODED_LENGTH]) -> Self {
             Self(data)
+        }
+
+        pub fn verify(&self, public_key: &Point, m: &[u8]) -> Result<(), CryptoError> {
+            // FIXME implement: verification of EdDSA signature
+            todo!("implement: verification of EdDSA signature")
         }
     }
 
@@ -1271,9 +1258,9 @@ pub mod ed448 {
 
     // TODO currently cloning the keypair to re-obtain ownership. Is there a way to avoid that without too much borrow checker complexity?
     #[derive(Clone)]
-    pub struct KeyPair(BigUint, Point);
+    pub struct ECDHKeyPair(BigUint, Point);
 
-    impl KeyPair {
+    impl ECDHKeyPair {
         /// `generate` generates a key pair for Ed448 ECDH.
         #[must_use]
         pub fn generate() -> Self {
@@ -1283,7 +1270,7 @@ pub mod ed448 {
             let s = BigUint::from_bytes_le(&buffer);
             // FIXME securely delete r, h
             let public = (&*G) * &s;
-            KeyPair(s, public)
+            Self(s, public)
         }
 
         #[must_use]
@@ -1577,7 +1564,8 @@ pub mod ed448 {
         /// In case of implementation errors (bad usage).
         #[allow(non_snake_case, clippy::similar_names)]
         pub fn sign(
-            keypair: &KeyPair,
+            // FIXME should be Ed448KeyPair? (or general keypair being either ECDH or Ed448)
+            keypair: &EdDSAKeyPair,
             A1: &Point,
             A2: &Point,
             A3: &Point,
@@ -2077,9 +2065,9 @@ mod tests {
 
     #[test]
     fn test_ring_sign_verify() -> Result<(), CryptoError> {
-        let keypair = ed448::KeyPair::generate();
-        let a2 = ed448::KeyPair::generate();
-        let a3 = ed448::KeyPair::generate();
+        let keypair = ed448::EdDSAKeyPair::generate();
+        let a2 = ed448::ECDHKeyPair::generate();
+        let a3 = ed448::ECDHKeyPair::generate();
         let m = utils::random::secure_bytes::<250>();
         let sigma = RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m)?;
         sigma.verify(keypair.public(), a2.public(), a3.public(), &m)?;
@@ -2092,10 +2080,10 @@ mod tests {
     #[test]
     fn test_ring_sign_verify_distinct() -> Result<(), CryptoError> {
         let m = utils::random::secure_bytes::<250>();
-        let keypair = ed448::KeyPair::generate();
+        let keypair = ed448::EdDSAKeyPair::generate();
         let a1_public = keypair.public().clone();
-        let a2 = ed448::KeyPair::generate();
-        let a3 = ed448::KeyPair::generate();
+        let a2 = ed448::ECDHKeyPair::generate();
+        let a3 = ed448::ECDHKeyPair::generate();
         let sigma = RingSignature::sign(&keypair, &a1_public, a2.public(), a3.public(), &m)?;
         sigma.verify(&a1_public, a2.public(), a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), &a1_public, a3.public(), &m)?;
@@ -2108,9 +2096,9 @@ mod tests {
     fn test_ring_sign_verify_bad() {
         let m = utils::random::secure_bytes::<250>();
         let m_bad = utils::random::secure_bytes::<250>();
-        let keypair = ed448::KeyPair::generate();
-        let a2 = ed448::KeyPair::generate();
-        let a3 = ed448::KeyPair::generate();
+        let keypair = ed448::EdDSAKeyPair::generate();
+        let a2 = ed448::ECDHKeyPair::generate();
+        let a3 = ed448::ECDHKeyPair::generate();
         let sigma =
             RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m).unwrap();
         assert!(sigma
@@ -2132,10 +2120,10 @@ mod tests {
     #[should_panic]
     fn test_ring_sign_verify_incorrect_public_key_1() {
         let m = utils::random::secure_bytes::<250>();
-        let keypair = ed448::KeyPair::generate();
-        let a1 = ed448::KeyPair::generate();
-        let a2 = ed448::KeyPair::generate();
-        let a3 = ed448::KeyPair::generate();
+        let keypair = ed448::EdDSAKeyPair::generate();
+        let a1 = ed448::ECDHKeyPair::generate();
+        let a2 = ed448::ECDHKeyPair::generate();
+        let a3 = ed448::ECDHKeyPair::generate();
         RingSignature::sign(&keypair, a1.public(), a2.public(), a3.public(), &m).unwrap();
     }
 }

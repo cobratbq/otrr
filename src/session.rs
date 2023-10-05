@@ -4,8 +4,9 @@ use std::{collections, rc::Rc};
 
 use crate::{
     ake::{AKEContext, CryptographicMaterial},
+    clientprofile::{ClientProfile, ClientProfilePayload},
     dake::{DAKEContext, MixedKeyMaterial},
-    encoding::{MessageFlags, OTREncoder},
+    encoding::{MessageFlags, OTRDecoder, OTREncoder},
     fragment::{self, FragmentError},
     instancetag::{self, InstanceTag, INSTANCE_ZERO},
     messages::{
@@ -20,22 +21,66 @@ use crate::{
 pub struct Account {
     host: Rc<dyn Host>,
     details: Rc<AccountDetails>,
+    profile: ClientProfile,
     sessions: collections::HashMap<Vec<u8>, Session>,
 }
 
 // TODO set up a heartbeat timer that checks up on sessions and sends heartbeat messages if necessary.
 impl Account {
+    /// `new` creates a new Account instance.
+    ///
+    /// # Errors
+    /// In case of failure to reconstruct client profile.
     // FIXME need method for acquiring session for specified address (create or retrieve)
-    pub fn new(host: Rc<dyn Host>, policy: Policy) -> Self {
+    pub fn new(host: Rc<dyn Host>, policy: Policy) -> Result<Self, OTRError> {
+        let sessions = collections::HashMap::new();
+        // FIXME issues while reconstructing client profile. Do we need a OTRError that allows wrapping another OTRError, such that it is possible to provide context?
+        let profile = Self::restore_clientprofile(host.as_ref())?;
         let details = Rc::new(AccountDetails {
             policy,
-            tag: instancetag::random_tag(),
+            tag: profile.owner_tag,
         });
-        let sessions = collections::HashMap::new();
-        Self {
+        Ok(Self {
             host,
             details,
+            profile,
             sessions,
+        })
+    }
+
+    // TODO is this everything that's needed?
+    fn restore_clientprofile(host: &dyn Host) -> Result<ClientProfile, OTRError> {
+        let bytes = host.client_profile();
+        if bytes.is_empty() {
+            log::trace!("Account: host provided zero bytes. Constructing new client profile.");
+            let tag = instancetag::random_tag();
+            let identity_public = host.keypair_identity().public().clone();
+            let forging_public = host.keypair_forging().public().clone();
+            // FIXME figure out allowed versions from policy (or something)
+            let versions = vec![Version::V4];
+            // FIXME replace with constant for default expiration time.
+            let expiration = i64::try_from(
+                std::time::SystemTime::now()
+                    .checked_add(std::time::Duration::new(86400, 0))
+                    .unwrap()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            )
+            .expect(
+                "BUG: working under the assumption that the duration calculation fits in an i64.",
+            );
+            let profile =
+                ClientProfile::new(tag, identity_public, forging_public, versions, expiration, None)?;
+            let payload = profile.sign(host.keypair_identity(), None)?;
+            // FIXME call host to update client profile payload
+            Ok(profile)
+        } else {
+            log::trace!("Account: restoring existing client profile.");
+            let mut decoder = OTRDecoder::new(&bytes);
+            let payload = ClientProfilePayload::decode(&mut decoder)?;
+            decoder.done()?;
+            payload.validate()
         }
     }
 
@@ -224,6 +269,7 @@ impl Session {
             }
             MessageType::Query(versions) => {
                 log::debug!("Processing query message ..");
+                log::trace!("Query-message with versions {:?}", versions);
                 if let Some(selected) = select_version(&self.details.policy, &versions) {
                     self.initiate(selected, INSTANCE_ZERO)?;
                 }
@@ -311,13 +357,13 @@ impl Session {
             Version::Unsupported(version) => return Err(OTRError::UnsupportedVersion(version)),
             Version::V3 | Version::V4 => { /* This is acceptable. */ }
         }
-        instancetag::verify_instance_tag(msg.sender).or(Err(OTRError::ProtocolViolation(
+        instancetag::verify(msg.sender).or(Err(OTRError::ProtocolViolation(
             "Sender instance tag is illegal value",
         )))?;
         if msg.sender == INSTANCE_ZERO {
             return Err(OTRError::ProtocolViolation("Sender instance tag is zero"));
         }
-        instancetag::verify_instance_tag(msg.receiver).or(Err(OTRError::ProtocolViolation(
+        instancetag::verify(msg.receiver).or(Err(OTRError::ProtocolViolation(
             "Receiver instance tag is illegal value",
         )))?;
         if let EncodedMessageType::DHCommit(_) = msg.message {
@@ -869,6 +915,7 @@ impl Instance {
 }
 
 /// `AccountDetails` contains our own, static details for an account shared among instances.
+// FIXME tag is duplicate with tag in client profile.
 struct AccountDetails {
     policy: Policy,
     tag: InstanceTag,
@@ -876,10 +923,10 @@ struct AccountDetails {
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn select_version(policy: &Policy, versions: &[Version]) -> Option<Version> {
-    if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
-        Some(Version::V3)
-    } else if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
+    if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
         Some(Version::V4)
+    } else if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
+        Some(Version::V3)
     } else {
         None
     }
@@ -887,10 +934,10 @@ fn select_version(policy: &Policy, versions: &[Version]) -> Option<Version> {
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
-    if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
-        vec![Version::V3]
-    } else if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
+    if versions.contains(&Version::V4) && policy.contains(Policy::ALLOW_V4) {
         vec![Version::V4]
+    } else if versions.contains(&Version::V3) && policy.contains(Policy::ALLOW_V3) {
+        vec![Version::V3]
     } else {
         Vec::new()
     }
@@ -898,11 +945,16 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::VecDeque,
+        rc::Rc,
+    };
 
     use crate::{
-        crypto::dsa, instancetag::INSTANCE_ZERO, Host, OTRError, Policy, ProtocolStatus,
-        UserMessage,
+        crypto::{dsa, ed448},
+        instancetag::INSTANCE_ZERO,
+        Host, OTRError, Policy, ProtocolStatus, UserMessage,
     };
 
     use super::{Account, Session};
@@ -924,10 +976,14 @@ mod tests {
         // Communicate in plaintext with the OTR logic being involved. This demonstrates that
         // plaintext messages can be sent regardless.
         let keypair_alice = dsa::Keypair::generate();
+        let identity_alice = ed448::EdDSAKeyPair::generate();
+        let forging_alice = ed448::EdDSAKeyPair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
         let keypair_bob = dsa::Keypair::generate();
+        let identity_bob = ed448::EdDSAKeyPair::generate();
+        let forging_bob = ed448::EdDSAKeyPair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
@@ -935,15 +991,21 @@ mod tests {
             Rc::clone(&messages_bob),
             keypair_alice,
             usize::MAX,
+            identity_alice,
+            forging_alice,
+            RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3).unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
+            identity_bob,
+            forging_bob,
+            RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3).unwrap();
         let bob = account_bob.session(b"alice");
 
         messages_bob
@@ -965,10 +1027,14 @@ mod tests {
         // pass through unencrypted. Finally, finalize the session on the other side to end up with
         // two plaintext sessions, the same as we started with.
         let keypair_alice = dsa::Keypair::generate();
+        let identity_alice = ed448::EdDSAKeyPair::generate();
+        let forging_alice = ed448::EdDSAKeyPair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
         let keypair_bob = dsa::Keypair::generate();
+        let identity_bob = ed448::EdDSAKeyPair::generate();
+        let forging_bob = ed448::EdDSAKeyPair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
@@ -976,34 +1042,28 @@ mod tests {
             Rc::clone(&messages_bob),
             keypair_alice,
             usize::MAX,
+            identity_alice,
+            forging_alice,
+            RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3).unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
             keypair_bob,
             usize::MAX,
+            identity_bob,
+            forging_bob,
+            RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3).unwrap();
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, bob),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, bob),
-            None
-        ));
+        assert!(handle_messages("Alice", &mut messages_alice, alice).is_none());
+        assert!(handle_messages("Bob", &mut messages_bob, bob).is_none());
+        assert!(handle_messages("Alice", &mut messages_alice, alice).is_none());
+        assert!(handle_messages("Bob", &mut messages_bob, bob).is_none());
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1077,38 +1137,43 @@ mod tests {
         // messages do not unintentionally pass through unencrypted. Finally, finalize the session
         // on the other side to end up with two plaintext sessions, the same as we started with.
         let keypair_alice = dsa::Keypair::generate();
+        let identity_alice = ed448::EdDSAKeyPair::generate();
+        let forging_alice = ed448::EdDSAKeyPair::generate();
         let mut messages_alice: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
         let keypair_bob = dsa::Keypair::generate();
+        let identity_bob = ed448::EdDSAKeyPair::generate();
+        let forging_bob = ed448::EdDSAKeyPair::generate();
         let mut messages_bob: Rc<RefCell<VecDeque<Vec<u8>>>> =
             Rc::new(RefCell::new(VecDeque::new()));
 
-        let host_alice: Rc<dyn Host> =
-            Rc::new(TestHost(Rc::clone(&messages_bob), keypair_alice, 50));
-        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3);
+        let host_alice: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_bob),
+            keypair_alice,
+            50,
+            identity_alice,
+            forging_alice,
+            RefCell::new(Vec::new()),
+        ));
+        let mut account_alice = Account::new(Rc::clone(&host_alice), Policy::ALLOW_V3).unwrap();
         let alice = account_alice.session(b"bob");
-        let host_bob: Rc<dyn Host> = Rc::new(TestHost(Rc::clone(&messages_alice), keypair_bob, 55));
-        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3);
+        let host_bob: Rc<dyn Host> = Rc::new(TestHost(
+            Rc::clone(&messages_alice),
+            keypair_bob,
+            55,
+            identity_bob,
+            forging_bob,
+            RefCell::new(Vec::new()),
+        ));
+        let mut account_bob = Account::new(Rc::clone(&host_bob), Policy::ALLOW_V3).unwrap();
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, bob),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Alice", &mut messages_alice, alice),
-            None
-        ));
-        assert!(matches!(
-            handle_messages("Bob", &mut messages_bob, bob),
-            None
-        ));
+        assert!(handle_messages("Alice", &mut messages_alice, alice).is_none());
+        assert!(handle_messages("Bob", &mut messages_bob, bob).is_none());
+        assert!(handle_messages("Alice", &mut messages_alice, alice).is_none());
+        assert!(handle_messages("Bob", &mut messages_bob, bob).is_none());
         let result = handle_messages("Alice", &mut messages_alice, alice).unwrap();
         let UserMessage::ConfidentialSessionStarted(tag_bob) = result else {
             panic!("BUG: expected confidential session to have started now.")
@@ -1171,7 +1236,14 @@ mod tests {
         assert!(messages_alice.borrow().is_empty());
     }
 
-    struct TestHost(Rc<RefCell<VecDeque<Vec<u8>>>>, dsa::Keypair, usize);
+    struct TestHost(
+        Rc<RefCell<VecDeque<Vec<u8>>>>,
+        dsa::Keypair,
+        usize,
+        ed448::EdDSAKeyPair,
+        ed448::EdDSAKeyPair,
+        RefCell<Vec<u8>>,
+    );
 
     impl Host for TestHost {
         fn message_size(&self) -> usize {
@@ -1186,23 +1258,24 @@ mod tests {
             &self.1
         }
 
-        fn keypair_identity(&self) -> &crate::crypto::ed448::KeyPair {
-            // FIXME implement: implement test keypair_identity function
-            todo!("implement: implement test keypair_identity function")
+        fn keypair_identity(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
+            &self.3
         }
 
-        fn keypair_forging(&self) -> &crate::crypto::ed448::KeyPair {
-            // FIXME implement: test keypair_forging function
-            todo!("implement: test keypair_forging function")
+        fn keypair_forging(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
+            &self.4
         }
 
         fn query_smp_secret(&self, _question: &[u8]) -> Option<Vec<u8>> {
-            todo!()
+            Some(b"Password!".to_vec())
         }
 
         fn client_profile(&self) -> Vec<u8> {
-            // FIXME implement client profile
-            todo!("Generate valid client profile")
+            self.5.borrow().clone()
+        }
+
+        fn update_client_profile(&self, encoded_payload: &[u8]) {
+            self.5.replace(Vec::from(encoded_payload));
         }
     }
 

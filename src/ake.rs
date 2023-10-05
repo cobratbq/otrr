@@ -26,6 +26,7 @@ impl AKEContext {
         }
     }
 
+    #[allow(clippy::unused_self)]
     pub fn version(&self) -> Version {
         Version::V3
     }
@@ -212,7 +213,7 @@ impl AKEContext {
                 let x_b = OTREncoder::new()
                     .write_public_key(&pub_b)
                     .write_u32(KEYID_B)
-                    .write_signature(&sig_b)
+                    .write_encodable(&sig_b)
                     .to_vec();
                 log::trace!("X_B: {:?}", &x_b);
                 let enc_b = secrets.c.encrypt(&[0; 16], &x_b);
@@ -322,11 +323,9 @@ impl AKEContext {
                     keyid_b,
                     AKEError::DataProcessing("keyid_b is zero, must be non-zero value"),
                 )?;
-                let sig_m_b = decoder
-                    .read_dsa_signature()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to read signature from X_B",
-                    )))?;
+                let sig_m_b = dsa::Signature::decode(&mut decoder).or(Err(
+                    AKEError::DataProcessing("Failed to read signature from X_B"),
+                ))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
                 let m_b = sha256::hmac(
                     &secrets.m1,
@@ -373,7 +372,7 @@ impl AKEContext {
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
                     .write_u32(KEYID_A)
-                    .write_signature(&sig_m_a)
+                    .write_encodable(&sig_m_a)
                     .to_vec();
                 let encrypted_signature = secrets.cp.encrypt(&[0; 16], &x_a);
                 let encrypted_mac = sha256::hmac160(
@@ -443,11 +442,9 @@ impl AKEContext {
                     keyid_a,
                     AKEError::DataProcessing("keyid_a is zero, must be a non-zero value"),
                 )?;
-                let sig_m_a = decoder
-                    .read_dsa_signature()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to read signature from X_A",
-                    )))?;
+                let sig_m_a = dsa::Signature::decode(&mut decoder).or(Err(
+                    AKEError::DataProcessing("Failed to read signature from X_A"),
+                ))?;
                 decoder
                     .done()
                     .or(Err(AKEError::DataProcessing("data left over in buffer")))?;

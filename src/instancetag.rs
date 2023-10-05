@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use once_cell::sync::Lazy;
-use ring::rand::{self, SecureRandom};
+use crate::{OTRError, utils};
 
 pub const INSTANCE_ZERO: InstanceTag = 0;
 const INSTANCE_MIN_VALID: InstanceTag = 0x0000_0100;
-
-static RAND: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 
 /// `InstanceTag` represents a client instance tag. The instance tag is used to distinguish between
 /// multiple clients using the same account. Introduced in OTR version 3, this tag allows treating
@@ -19,9 +16,13 @@ static RAND: Lazy<rand::SystemRandom> = Lazy::new(rand::SystemRandom::new);
 /// when the actual instance tag of the receiver of your message-to-be-sent is still unknown.
 pub type InstanceTag = u32;
 
-pub(crate) fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagError> {
+/// `verify` verifies an instance tag
+///
+/// # Errors
+/// In case of illegal instance tag.
+pub fn verify(tag: u32) -> Result<InstanceTag, OTRError> {
     if tag > INSTANCE_ZERO && tag < INSTANCE_MIN_VALID {
-        Err(InstanceTagError::IllegalValue(tag))
+        Err(OTRError::ProtocolViolation("Instance tag contains illegal value."))
     } else {
         Ok(tag)
     }
@@ -30,18 +31,10 @@ pub(crate) fn verify_instance_tag(tag: u32) -> Result<InstanceTag, InstanceTagEr
 pub(crate) fn random_tag() -> InstanceTag {
     let mut value = [0u8; 4];
     loop {
-        (*RAND)
-            .fill(&mut value)
-            .expect("Failed to acquire random bytes");
+        utils::random::fill_secure_bytes(&mut value);
         let num = u32::from_be_bytes(value);
         if num >= INSTANCE_MIN_VALID {
             return num;
         }
     }
-}
-
-pub(crate) enum InstanceTagError {
-    /// As a safety-margin, the instance tags have a predefined invalid range (0, 256). 0 is
-    /// excluded as it is used for backwards-compatibility.
-    IllegalValue(u32),
 }

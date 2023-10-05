@@ -7,7 +7,7 @@ use regex::bytes::Regex;
 
 use crate::{
     encoding::OTREncodable,
-    instancetag::{self, verify_instance_tag, InstanceTag},
+    instancetag::{self, InstanceTag},
     utils,
 };
 
@@ -52,8 +52,8 @@ pub fn parse(content: &[u8]) -> Option<Fragment> {
     // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
     return Some(Fragment {
-        sender: verify_instance_tag(utils::u32::from_4byte_be(&sender_bytes)).ok()?,
-        receiver: verify_instance_tag(utils::u32::from_4byte_be(&receiver_bytes)).ok()?,
+        sender: instancetag::verify(utils::u32::from_4byte_be(&sender_bytes)).ok()?,
+        receiver: instancetag::verify(utils::u32::from_4byte_be(&receiver_bytes)).ok()?,
         part: std::str::from_utf8(captures.get(3).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
@@ -152,9 +152,9 @@ impl OTREncodable for Fragment {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
         log::trace!("Fragment to encode: {:?}", &self);
         // ensure that the fragments we send are valid. (used to capture internal logic errors)
-        assert!(instancetag::verify_instance_tag(self.sender).is_ok());
+        assert!(instancetag::verify(self.sender).is_ok());
         assert_ne!(self.sender, 0);
-        assert!(instancetag::verify_instance_tag(self.receiver).is_ok());
+        assert!(instancetag::verify(self.receiver).is_ok());
         assert_ne!(self.part, 0);
         assert_ne!(self.total, 0);
         assert!(self.part <= self.total);
@@ -350,7 +350,8 @@ mod tests {
         const TESTCASE: &[u8;354] = b"?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8vjPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2ipkTtquknfx6HodLvk3RAAAAAA==.";
         const FRAGMENT0: &[u8;199] = b"?OTR|5a73a599|27e31597,00001,00003,?OTR:AAMDJ+MVmSfjFZcAAAAAAQAAAAIAAADA1g5IjD1ZGLDVQEyCgCyn9hbrL3KAbGDdzE2ZkMyTKl7XfkSxh8YJnudstiB74i4BzT0W2haClg6dMary/jo9sMudwmUdlnKpIGEKXWdvJKT+hQ26h9nzMgEditLB8v,";
         const FRAGMENT1: &[u8;199] = b"?OTR|5a73a599|27e31597,00002,00003,jPEWAJ6gBXvZrY6ZQrx3gb4v0UaSMOMiR5sB7Eaulb2Yc6RmRnnlxgUUC2alosg4WIeFN951PLjScajVba6dqlDi+q1H5tPvI5SWMN7PCBWIJ41+WvF+5IAZzQZYgNaVLbAAAAAAAAAAEAAAAHwNiIi5Ms+4PsY/L2i,";
-        const FRAGMENT2: &[u8; 64] = b"?OTR|5a73a599|27e31597,00003,00003,pkTtquknfx6HodLvk3RAAAAAA==.,";
+        const FRAGMENT2: &[u8; 64] =
+            b"?OTR|5a73a599|27e31597,00003,00003,pkTtquknfx6HodLvk3RAAAAAA==.,";
         let result = fragment(199, 0x5a73_a599, 0x27e3_1597, TESTCASE);
         assert_eq!(
             Ordering::Equal,

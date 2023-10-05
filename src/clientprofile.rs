@@ -1,128 +1,131 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+use num_bigint::BigUint;
+use num_integer::Integer;
+
 use crate::{
     crypto::{dsa, ed448},
-    encoding::{OTRDecoder, OTREncodable},
-    instancetag::InstanceTag,
-    OTRError, Version,
+    encoding::{OTRDecoder, OTREncodable, OTREncoder},
+    instancetag::{self, InstanceTag},
+    utils, OTRError, Version,
 };
 
+// FIXME tag in client profile is possibly different from tag in AccountDetails
 pub struct ClientProfile {
-    pub owner: InstanceTag,
-    pub public_key: ed448::PublicKey,
-    pub forging_key: ed448::PublicKey,
+    pub owner_tag: InstanceTag,
+    pub identity_key: ed448::Point,
+    pub forging_key: ed448::Point,
     pub versions: Vec<Version>,
     pub expiration: i64,
-    pub legacy_public_key: Option<dsa::PublicKey>,
+    pub legacy_key: Option<dsa::PublicKey>,
 }
 
 // TODO consider method for including and signing with legacy DSA public key for transitional signature.
 impl ClientProfile {
-    pub fn new(
-        tag: InstanceTag,
-        public_key: ed448::PublicKey,
-        forging_key: ed448::PublicKey,
-        versions: Vec<Version>,
-        expiration: i64,
-    ) -> Result<Self, OTRError> {
-        let profile = Self {
-            owner: tag,
-            public_key,
-            forging_key,
-            versions,
-            expiration,
-            legacy_public_key: None,
-        };
-        Self::validate(&profile)?;
-        Ok(profile)
-    }
-
-    /// `from` reconstructs a client profile based on the payload.
+    /// Construct a new client profile based on user input.
     ///
     /// # Errors
-    /// In case of bad client profile payload.
-    pub fn from(payload: ClientProfilePayload) -> Result<ClientProfile, OTRError> {
-        payload.validate()?;
-        let ClientProfilePayload {
-            owner: Some(owner),
-            public_key: Some(public_key),
-            forging_key: Some(forging_key),
-            versions,
-            expiration: Some(expiration),
-            legacy_public_key,
-            transitional_sig: _,
-            signature: Some(_),
-        } = payload else {
-            return Err(OTRError::ProtocolViolation("Some components from the client profile are missing"))
-        };
+    /// In case of failure to construct a valid profile.
+    pub fn new(
+        owner_tag: InstanceTag,
+        identity_key: ed448::Point,
+        forging_key: ed448::Point,
+        versions: Vec<Version>,
+        expiration: i64,
+        legacy_key: Option<dsa::PublicKey>,
+    ) -> Result<Self, OTRError> {
         let profile = Self {
-            owner,
-            public_key,
+            owner_tag,
+            identity_key,
             forging_key,
             versions,
             expiration,
-            legacy_public_key,
+            legacy_key,
         };
         Self::validate(&profile)?;
         Ok(profile)
     }
 
     fn validate(profile: &Self) -> Result<(), OTRError> {
+        instancetag::verify(profile.owner_tag)?;
+        ed448::verify(&profile.identity_key).map_err(OTRError::CryptographicViolation)?;
+        ed448::verify(&profile.forging_key).map_err(OTRError::CryptographicViolation)?;
+        // FIXME verify contained versions.
+        // FIXME create util for unix-timestamp seconds since now.
+        if profile.expiration < 0
+            || u64::try_from(profile.expiration).unwrap() <= utils::time::unix_seconds_now()
+        {
+            // FIXME should this be some ValidationError or something?
+            return Err(OTRError::ProtocolViolation("Expired client profile."));
+        }
+        if let Some(legacy_pk) = &profile.legacy_key {
+            // FIXME how to verify the legacy public key?
+        }
         // FIXME implement: validation of ClientProfile content
-        todo!("implement: validation of ClientProfile content");
+        Ok(())
+    }
+
+    /// `sign` signs a client profile and produces a signed client profile payload.
+    ///
+    /// # Panics
+    /// In case of inproper arguments, such as if identity keypair does not match with
+    /// client profile's identity public key.
+    pub fn sign(
+        &self,
+        // FIXME ECDHKeyPair -> Ed448KeyPair (long-term identity)
+        identity_keypair: &ed448::EdDSAKeyPair,
+        legacy_keypair: Option<&dsa::Keypair>,
+    ) -> Result<ClientProfilePayload, OTRError> {
+        assert_eq!(&self.identity_key, identity_keypair.public());
+        assert_eq!(self.legacy_key.is_none(), legacy_keypair.is_none());
+        // TODO double-check if all validation is necessary.
+        let mut fields = vec![
+            Field::OwnerTag(self.owner_tag),
+            Field::IdentityKey(IdentityKey(self.identity_key.clone())),
+            Field::ForgingKey(ForgingKey(self.forging_key.clone())),
+            Field::Versions(self.versions.clone()),
+            Field::Expiration(self.expiration),
+        ];
+        if let Some(public_key) = &self.legacy_key {
+            fields.push(Field::LegacyKey(public_key.clone()));
+            let mut encoder = OTREncoder::new();
+            for f in &fields {
+                encoder.write_encodable(f);
+            }
+            let prehash: [u8; 20] = BigUint::from_bytes_be(&encoder.to_vec())
+                .mod_floor(public_key.q())
+                .to_bytes_be()
+                .try_into()
+                .expect("BUG: Failed to convert prehash into 20-byte array");
+            let trans_sig = legacy_keypair.unwrap().sign(&prehash);
+            fields.push(Field::TransitionalSignature(trans_sig));
+        }
+        let mut encoder = OTREncoder::new();
+        for f in &fields {
+            encoder.write_encodable(f);
+        }
+        let bytes = encoder.to_vec();
+        let signature = identity_keypair.sign(&bytes);
+        let payload = ClientProfilePayload { fields, signature };
+        // TODO temporary validation? (just for soundness check during development?)
+        payload.validate()?;
+        Ok(payload)
     }
 }
 
 #[derive(Clone)]
 pub struct ClientProfilePayload {
-    owner: Option<InstanceTag>,
-    public_key: Option<ed448::PublicKey>,
-    forging_key: Option<ed448::PublicKey>,
-    versions: Vec<Version>,
-    expiration: Option<i64>,
-    legacy_public_key: Option<dsa::PublicKey>,
-    transitional_sig: Option<dsa::Signature>,
-    signature: Option<ed448::Signature>,
+    fields: Vec<Field>,
+    signature: ed448::Signature,
 }
 
 impl OTREncodable for ClientProfilePayload {
     fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-        // TODO assumes payload is valid, i.e. unwrap will produce panics
-        encoder.write_u32(u32::from(self.count_fields()));
-        {
-            let tag = self.owner.unwrap();
-            encoder.write_u16(TYPE_OWNERINSTANCETAG);
-            encoder.write_u32(tag);
+        encoder.write_u32(u32::try_from(self.fields.len()).unwrap());
+        for f in &self.fields {
+            encoder.write_encodable(f);
         }
-        {
-            let pk = self.public_key.as_ref().unwrap();
-            encoder.write_u16(TYPE_ED448_PUBLIC_KEY);
-            encoder.write_encodable(pk);
-        }
-        {
-            let pk = self.forging_key.as_ref().unwrap();
-            encoder.write_u16(TYPE_ED448_FORGING_KEY);
-            encoder.write_encodable(pk);
-        }
-        {
-            encoder.write_u16(TYPE_VERSIONS);
-            encoder.write_data(&encode_versions(&self.versions));
-        }
-        {
-            let timestamp = self.expiration.unwrap();
-            encoder.write_u16(TYPE_CLIENTPROFILE_EXPIRATION);
-            encoder.write_i64(timestamp);
-        }
-        if let Some(pk) = &self.legacy_public_key {
-            assert!(self.transitional_sig.is_some());
-            encoder.write_u16(TYPE_DSA_PUBLIC_KEY);
-            encoder.write_public_key(pk);
-        }
-        if let Some(sig) = &self.transitional_sig {
-            assert!(self.legacy_public_key.is_some());
-            encoder.write_u16(TYPE_TRANSITIONAL_SIGNATURE);
-            encoder.write_signature(sig);
-        }
+        encoder.write_encodable(&self.signature);
     }
 }
 
@@ -134,35 +137,26 @@ impl ClientProfilePayload {
     /// validation.
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
         let n = decoder.read_u32()? as usize;
-        let mut payload = Self {
-            owner: Option::None,
-            public_key: Option::None,
-            forging_key: Option::None,
-            versions: Vec::new(),
-            expiration: Option::None,
-            legacy_public_key: Option::None,
-            transitional_sig: Option::None,
-            signature: Option::None,
-        };
+        let mut fields = Vec::with_capacity(n);
         for _ in 0..n {
             match decoder.read_u16()? {
-                TYPE_OWNERINSTANCETAG => payload.owner = Some(decoder.read_u32()?),
+                TYPE_OWNERINSTANCETAG => fields.push(Field::OwnerTag(decoder.read_u32()?)),
                 TYPE_ED448_PUBLIC_KEY => {
-                    payload.public_key = Some(decoder.read_ed448_public_key()?);
+                    fields.push(Field::IdentityKey(IdentityKey::decode(decoder)?));
                 }
                 TYPE_ED448_FORGING_KEY => {
-                    payload.forging_key = Some(decoder.read_ed448_public_key()?);
+                    fields.push(Field::ForgingKey(ForgingKey::decode(decoder)?));
                 }
                 TYPE_VERSIONS => {
-                    payload
-                        .versions
-                        .extend(parse_versions(&decoder.read_data()?));
+                    fields.push(Field::Versions(parse_versions(&decoder.read_data()?)));
                 }
-                TYPE_CLIENTPROFILE_EXPIRATION => payload.expiration = Some(decoder.read_i64()?),
-                TYPE_DSA_PUBLIC_KEY => payload.legacy_public_key = Some(decoder.read_public_key()?),
-                TYPE_TRANSITIONAL_SIGNATURE => {
-                    payload.transitional_sig = Some(decoder.read_dsa_signature()?);
+                TYPE_CLIENTPROFILE_EXPIRATION => {
+                    fields.push(Field::Expiration(decoder.read_i64()?));
                 }
+                TYPE_DSA_PUBLIC_KEY => fields.push(Field::LegacyKey(decoder.read_public_key()?)),
+                TYPE_TRANSITIONAL_SIGNATURE => fields.push(Field::TransitionalSignature(
+                    dsa::Signature::decode(decoder)?,
+                )),
                 _ => {
                     return Err(OTRError::ProtocolViolation(
                         "Unknown client profile field-type",
@@ -170,7 +164,8 @@ impl ClientProfilePayload {
                 }
             }
         }
-        payload.signature = Some(decoder.read_ed448_signature()?);
+        let signature = decoder.read_ed448_signature()?;
+        let payload = Self { fields, signature };
         payload.validate()?;
         Ok(payload)
     }
@@ -180,21 +175,242 @@ impl ClientProfilePayload {
     ///
     /// # Errors
     /// In case anything does not check out with the client profile.
+    // TODO there is a complexity in validating because we need to produce the encoding with fields in the same order as originally received, so we cannot rely on the fields in the data structure.
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
-        // FIXME perform verification of payload and validation against signature
-        // FIXME make sure transitional sig and DSA public key are verified and correspond
-        todo!("perform field validation of payload");
+        let mut owner_tag: Option<InstanceTag> = Option::None;
+        let mut identity_key: Option<ed448::Point> = Option::None;
+        let mut forging_key: Option<ed448::Point> = Option::None;
+        let mut versions: Vec<Version> = Vec::new();
+        let mut expiration: Option<i64> = Option::None;
+        let mut legacy_key: Option<dsa::PublicKey> = Option::None;
+        let mut transitional_signature: Option<dsa::Signature> = Option::None;
+        // FIXME validate transitional signature
+        // FIXME validate signature
+        for f in &self.fields {
+            match f {
+                Field::OwnerTag(tag) => {
+                    if owner_tag.replace(*tag).is_some() {
+                        return Err(OTRError::ProtocolViolation("Duplicate field: owner tag"));
+                    }
+                }
+                Field::IdentityKey(IdentityKey(public_key)) => {
+                    if identity_key.replace(public_key.clone()).is_some() {
+                        return Err(OTRError::ProtocolViolation("Duplicate field: identity key"));
+                    }
+                }
+                Field::ForgingKey(ForgingKey(public_key)) => {
+                    if forging_key.replace(public_key.clone()).is_some() {
+                        return Err(OTRError::ProtocolViolation("Duplicate field: forging key"));
+                    }
+                }
+                Field::Versions(ver) => {
+                    if !versions.is_empty() {
+                        return Err(OTRError::ProtocolViolation("Duplicate field: versions"));
+                    }
+                    versions.extend_from_slice(ver);
+                }
+                Field::Expiration(timestamp) => {
+                    if expiration.replace(*timestamp).is_some() {
+                        return Err(OTRError::ProtocolViolation(
+                            "Duplicate field: expiration timestamp",
+                        ));
+                    }
+                }
+                Field::LegacyKey(public_key) => {
+                    if legacy_key.replace(public_key.clone()).is_some() {
+                        return Err(OTRError::ProtocolViolation(
+                            "Duplicate field: legacy public key",
+                        ));
+                    }
+                }
+                Field::TransitionalSignature(sig) => {
+                    if transitional_signature.replace(sig.clone()).is_some() {
+                        return Err(OTRError::ProtocolViolation(
+                            "Duplicate field: transitional signature",
+                        ));
+                    }
+                }
+            };
+        }
+        if owner_tag.is_none()
+            || identity_key.is_none()
+            || forging_key.is_none()
+            || versions.is_empty()
+            || expiration.is_none()
+        {
+            return Err(OTRError::ProtocolViolation(
+                "Required fields missing in client profile payload.",
+            ));
+        }
+        if legacy_key.is_some() != transitional_signature.is_some() {
+            return Err(OTRError::ProtocolViolation(
+                "The legacy public key requires that a transitional signature is present.",
+            ));
+        }
+        // 1. Verify all profile fields.
+        let mut encoder = OTREncoder::new();
+        for f in &self.fields {
+            encoder.write_encodable(f);
+        }
+        self.signature
+            .verify(&identity_key.as_ref().unwrap(), &encoder.to_vec())
+            .map_err(OTRError::CryptographicViolation)?;
+        // FIXME need to validate occurrence at-most-one for each field-type.
+        if let Some(legacy_key) = &legacy_key {
+            assert!(transitional_signature.is_some());
+            let mut encoder = OTREncoder::new();
+            self.fields
+                .iter()
+                .filter(|f| {
+                    matches!(
+                        f,
+                        Field::OwnerTag(_)
+                            | Field::IdentityKey(_)
+                            | Field::ForgingKey(_)
+                            | Field::Versions(_)
+                            | Field::Expiration(_)
+                            | Field::LegacyKey(_)
+                    )
+                })
+                .into_iter()
+                .for_each(|f| {
+                    encoder.write_encodable(f);
+                });
+            // FIXME ensure correct public key before relying on components, such as q.
+            let prehash: [u8; 20] = BigUint::from_bytes_be(&encoder.to_vec())
+                .mod_floor(legacy_key.q())
+                .to_bytes_be()
+                .try_into()
+                .expect("BUG: Failed to convert prehash into 20-byte array");
+            legacy_key
+                .verify(transitional_signature.as_ref().unwrap(), &prehash)
+                .map_err(OTRError::CryptographicViolation)?;
+        }
+        Ok(ClientProfile {
+            owner_tag: owner_tag.unwrap(),
+            identity_key: identity_key.unwrap(),
+            forging_key: forging_key.unwrap(),
+            versions,
+            expiration: expiration.unwrap(),
+            legacy_key,
+        })
     }
+}
 
-    fn count_fields(&self) -> u8 {
-        let mut count = 5u8;
-        if self.legacy_public_key.is_some() {
-            count += 1;
+#[derive(Clone)]
+enum Field {
+    OwnerTag(InstanceTag),
+    IdentityKey(IdentityKey),
+    ForgingKey(ForgingKey),
+    Versions(Vec<Version>),
+    Expiration(i64),
+    LegacyKey(dsa::PublicKey),
+    TransitionalSignature(dsa::Signature),
+}
+
+impl OTREncodable for Field {
+    fn encode(&self, encoder: &mut OTREncoder) {
+        match self {
+            Self::OwnerTag(tag) => {
+                encoder.write_u16(TYPE_OWNERINSTANCETAG);
+                encoder.write_u32(*tag);
+            }
+            Self::IdentityKey(identity_key) => {
+                encoder.write_u16(TYPE_ED448_PUBLIC_KEY);
+                encoder.write_encodable(identity_key);
+            }
+            Self::ForgingKey(forging_key) => {
+                encoder.write_u16(TYPE_ED448_FORGING_KEY);
+                encoder.write_encodable(forging_key);
+            }
+            Self::Versions(versions) => {
+                encoder.write_u16(TYPE_VERSIONS);
+                encoder.write_data(&encode_versions(versions));
+            }
+            Self::Expiration(timestamp) => {
+                encoder.write_u16(TYPE_CLIENTPROFILE_EXPIRATION);
+                encoder.write_i64(*timestamp);
+            }
+            Self::LegacyKey(public_key) => {
+                encoder.write_u16(TYPE_DSA_PUBLIC_KEY);
+                encoder.write_public_key(public_key);
+            }
+            Self::TransitionalSignature(signature) => {
+                encoder.write_u16(TYPE_TRANSITIONAL_SIGNATURE);
+                encoder.write_encodable(signature);
+            }
         }
-        if self.transitional_sig.is_some() {
-            count += 1;
+    }
+}
+
+impl Field {
+    fn decode(decoder: &mut OTRDecoder) -> Self {
+        // FIXME implement decoding
+        todo!("to be implemented")
+    }
+}
+
+const TYPE_OWNERINSTANCETAG: u16 = 1;
+const TYPE_ED448_PUBLIC_KEY: u16 = 2;
+const TYPE_ED448_FORGING_KEY: u16 = 3;
+const TYPE_VERSIONS: u16 = 4;
+const TYPE_CLIENTPROFILE_EXPIRATION: u16 = 5;
+const TYPE_DSA_PUBLIC_KEY: u16 = 6;
+const TYPE_TRANSITIONAL_SIGNATURE: u16 = 7;
+
+#[derive(Clone)]
+struct IdentityKey(ed448::Point);
+
+impl OTREncodable for IdentityKey {
+    fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        encoder.write_u16_le(Self::PUBKEY_TYPE_ED448_IDENTITY_KEY);
+        encoder.write_ed448_point(&self.0);
+    }
+}
+
+impl IdentityKey {
+    const PUBKEY_TYPE_ED448_IDENTITY_KEY: u16 = 0x10;
+
+    /// `decode` decodes a public key from its OTR-encoding.
+    ///
+    /// # Errors
+    /// In case of bad input data.
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        if decoder.read_u16_le()? != Self::PUBKEY_TYPE_ED448_IDENTITY_KEY {
+            return Err(OTRError::ProtocolViolation(
+                "Expected public key type: 0x0010",
+            ));
         }
-        count
+        Ok(Self(decoder.read_ed448_point()?))
+    }
+}
+
+// NOTE: there is also the Ed448 Preshared PreKey (type 0x0011). Not yet implemented.
+
+#[derive(Clone)]
+struct ForgingKey(ed448::Point);
+
+impl OTREncodable for ForgingKey {
+    fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
+        encoder.write_u16_le(Self::PUBKEY_TYPE_ED448_FORGING_KEY);
+        encoder.write_ed448_point(&self.0);
+    }
+}
+
+impl ForgingKey {
+    const PUBKEY_TYPE_ED448_FORGING_KEY: u16 = 0x12;
+
+    /// `decode` decodes a public key from its OTR-encoding.
+    ///
+    /// # Errors
+    /// In case of bad input data.
+    pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        if decoder.read_u16_le()? != Self::PUBKEY_TYPE_ED448_FORGING_KEY {
+            return Err(OTRError::ProtocolViolation(
+                "Expected public key type: 0x0012",
+            ));
+        }
+        Ok(Self(decoder.read_ed448_point()?))
     }
 }
 
@@ -221,11 +437,3 @@ fn encode_versions(versions: &[Version]) -> Vec<u8> {
     }
     data
 }
-
-const TYPE_OWNERINSTANCETAG: u16 = 1;
-const TYPE_ED448_PUBLIC_KEY: u16 = 2;
-const TYPE_ED448_FORGING_KEY: u16 = 3;
-const TYPE_VERSIONS: u16 = 4;
-const TYPE_CLIENTPROFILE_EXPIRATION: u16 = 5;
-const TYPE_DSA_PUBLIC_KEY: u16 = 6;
-const TYPE_TRANSITIONAL_SIGNATURE: u16 = 7;

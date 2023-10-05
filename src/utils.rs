@@ -208,6 +208,17 @@ pub mod u32 {
     }
 }
 
+pub mod option {
+
+    pub fn empty<T, E>(o: Option<T>, err: E) -> Result<(), E> {
+        if o.is_some() {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// `random` provides utils for `ring::rand` secure random generator.
 pub mod random {
     use once_cell::sync::Lazy;
@@ -226,5 +237,18 @@ pub mod random {
     /// `fill_secure_bytes` fills provided buffer with bytes from (secure) random number generator.
     pub fn fill_secure_bytes(buffer: &mut [u8]) {
         RANDOM.fill(buffer).unwrap();
+    }
+}
+
+pub mod time {
+    pub fn unix_seconds_now() -> u64 {
+        unix_seconds_from(std::time::UNIX_EPOCH)
+    }
+
+    pub fn unix_seconds_from(current: std::time::SystemTime) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(current)
+            .unwrap()
+            .as_secs()
     }
 }

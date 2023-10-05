@@ -16,6 +16,7 @@ use crate::{
 
 /// `DAKEContext` is the struct maintaining the state.
 // TODO in general, review the DAKE error handling and whether to propagate all errors.
+// TODO add more (trace/debug) logging to provide better insight into the process in case of bugs.
 pub struct DAKEContext {
     host: Rc<dyn Host>,
     state: State,
@@ -29,6 +30,7 @@ impl DAKEContext {
         }
     }
 
+    #[allow(clippy::unused_self)]
     pub fn version(&self) -> Version {
         Version::V4
     }
@@ -38,18 +40,21 @@ impl DAKEContext {
     /// # Errors
     /// In case of protocol violation or cryptographic failure.
     pub fn initiate(&mut self) -> Result<EncodedMessageType, OTRError> {
+        log::info!("Initiating DAKE.");
         if !matches!(self.state, State::Initial) {
             return Err(OTRError::IncorrectState(
                 "Authenticated key exchange in progress.",
             ));
         }
+        log::trace!("DAKE: reading client profile payload from host…");
         let profile_bytes = self.host.client_profile();
         let mut decoder = OTRDecoder::new(&profile_bytes);
         let profile = ClientProfilePayload::decode(&mut decoder)?;
         decoder.done()?;
-        let y = ed448::KeyPair::generate();
+        log::trace!("DAKE: generating new ephemeral keypairs.");
+        let y = ed448::ECDHKeyPair::generate();
         let b = dh3072::KeyPair::generate();
-        let ecdh0 = ed448::KeyPair::generate();
+        let ecdh0 = ed448::ECDHKeyPair::generate();
         let dh0 = dh3072::KeyPair::generate();
         let identity_message = IdentityMessage {
             profile: profile.clone(),
@@ -58,6 +63,7 @@ impl DAKEContext {
             ecdh0: ecdh0.public().clone(),
             dh0: dh0.public().clone(),
         };
+        log::trace!("DAKE: message constructed; transitioning to AWAITING_AUTH_R and returning Identity-message for sending.");
         self.state = State::AwaitingAuthR {
             y,
             b,
@@ -123,7 +129,7 @@ impl DAKEContext {
         let mut profile_decoder = OTRDecoder::new(&profile_payload);
         let profile = ClientProfilePayload::decode(&mut profile_decoder)?;
         profile_decoder.done()?;
-        let x = ed448::KeyPair::generate();
+        let x = ed448::ECDHKeyPair::generate();
         let a = dh3072::KeyPair::generate();
         // FIXME double check minimal size big-endian encoding.
         let mut tbytes = Vec::new();
@@ -146,13 +152,13 @@ impl DAKEContext {
         let identity_keypair = self.host.keypair_identity();
         let sigma = ed448::RingSignature::sign(
             identity_keypair,
-            profile_bob.forging_key.point(),
+            &profile_bob.forging_key,
             identity_keypair.public(),
             &message.y,
             &tbytes,
         )
         .map_err(OTRError::CryptographicViolation)?;
-        let ecdh0 = ed448::KeyPair::generate();
+        let ecdh0 = ed448::ECDHKeyPair::generate();
         let dh0 = dh3072::KeyPair::generate();
         let response = AuthRMessage {
             profile_payload: profile.clone(),
@@ -226,8 +232,8 @@ impl DAKEContext {
             message
                 .sigma
                 .verify(
-                    profile_bob.forging_key.point(),
-                    profile_alice.public_key.point(),
+                    &profile_bob.forging_key,
+                    &profile_alice.identity_key,
                     y.public(),
                     &tbytes,
                 )
@@ -255,7 +261,7 @@ impl DAKEContext {
             let sigma = ed448::RingSignature::sign(
                 keypair_identity,
                 keypair_identity.public(),
-                profile_alice.forging_key.point(),
+                &profile_alice.forging_key,
                 &message.x,
                 &tbytes,
             )
@@ -343,7 +349,7 @@ impl DAKEContext {
                 .sigma
                 .verify(
                     keypair.public(),
-                    profile_alice.public_key.point(),
+                    &profile_alice.identity_key,
                     x,
                     &tbytes,
                 )
@@ -396,10 +402,10 @@ enum State {
     Initial,
     /// `AwaitingAuthR` is the state for Alice as she awaits Bob's `AuthRMessage`.
     AwaitingAuthR {
-        y: ed448::KeyPair,
+        y: ed448::ECDHKeyPair,
         b: dh3072::KeyPair,
         payload: ClientProfilePayload,
-        ecdh0: ed448::KeyPair,
+        ecdh0: ed448::ECDHKeyPair,
         dh0: dh3072::KeyPair,
         identity_message: IdentityMessage,
     },
@@ -412,7 +418,7 @@ enum State {
         a: BigUint,
         b: BigUint,
         k: [u8; otr4::K_LENGTH],
-        ecdh0: ed448::KeyPair,
+        ecdh0: ed448::ECDHKeyPair,
         dh0: dh3072::KeyPair,
         ecdh0_other: ed448::Point,
         dh0_other: BigUint,

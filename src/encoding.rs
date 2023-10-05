@@ -6,9 +6,8 @@ use bitflags::bitflags;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::dsa::Signature,
     crypto::{dsa, ed448},
-    instancetag::{verify_instance_tag, InstanceTag},
+    instancetag::{verify, InstanceTag},
     utils, OTRError, TLVType, SSID,
 };
 
@@ -100,8 +99,7 @@ impl<'a> OTRDecoder<'a> {
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
         log::trace!("read instance tag");
-        verify_instance_tag(self.read_u32()?)
-            .or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
+        verify(self.read_u32()?).or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
     /// `read_data` reads variable-length data from buffer.
@@ -173,22 +171,6 @@ impl<'a> OTRDecoder<'a> {
         dsa::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
     }
 
-    /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
-    pub fn read_dsa_signature(&mut self) -> Result<Signature, OTRError> {
-        const SIGNATURE_LEN: usize = Signature::size();
-        const PARAM_LEN: usize = Signature::parameter_size();
-        log::trace!("read signature");
-        if self.0.len() < Signature::size() {
-            return Err(OTRError::IncompleteMessage);
-        }
-        let sig = Signature::from_components(
-            BigUint::from_bytes_be(&self.0[..PARAM_LEN]),
-            BigUint::from_bytes_be(&self.0[PARAM_LEN..SIGNATURE_LEN]),
-        );
-        self.0 = &self.0[SIGNATURE_LEN..];
-        Ok(sig)
-    }
-
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
         log::trace!("read all TLVs");
         let mut tlvs = Vec::new();
@@ -233,11 +215,6 @@ impl<'a> OTRDecoder<'a> {
         Ok(ed448::Signature::from(self.read()?))
     }
 
-    pub fn read_ed448_public_key(&mut self) -> Result<ed448::PublicKey, OTRError> {
-        // TODO we write the public key as OTREncodable, but we make a specific implementation for reading.
-        ed448::PublicKey::from(&self.read()?)
-    }
-
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
         ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)
     }
@@ -254,7 +231,7 @@ impl<'a> OTRDecoder<'a> {
         self.read()
     }
 
-    fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
+    pub fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
         if self.0.len() < N {
             return Err(OTRError::IncompleteMessage);
         }
@@ -389,20 +366,6 @@ impl OTREncoder {
             .write_mpi(key.y())
     }
 
-    pub fn write_signature(&mut self, sig: &Signature) -> &mut Self {
-        const PARAM_LEN: usize = Signature::parameter_size();
-        const SIGNATURE_LEN: usize = Signature::size();
-        // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
-        let startlen = self.buffer.len();
-        self.buffer
-            .extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.r()));
-        assert_eq!(PARAM_LEN, self.buffer.len() - startlen);
-        self.buffer
-            .extend_from_slice(&utils::biguint::to_bytes_be_fixed::<PARAM_LEN>(sig.s()));
-        assert_eq!(SIGNATURE_LEN, self.buffer.len() - startlen);
-        self
-    }
-
     #[allow(clippy::cast_possible_truncation)]
     pub fn write_tlv(&mut self, tlv: &TLV) -> &mut Self {
         assert!(u16::try_from(tlv.1.len()).is_ok());
@@ -438,11 +401,6 @@ impl OTREncoder {
 
     pub fn write_mac4(&mut self, mac: &[u8; MAC4_LEN]) -> &mut Self {
         self.buffer.extend_from_slice(mac);
-        self
-    }
-
-    pub fn write_nonce(&mut self, nonce: &[u8; NONCE_LEN]) -> &mut Self {
-        self.buffer.extend_from_slice(nonce);
         self
     }
 
@@ -500,7 +458,6 @@ mod tests {
         assert!(decoder.read_mpi_sequence().is_err());
         assert!(decoder.read_public_key().is_err());
         assert!(decoder.read_u16().is_err());
-        assert!(decoder.read_dsa_signature().is_err());
         assert!(decoder.read_tlv().is_err());
         assert!(decoder.read_tlvs().unwrap().is_empty());
         assert!(decoder.done().is_ok());
