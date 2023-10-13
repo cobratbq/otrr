@@ -11,7 +11,6 @@ use crate::{
 };
 
 use num_bigint::BigUint;
-use num_integer::Integer;
 
 pub struct AKEContext {
     host: Rc<dyn Host>,
@@ -200,14 +199,7 @@ impl AKEContext {
                 // "This is the signature, using the private part of the key pubB, of the 32-byte MB
                 //  (taken modulo q instead of being truncated (as described in FIPS-186), and not
                 //  hashed again)."
-                let mb_prehash: [u8; 20] = BigUint::from_bytes_be(&m_b)
-                    .mod_floor(dsa_keypair.get_q())
-                    .to_bytes_be()
-                    .try_into()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to convert prehash into 20-byte array",
-                    )))?;
-                let sig_b = dsa_keypair.sign(&mb_prehash);
+                let sig_b = dsa_keypair.sign(&m_b);
                 log::trace!("Sig_B: {:?}", &sig_b);
                 log::trace!("M_B: {:?}", &m_b);
                 let x_b = OTREncoder::new()
@@ -338,15 +330,8 @@ impl AKEContext {
                 );
                 log::trace!("Sig_B: {:?}", &sig_m_b);
                 log::trace!("M_B: {:?}", &m_b);
-                let mb_prehash: [u8; 20] = BigUint::from_bytes_be(&m_b)
-                    .mod_floor(pub_b.q())
-                    .to_bytes_be()
-                    .try_into()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to convert prehash into 20-byte array",
-                    )))?;
                 pub_b
-                    .verify(&sig_m_b, &mb_prehash)
+                    .validate(&sig_m_b, &m_b)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("M_B verified: correct");
 
@@ -360,14 +345,7 @@ impl AKEContext {
                         .write_u32(KEYID_A)
                         .to_vec(),
                 );
-                let ma_prehash: [u8; 20] = BigUint::from_bytes_be(&m_a)
-                    .mod_floor(keypair.get_q())
-                    .to_bytes_be()
-                    .try_into()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to convert prehash into 20-byte array",
-                    )))?;
-                let sig_m_a = keypair.sign(&ma_prehash);
+                let sig_m_a = keypair.sign(&m_a);
                 log::debug!("M_A constructed and signed.");
                 let x_a = OTREncoder::new()
                     .write_public_key(&keypair.public_key())
@@ -457,15 +435,8 @@ impl AKEContext {
                         .write_u32(keyid_a)
                         .to_vec(),
                 );
-                let ma_prehash: [u8; 20] = BigUint::from_bytes_be(&m_a)
-                    .mod_floor(pub_a.q())
-                    .to_bytes_be()
-                    .try_into()
-                    .or(Err(AKEError::DataProcessing(
-                        "Failed to convert prehash into 20-byte array",
-                    )))?;
                 pub_a
-                    .verify(&sig_m_a, &ma_prehash)
+                    .validate(&sig_m_a, &m_a)
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("M_A signature verified.");
                 (

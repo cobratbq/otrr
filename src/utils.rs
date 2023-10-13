@@ -71,6 +71,25 @@ pub mod bytes {
     pub fn clear(data: &mut [u8]) {
         data.fill(0);
     }
+
+    /// `concatenate3` concatenates three byte-arrays into a new byte-array.
+    pub fn concatenate3(v1: &[u8], v2: &[u8], v3: &[u8]) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(v1);
+        buffer.extend_from_slice(v2);
+        buffer.extend_from_slice(v3);
+        buffer
+    }
+
+    /// `concatenate4` concatenates three byte-arrays into a new byte-array.
+    pub fn concatenate4(v1: &[u8], v2: &[u8], v3: &[u8], v4: &[u8]) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(v1);
+        buffer.extend_from_slice(v2);
+        buffer.extend_from_slice(v3);
+        buffer.extend_from_slice(v4);
+        buffer
+    }
 }
 
 pub mod bigint {
@@ -202,17 +221,6 @@ pub mod u32 {
     pub fn verify_nonzero<E>(value: u32, error: E) -> Result<(), E> {
         if value == 0 {
             Err(error)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-pub mod option {
-
-    pub fn empty<T, E>(o: Option<T>, err: E) -> Result<(), E> {
-        if o.is_some() {
-            Err(err)
         } else {
             Ok(())
         }

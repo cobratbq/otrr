@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use num_bigint::BigUint;
-use num_integer::Integer;
-
 use crate::{
     crypto::{dsa, ed448},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
@@ -50,18 +47,13 @@ impl ClientProfile {
         instancetag::verify(profile.owner_tag)?;
         ed448::verify(&profile.identity_key).map_err(OTRError::CryptographicViolation)?;
         ed448::verify(&profile.forging_key).map_err(OTRError::CryptographicViolation)?;
-        // FIXME verify contained versions.
-        // FIXME create util for unix-timestamp seconds since now.
+        verify_versions(&profile.versions)?;
         if profile.expiration < 0
             || u64::try_from(profile.expiration).unwrap() <= utils::time::unix_seconds_now()
         {
-            // FIXME should this be some ValidationError or something?
+            // FIXME we probably need to handle expiry differently
             return Err(OTRError::ProtocolViolation("Expired client profile."));
         }
-        if let Some(legacy_pk) = &profile.legacy_key {
-            // FIXME how to verify the legacy public key?
-        }
-        // FIXME implement: validation of ClientProfile content
         Ok(())
     }
 
@@ -86,18 +78,14 @@ impl ClientProfile {
             Field::Versions(self.versions.clone()),
             Field::Expiration(self.expiration),
         ];
+        // FIXME there is a specific order of fields for legacy-key-signing and identity-signing. Right now we take order as received.
         if let Some(public_key) = &self.legacy_key {
             fields.push(Field::LegacyKey(public_key.clone()));
             let mut encoder = OTREncoder::new();
             for f in &fields {
                 encoder.write_encodable(f);
             }
-            let prehash: [u8; 20] = BigUint::from_bytes_be(&encoder.to_vec())
-                .mod_floor(public_key.q())
-                .to_bytes_be()
-                .try_into()
-                .expect("BUG: Failed to convert prehash into 20-byte array");
-            let trans_sig = legacy_keypair.unwrap().sign(&prehash);
+            let trans_sig = legacy_keypair.unwrap().sign(&encoder.to_vec());
             fields.push(Field::TransitionalSignature(trans_sig));
         }
         let mut encoder = OTREncoder::new();
@@ -176,6 +164,7 @@ impl ClientProfilePayload {
     /// # Errors
     /// In case anything does not check out with the client profile.
     // TODO there is a complexity in validating because we need to produce the encoding with fields in the same order as originally received, so we cannot rely on the fields in the data structure.
+    // TODO now assumes fields order is reliable for signatures, which is not guaranteed by OTRv4 spec, as there it lists fields explicitly by name.
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
         let mut owner_tag: Option<InstanceTag> = Option::None;
         let mut identity_key: Option<ed448::Point> = Option::None;
@@ -247,15 +236,18 @@ impl ClientProfilePayload {
                 "The legacy public key requires that a transitional signature is present.",
             ));
         }
+        // FIXME verify legacy key
         // 1. Verify all profile fields.
         let mut encoder = OTREncoder::new();
         for f in &self.fields {
             encoder.write_encodable(f);
         }
-        self.signature
-            .verify(&identity_key.as_ref().unwrap(), &encoder.to_vec())
-            .map_err(OTRError::CryptographicViolation)?;
-        // FIXME need to validate occurrence at-most-one for each field-type.
+        ed448::validate(
+            &identity_key.as_ref().unwrap(),
+            &self.signature,
+            &encoder.to_vec(),
+        )
+        .map_err(OTRError::CryptographicViolation)?;
         if let Some(legacy_key) = &legacy_key {
             assert!(transitional_signature.is_some());
             let mut encoder = OTREncoder::new();
@@ -276,14 +268,8 @@ impl ClientProfilePayload {
                 .for_each(|f| {
                     encoder.write_encodable(f);
                 });
-            // FIXME ensure correct public key before relying on components, such as q.
-            let prehash: [u8; 20] = BigUint::from_bytes_be(&encoder.to_vec())
-                .mod_floor(legacy_key.q())
-                .to_bytes_be()
-                .try_into()
-                .expect("BUG: Failed to convert prehash into 20-byte array");
             legacy_key
-                .verify(transitional_signature.as_ref().unwrap(), &prehash)
+                .validate(transitional_signature.as_ref().unwrap(), &encoder.to_vec())
                 .map_err(OTRError::CryptographicViolation)?;
         }
         Ok(ClientProfile {
@@ -412,6 +398,19 @@ impl ForgingKey {
         }
         Ok(Self(decoder.read_ed448_point()?))
     }
+}
+
+fn verify_versions(versions: &[Version]) -> Result<(), OTRError> {
+    // FIXME version 1 is deprecated, version 2 is not advisable mainly due to lack of support for multiple instances.
+    for v in versions {
+        match v {
+            Version::V3 | Version::V4 => continue,
+            Version::None | Version::Unsupported(_) => {
+                return Err(OTRError::ProtocolViolation("Illegal version encountered."))
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_versions(data: &[u8]) -> Vec<Version> {

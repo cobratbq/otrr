@@ -212,7 +212,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
-        Ok(ed448::Signature::from(self.read()?))
+        Ok(ed448::Signature::from(&self.read()?))
     }
 
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {

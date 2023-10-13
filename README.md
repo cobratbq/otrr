@@ -1,13 +1,10 @@
 # otrr
 
-OTR version 3 implementation in Rust.
+OTRv4 implementation in Rust.
 
-__status__ work-in-progress, "_It builds. There are some tests."
+__status__ work-in-progress, OTRv4 in development, further testing needed
 
 Tests demonstrate an established OTR session, however this only proves that any bugs we might touch are symmetric in nature.
-
-- ☐ correctness?
-- ☐ interoperability?
 
 ## Warning
 
