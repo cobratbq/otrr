@@ -8,11 +8,6 @@ Tests demonstrate an established OTR session, however this only proves that any 
 
 ## Warning
 
-- not clear on current status of OTRv4 protocol specification.
-- crate `dsa`:
-  - disclaimer states it is not thoroughly verified
-  - needs changes to expose additional API
-
 ```TODO
 - write up conclusion of risks below,
 - reason about extent of the vulnerability and find sources on whether it is still acceptable,
@@ -29,7 +24,7 @@ Tests demonstrate an established OTR session, however this only proves that any 
   - [RFC 5114](<https://www.rfc-editor.org/rfc/rfc5114.html>)
 ```
 
-## Architecture
+## Goals
 
 - OTRv3 only (OTRv2 and earlier are not supported)  
   OTRv4 anticipated: intention to implement, but development of specification seems to be suspended.
