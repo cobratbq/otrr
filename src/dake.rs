@@ -345,12 +345,7 @@ impl DAKEContext {
             // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
             message
                 .sigma
-                .verify(
-                    keypair.public(),
-                    &profile_alice.identity_key,
-                    x,
-                    &tbytes,
-                )
+                .verify(keypair.public(), &profile_alice.forging_key, x, &tbytes)
                 .map_err(OTRError::CryptographicViolation)?;
             // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
             let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
