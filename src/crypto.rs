@@ -669,6 +669,8 @@ pub mod otr4 {
 
     const PREFIX: [u8; 5] = [b'O', b'T', b'R', b'v', b'4'];
 
+    /// `Fingerprint` represents the hash of a party's _identity_ and _forging_ keys, and is used as
+    /// an identifier.
     pub type Fingerprint = [u8; 56];
 
     #[derive(Clone)]
@@ -1023,11 +1025,13 @@ pub mod otr4 {
         }
     }
 
+    /// `fingerprint` derives the fingerprint from the identity public key and forging public key,
+    /// that are provided as part of the party's client profile.
     #[must_use]
-    pub fn fingerprint(public_key: &ed448::Point, forging_key: &ed448::Point) -> [u8; 56] {
+    pub fn fingerprint(identity_key: &ed448::Point, forging_key: &ed448::Point) -> [u8; 56] {
         hwc2(
             USAGE_FINGERPRINT,
-            &public_key.encode(),
+            &identity_key.encode(),
             &forging_key.encode(),
         )
     }

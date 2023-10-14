@@ -717,15 +717,15 @@ impl Instance {
                 Ok(UserMessage::None)
             }
             EncodedMessageType::AuthR(message) => {
-                let (MixedKeyMaterial{ssid, double_ratchet}, response) = self.dake.handle_auth_r(message)?;
+                let (MixedKeyMaterial{ssid, double_ratchet, us, them}, response) = self.dake.handle_auth_r(message)?;
                 self.inject(self.dake.version(), response);
-                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet });
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet, us, them });
                 assert_eq!(ProtocolStatus::Encrypted, self.state.status());
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             EncodedMessageType::AuthI(message) => {
-                let MixedKeyMaterial{ssid, double_ratchet} = self.dake.handle_auth_i(message)?;
-                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet });
+                let MixedKeyMaterial{ssid, double_ratchet, us, them} = self.dake.handle_auth_i(message)?;
+                self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet, us, them });
                 assert_eq!(ProtocolStatus::Encrypted, self.state.status());
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }

@@ -115,17 +115,13 @@ impl ProtocolState for PlaintextState {
             ProtocolMaterial::DAKE {
                 ssid,
                 double_ratchet,
+                us,
+                them,
             } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
-                smp: SMP4Context::new(
-                    host,
-                    // FIXME replace with actual content!
-                    utils::random::secure_bytes(),
-                    utils::random::secure_bytes(),
-                    ssid,
-                ),
+                smp: SMP4Context::new(host, us, them, ssid),
             }),
         }
     }
@@ -246,16 +242,13 @@ impl ProtocolState for EncryptedOTR3State {
             ProtocolMaterial::DAKE {
                 ssid,
                 double_ratchet,
+                us,
+                them,
             } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
-                smp: SMP4Context::new(
-                    host,
-                    utils::random::secure_bytes(),
-                    utils::random::secure_bytes(),
-                    ssid,
-                ),
+                smp: SMP4Context::new(host, us, them, ssid),
             }),
         }
     }
@@ -486,17 +479,13 @@ impl ProtocolState for EncryptedOTR4State {
             ProtocolMaterial::DAKE {
                 ssid,
                 double_ratchet,
+                us,
+                them,
             } => Box::new(Self {
                 our_instance,
                 their_instance,
                 double_ratchet,
-                smp: SMP4Context::new(
-                    host,
-                    // FIXME replace with actual content!
-                    utils::random::secure_bytes(),
-                    utils::random::secure_bytes(),
-                    ssid,
-                ),
+                smp: SMP4Context::new(host, us, them, ssid),
             }),
         }
     }
@@ -686,17 +675,13 @@ impl ProtocolState for FinishedState {
             ProtocolMaterial::DAKE {
                 ssid,
                 double_ratchet,
+                us,
+                them,
             } => Box::new(EncryptedOTR4State {
                 our_instance,
                 their_instance,
                 double_ratchet,
-                smp: SMP4Context::new(
-                    host,
-                    // FIXME replace with actual content!
-                    utils::random::secure_bytes(),
-                    utils::random::secure_bytes(),
-                    ssid,
-                ),
+                smp: SMP4Context::new(host, us, them, ssid),
             }),
         }
     }
@@ -749,6 +734,8 @@ pub enum ProtocolMaterial {
     DAKE {
         ssid: SSID,
         double_ratchet: otr4::DoubleRatchet,
+        us: otr4::Fingerprint,
+        them: otr4::Fingerprint,
     },
 }
 

@@ -45,9 +45,9 @@ impl DAKEContext {
             ));
         }
         log::trace!("DAKE: reading client profile payload from host…");
-        let profile_bytes = self.host.client_profile();
-        let mut decoder = OTRDecoder::new(&profile_bytes);
-        let profile = ClientProfilePayload::decode(&mut decoder)?;
+        let payload = self.host.client_profile();
+        let mut decoder = OTRDecoder::new(&payload);
+        let payload = ClientProfilePayload::decode(&mut decoder)?;
         decoder.done()?;
         log::trace!("DAKE: generating new ephemeral keypairs.");
         let y = ed448::ECDHKeyPair::generate();
@@ -55,7 +55,7 @@ impl DAKEContext {
         let ecdh0 = ed448::ECDHKeyPair::generate();
         let dh0 = dh3072::KeyPair::generate();
         let identity_message = IdentityMessage {
-            profile: profile.clone(),
+            profile: payload.clone(),
             y: y.public().clone(),
             b: b.public().clone(),
             ecdh0: ecdh0.public().clone(),
@@ -65,7 +65,7 @@ impl DAKEContext {
         self.state = State::AwaitingAuthR {
             y,
             b,
-            payload: profile,
+            payload,
             ecdh0,
             dh0,
             identity_message: identity_message.clone(),
@@ -194,6 +194,7 @@ impl DAKEContext {
     ///
     /// # Errors
     /// In case of violation of protocol or cryptographic failures.
+    #[allow(clippy::too_many_lines)]
     pub fn handle_auth_r(
         &mut self,
         message: AuthRMessage,
@@ -284,12 +285,18 @@ impl DAKEContext {
                 shared_secret,
                 prev_root_key,
             );
+
             // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
             self.state = State::Initial;
             Ok((
                 MixedKeyMaterial {
                     ssid,
                     double_ratchet,
+                    us: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
+                    them: otr4::fingerprint(
+                        &profile_alice.identity_key,
+                        &profile_alice.forging_key,
+                    ),
                 },
                 EncodedMessageType::AuthI(AuthIMessage { sigma }),
             ))
@@ -363,9 +370,13 @@ impl DAKEContext {
                 shared_secret,
                 prev_root_key,
             );
+            // TODO validating the profile again just to acquire the correct data-type is a bit annoying, as we previously accepted the profile, but now we could potentially run into validation issues if near the expiration threshold.
+            let profile_bob = payload_bob.validate()?;
             Ok(MixedKeyMaterial {
                 ssid,
                 double_ratchet,
+                us: otr4::fingerprint(&profile_alice.identity_key, &profile_alice.forging_key),
+                them: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
             })
         } else {
             Err(OTRError::IncorrectState(
@@ -385,6 +396,8 @@ impl DAKEContext {
 pub struct MixedKeyMaterial {
     pub ssid: SSID,
     pub double_ratchet: otr4::DoubleRatchet,
+    pub us: otr4::Fingerprint,
+    pub them: otr4::Fingerprint,
 }
 
 /// Interactive DAKE states.

@@ -236,7 +236,8 @@ pub trait Host {
     /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 
-    /// `client_profile` retries the client profile from the host application.
+    /// `client_profile` retrieves the client profile from the host application.
+    // TODO callers in DAKE will assume a readily-available profile payload is guaranteed. Is this ensured for all cases?
     fn client_profile(&self) -> Vec<u8>;
 
     /// `update_client_profile` sends the host an encoded client profile payload to be stored for
