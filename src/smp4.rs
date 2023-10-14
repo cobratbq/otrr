@@ -705,21 +705,19 @@ mod tests {
 
     impl Host for TestHost {
         fn inject(&self, _address: &[u8], _message: &[u8]) {
-            unimplemented!("message injection is not necessary for tests")
+            unimplemented!("message injection is not necessary for SMP4 tests")
         }
 
         fn keypair(&self) -> &crypto::dsa::Keypair {
-            unimplemented!("DSA keypair is not necessary for tests")
+            unimplemented!("DSA keypair is not necessary for SMP4 tests")
         }
 
         fn keypair_identity(&self) -> &crypto::ed448::EdDSAKeyPair {
-            // FIXME implement: keypair_identity function for testing
-            todo!("implement: keypair_identity function for testing")
+            unimplemented!("identity keypair is not necessary for SMP4 tests")
         }
 
         fn keypair_forging(&self) -> &crypto::ed448::EdDSAKeyPair {
-            // FIXME implement: keypair_forging function for testing
-            todo!("implement: keypair_forging function for testing")
+            unimplemented!("forging keypair is not necessary for SMP4 tests")
         }
 
         fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
@@ -728,11 +726,11 @@ mod tests {
         }
 
         fn client_profile(&self) -> Vec<u8> {
-            unimplemented!("client profile is not necessary for tests")
+            unimplemented!("client profile is not necessary for SMP4 tests")
         }
 
         fn update_client_profile(&self, encoded_payload: &[u8]) {
-            unimplemented!("client profile is not necessary for tests")
+            unimplemented!("client profile is not necessary for SMP4 tests")
         }
     }
 }

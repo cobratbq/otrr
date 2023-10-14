@@ -517,7 +517,9 @@ impl ProtocolState for EncryptedOTR4State {
         flags: MessageFlags,
         content: &[u8],
     ) -> Result<EncodedMessageType, OTRError> {
-        todo!()
+        Ok(EncodedMessageType::Data4(
+            self.encrypt_message(flags, content),
+        ))
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {

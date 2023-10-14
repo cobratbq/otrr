@@ -527,13 +527,19 @@ pub mod dsa {
         /// # Errors
         /// In case of failure to decode the encoded signature.
         pub fn decode(decoder: &mut crate::encoding::OTRDecoder) -> Result<Self, OTRError> {
-            log::trace!("read signature");
+            log::trace!("read DSA signature");
             let r = decoder.read::<PARAM_Q_LENGTH>()?;
             let s = decoder.read::<PARAM_Q_LENGTH>()?;
-            Ok(Self(dsa::Signature::from_components(
+            let signature = dsa::Signature::from_components(
                 BigUint::from_bytes_be(&r),
                 BigUint::from_bytes_be(&s),
-            )))
+            )
+            .map_err(|_| {
+                OTRError::CryptographicViolation(CryptoError::VerificationFailure(
+                    "Illegal data: decoded data does not contain valid DSA signature.",
+                ))
+            })?;
+            Ok(Self(signature))
         }
     }
 
@@ -1218,7 +1224,8 @@ pub mod ed448 {
             let r = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
-            let buffer_K = utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(message));
+            let buffer_K =
+                utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(message));
             let k = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_K));
             let encoded_S =
                 utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));

@@ -141,7 +141,7 @@ impl ClientProfilePayload {
                 TYPE_VERSIONS => {
                     fields.push(Field::Versions(parse_versions(&decoder.read_data()?)));
                 }
-                TYPE_CLIENTPROFILE_EXPIRATION => {
+                TYPE_EXPIRATION => {
                     fields.push(Field::Expiration(decoder.read_i64()?));
                 }
                 TYPE_DSA_PUBLIC_KEY => fields.push(Field::LegacyKey(decoder.read_public_key()?)),
@@ -243,7 +243,6 @@ impl ClientProfilePayload {
                 "The legacy public key requires that a transitional signature is present.",
             ));
         }
-        // FIXME verify legacy key
         // 1. Verify all profile fields.
         let mut encoder = OTREncoder::new();
         for f in &self.fields {
@@ -320,7 +319,7 @@ impl OTREncodable for Field {
                 encoder.write_data(&encode_versions(versions));
             }
             Self::Expiration(timestamp) => {
-                encoder.write_u16(TYPE_CLIENTPROFILE_EXPIRATION);
+                encoder.write_u16(TYPE_EXPIRATION);
                 encoder.write_i64(*timestamp);
             }
             Self::LegacyKey(public_key) => {
@@ -336,9 +335,21 @@ impl OTREncodable for Field {
 }
 
 impl Field {
-    fn decode(decoder: &mut OTRDecoder) -> Self {
-        // FIXME implement decoding
-        todo!("to be implemented")
+    fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        let typ = decoder.read_u16()?;
+        match typ {
+            TYPE_OWNERINSTANCETAG => Ok(Self::OwnerTag(decoder.read_instance_tag()?)),
+            TYPE_ED448_PUBLIC_KEY => Ok(Self::IdentityKey(IdentityKey::decode(decoder)?)),
+            TYPE_ED448_FORGING_KEY => Ok(Self::ForgingKey(ForgingKey::decode(decoder)?)),
+            TYPE_VERSIONS => Ok(Self::Versions(parse_versions(&decoder.read_data()?))),
+            TYPE_EXPIRATION => Ok(Self::Expiration(decoder.read_i64()?)),
+            TYPE_DSA_PUBLIC_KEY => Ok(Self::LegacyKey(decoder.read_public_key()?)),
+            TYPE_TRANSITIONAL_SIGNATURE => Ok(Self::TransitionalSignature(dsa::Signature::decode(decoder)?)),
+            _ => {
+                log::info!("Unsupported field type: {:?}", typ);
+                Err(OTRError::ProtocolViolation("Unsupported field type encountered."))
+            },
+        }
     }
 }
 
@@ -346,7 +357,7 @@ const TYPE_OWNERINSTANCETAG: u16 = 1;
 const TYPE_ED448_PUBLIC_KEY: u16 = 2;
 const TYPE_ED448_FORGING_KEY: u16 = 3;
 const TYPE_VERSIONS: u16 = 4;
-const TYPE_CLIENTPROFILE_EXPIRATION: u16 = 5;
+const TYPE_EXPIRATION: u16 = 5;
 const TYPE_DSA_PUBLIC_KEY: u16 = 6;
 const TYPE_TRANSITIONAL_SIGNATURE: u16 = 7;
 
