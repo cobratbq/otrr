@@ -81,7 +81,7 @@ impl Account {
                 None,
             )?;
             let payload = profile.sign(host.keypair_identity(), None);
-            host.update_client_profile(&OTREncoder::new().write_encodable(&payload).to_vec());
+            host.update_client_profile(OTREncoder::new().write_encodable(&payload).to_vec());
             Ok(profile)
         } else {
             log::trace!("Account: restoring existing client profile.");
@@ -1277,8 +1277,8 @@ mod tests {
             self.5.borrow().clone()
         }
 
-        fn update_client_profile(&self, encoded_payload: &[u8]) {
-            self.5.replace(Vec::from(encoded_payload));
+        fn update_client_profile(&self, encoded_payload: Vec<u8>) {
+            self.5.replace(encoded_payload);
         }
     }
 

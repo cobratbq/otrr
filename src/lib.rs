@@ -242,5 +242,5 @@ pub trait Host {
 
     /// `update_client_profile` sends the host an encoded client profile payload to be stored for
     /// use and restoring.
-    fn update_client_profile(&self, encoded_payload: &[u8]);
+    fn update_client_profile(&self, encoded_payload: Vec<u8>);
 }

@@ -736,7 +736,7 @@ mod tests {
             unimplemented!("client profile is not necessary for SMP4 tests")
         }
 
-        fn update_client_profile(&self, _: &[u8]) {
+        fn update_client_profile(&self, _: Vec<u8>) {
             unimplemented!("client profile is not necessary for SMP4 tests")
         }
     }
