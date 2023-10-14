@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-#![allow(dead_code)]
 
 pub mod alloc {
     #[must_use]

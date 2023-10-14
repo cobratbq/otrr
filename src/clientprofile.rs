@@ -62,12 +62,13 @@ impl ClientProfile {
     /// # Panics
     /// In case of inproper arguments, such as if identity keypair does not match with
     /// client profile's identity public key.
+    #[must_use]
     pub fn sign(
         &self,
         // FIXME ECDHKeyPair -> Ed448KeyPair (long-term identity)
         identity_keypair: &ed448::EdDSAKeyPair,
         legacy_keypair: Option<&dsa::Keypair>,
-    ) -> Result<ClientProfilePayload, OTRError> {
+    ) -> ClientProfilePayload {
         assert_eq!(&self.identity_key, identity_keypair.public());
         assert_eq!(self.legacy_key.is_none(), legacy_keypair.is_none());
         // TODO double-check if all validation is necessary.
@@ -96,8 +97,10 @@ impl ClientProfile {
         let signature = identity_keypair.sign(&bytes);
         let payload = ClientProfilePayload { fields, signature };
         // TODO temporary validation? (just for soundness check during development?)
-        payload.validate()?;
-        Ok(payload)
+        payload
+            .validate()
+            .expect("BUG: validation of constructed client profile payload should never fail.");
+        payload
     }
 }
 
@@ -163,8 +166,12 @@ impl ClientProfilePayload {
     ///
     /// # Errors
     /// In case anything does not check out with the client profile.
+    ///
+    /// # Panics
+    /// In case of internal failure or bug.
     // TODO there is a complexity in validating because we need to produce the encoding with fields in the same order as originally received, so we cannot rely on the fields in the data structure.
     // TODO now assumes fields order is reliable for signatures, which is not guaranteed by OTRv4 spec, as there it lists fields explicitly by name.
+    #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
         let mut owner_tag: Option<InstanceTag> = Option::None;
         let mut identity_key: Option<ed448::Point> = Option::None;
@@ -243,7 +250,7 @@ impl ClientProfilePayload {
             encoder.write_encodable(f);
         }
         ed448::validate(
-            &identity_key.as_ref().unwrap(),
+            identity_key.as_ref().unwrap(),
             &self.signature,
             &encoder.to_vec(),
         )
@@ -264,7 +271,6 @@ impl ClientProfilePayload {
                             | Field::LegacyKey(_)
                     )
                 })
-                .into_iter()
                 .for_each(|f| {
                     encoder.write_encodable(f);
                 });

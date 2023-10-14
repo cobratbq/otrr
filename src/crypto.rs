@@ -523,6 +523,9 @@ pub mod dsa {
 
     impl Signature {
         /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
+        ///
+        /// # Errors
+        /// In case of failure to decode the encoded signature.
         pub fn decode(decoder: &mut crate::encoding::OTRDecoder) -> Result<Self, OTRError> {
             log::trace!("read signature");
             let r = decoder.read::<PARAM_Q_LENGTH>()?;
@@ -1181,6 +1184,7 @@ pub mod ed448 {
     pub struct EdDSAKeyPair([u8; ENCODED_LENGTH], BigUint, Point);
 
     impl EdDSAKeyPair {
+        #[must_use]
         pub fn generate() -> Self {
             let symmetric_key = utils::random::secure_bytes::<ENCODED_LENGTH>();
             let h = shake256::digest::<114>(&symmetric_key);
@@ -1192,12 +1196,15 @@ pub mod ed448 {
             Self(symmetric_key, secret_key, public_key)
         }
 
+        #[must_use]
         pub fn public(&self) -> &Point {
             &self.2
         }
 
-        /// `sign` signs a message `m`. As per OTRv4 spec, always uses zero-length bytes as context.
-        pub fn sign(&self, m: &[u8]) -> Signature {
+        /// `sign` signs `message`. As per OTRv4 spec, always uses zero-length bytes as context.
+        #[allow(non_snake_case)]
+        #[must_use]
+        pub fn sign(&self, message: &[u8]) -> Signature {
             // FIXME needs to be looked over
             let h = shake256::digest::<114>(&self.0);
             let mut secret_bytes = [0u8; 57];
@@ -1207,11 +1214,11 @@ pub mod ed448 {
             prune(&mut secret_bytes);
             let s = BigUint::from_bytes_le(&secret_bytes);
             let encoded_A = (&*G * &s).encode();
-            let buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, &ph(&m));
+            let buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, &ph(message));
             let r = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
-            let buffer_K = utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(m));
+            let buffer_K = utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(message));
             let k = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_K));
             let encoded_S =
                 utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
@@ -1722,6 +1729,9 @@ pub mod ed448 {
     // FIXME consider moving everything out of signature and treat it as a dump data store. (same for DSA, to be consistent)
     impl Signature {
         /// `decode` decodes an OTR-encoded EdDSA signature.
+        ///
+        /// # Errors
+        /// In case of failure to decode signature from byte-encoding.
         pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
             let r = decoder.read::<ENCODED_LENGTH>()?;
             let s = decoder.read::<ENCODED_LENGTH>()?;
@@ -1960,6 +1970,7 @@ pub enum CryptoError {
     VerificationFailure(&'static str),
 }
 
+#[allow(non_snake_case)]
 #[cfg(test)]
 mod tests {
     use crate::{

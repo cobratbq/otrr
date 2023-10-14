@@ -6,6 +6,7 @@
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
 #![allow(
+    dead_code,
     clippy::unnecessary_unwrap,
     clippy::module_name_repetitions,
     clippy::doc_markdown,
@@ -132,12 +133,14 @@ pub enum OTRError {
     SMPInProgress,
     /// `SMPSuccess` indicates successful finishing SMP without a follow-up TLV needing to be sent.
     SMPSuccess(Option<TLV>),
+    /// `SMPFailed` indicates a unsuccessfully completed SMP.
+    SMPFailed(Option<TLV>),
     /// `SMPAborted` indicates SMP process was aborted, most likely by user request. Provided TLV
     /// can be sent to other party to signal SMP abort. The boolean value indicates whether the
     /// abort-action needs to be communicated, that is: true to require sending abort-TLV, false if
     /// no further action needed.
-    SMPFailed(Option<TLV>),
     SMPAborted(bool),
+    /// `UserError` indicates a user error, with a description provided in the tuple.
     UserError(&'static str),
 }
 
@@ -148,7 +151,7 @@ pub enum ProtocolStatus {
     Finished,
 }
 
-const SUPPORTED_VERSIONS: [Version; 1] = [Version::V3];
+const SUPPORTED_VERSIONS: [Version; 2] = [Version::V3, Version::V4];
 
 /// `Version` contains the various supported OTR protocol versions.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -172,19 +175,19 @@ bitflags! {
     //const ALLOW_V2 = 0b00000010;
     // ALLOW_V3
     //     Allow version 3 of the OTR protocol to be used.
-    const ALLOW_V3 = 0b0000_0100;
+    const ALLOW_V3 = 0b0000_0000_0000_0100;
     // REQUIRE_ENCRYPTION
     //     Refuse to send unencrypted messages.
-    const REQUIRE_ENCRYPTION = 0b0000_1000;
+    const REQUIRE_ENCRYPTION = 0b0000_0000_0000_1000;
     // SEND_WHITESPACE_TAG
     //     Advertise your support of OTR using the whitespace tag.
-    const SEND_WHITESPACE_TAG = 0b0001_0000;
+    const SEND_WHITESPACE_TAG = 0b0000_0000_0001_0000;
     // WHITESPACE_START_AKE
     //     Start the OTR AKE when you receive a whitespace tag.
-    const WHITESPACE_START_AKE = 0b0010_0000;
+    const WHITESPACE_START_AKE = 0b0000_0000_0010_0000;
     // ERROR_START_AKE
     //     Start the OTR AKE when you receive an OTR Error Message.
-    const ERROR_START_AKE = 0b0100_0000;
+    const ERROR_START_AKE = 0b0000_0000_0100_0000;
     const ALLOW_V4 = 0b0000_0001_0000_0000;
     }
 }
@@ -197,6 +200,7 @@ pub type SSID = [u8; 8];
 
 /// Host represents the interface to the host application, for calling back into the messaging
 /// client.
+// TODO consider what it would take to change the API to allow for e.g. failing `inject` calls, meaning that otrr would, for instance, need to abort and ask client to redo the action at a later time. (Probably not worth the effort.)
 pub trait Host {
     /// `message_size` queries the maximum message size accepted by the underlying transport.
     ///

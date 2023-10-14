@@ -384,7 +384,7 @@ impl EncryptedOTR3State {
         let secbytes = OTREncoder::new()
             .write_mpi(&our_dh.generate_shared_secret(their_key))
             .to_vec();
-        let secrets = otr::DataSecrets::derive(&our_dh.public(), their_key, &secbytes);
+        let secrets = otr::DataSecrets::derive(our_dh.public(), their_key, &secbytes);
         // "Uses mk to verify MACmk(TA)."
         let receiving_mac_key = secrets.receiver_mac_key();
         let authenticator = sha1::hmac(&receiving_mac_key, authenticator_data);

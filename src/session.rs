@@ -51,6 +51,7 @@ impl Account {
     // TODO is this everything that's needed?
     fn restore_clientprofile(host: &dyn Host) -> Result<ClientProfile, OTRError> {
         let bytes = host.client_profile();
+        // TODO automatically generate new profile if there is an error, or feed-back the error and assume steps need to be taken on the host?
         if bytes.is_empty() {
             log::trace!("Account: host provided zero bytes. Constructing new client profile.");
             let tag = instancetag::random_tag();
@@ -70,10 +71,17 @@ impl Account {
             .expect(
                 "BUG: working under the assumption that the duration calculation fits in an i64.",
             );
-            let profile =
-                ClientProfile::new(tag, identity_public, forging_public, versions, expiration, None)?;
-            let payload = profile.sign(host.keypair_identity(), None)?;
-            // FIXME call host to update client profile payload
+            // FIXME dynamically decide whether legacy support is necessary.
+            let profile = ClientProfile::new(
+                tag,
+                identity_public,
+                forging_public,
+                versions,
+                expiration,
+                None,
+            )?;
+            let payload = profile.sign(host.keypair_identity(), None);
+            host.update_client_profile(&OTREncoder::new().write_encodable(&payload).to_vec());
             Ok(profile)
         } else {
             log::trace!("Account: restoring existing client profile.");
@@ -945,11 +953,7 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::{Cell, RefCell},
-        collections::VecDeque,
-        rc::Rc,
-    };
+    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
     use crate::{
         crypto::{dsa, ed448},

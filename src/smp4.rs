@@ -302,7 +302,7 @@ impl SMP4Context {
         let d6 = (q + &r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
         let Ra = &DeltaQaQb * &a3;
         let cr = ed448::hash_point_to_scalar2(0x07, &(G * &r7), &(&DeltaQaQb * &r7));
-        let d7 = &(q + &r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
+        let d7 = (q + &r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
         let smp3 = OTREncoder::new()
             .write_ed448_point(&Pa)
             .write_ed448_point(&Qa)

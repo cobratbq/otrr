@@ -1342,7 +1342,7 @@ mod tests {
     struct TestHost(dsa::Keypair, Vec<u8>, Vec<u8>);
 
     impl Host for TestHost {
-        fn inject(&self, _address: &[u8], _message: &[u8]) {
+        fn inject(&self, _: &[u8], _: &[u8]) {
             unimplemented!("not necessary for tests")
         }
 
@@ -1351,13 +1351,11 @@ mod tests {
         }
 
         fn keypair_identity(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
-            // FIXME implement: keypair_identity function for testing
-            todo!("implement: keypair_identity function for testing")
+            unimplemented!("OTRv4 identity keypair is not necessary for tests")
         }
 
         fn keypair_forging(&self) -> &crate::crypto::ed448::EdDSAKeyPair {
-            // FIXME implement: keypair_forging function for testing
-            todo!("implement: keypair_forging function for testing")
+            unimplemented!("OTRv4 forging keypair is not necessary for tests")
         }
 
         fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>> {
@@ -1369,7 +1367,7 @@ mod tests {
             unimplemented!("client profile is not necessary for tests")
         }
 
-        fn update_client_profile(&self, encoded_payload: &[u8]) {
+        fn update_client_profile(&self, _: &[u8]) {
             unimplemented!("client profile is not necessary for tests")
         }
     }

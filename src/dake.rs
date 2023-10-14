@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-#![allow(dead_code)]
-
 use std::rc::Rc;
 
 use num_bigint::BigUint;
