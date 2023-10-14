@@ -189,7 +189,6 @@ impl SMPContext {
         }
     }
 
-    // FIXME rename handleMessageX methods
     #[allow(clippy::similar_names)]
     fn handle_message_1(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert!(tlv.0 == TLV_TYPE_SMP_MESSAGE_1 || tlv.0 == TLV_TYPE_SMP_MESSAGE_1Q);

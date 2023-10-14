@@ -745,7 +745,7 @@ pub mod otr4 {
             assert_eq!(Selector::SENDER, self.next);
             let new_shared_secret = self.shared_secret.rotate_keypairs(self.i % 3 == 0);
             let new_k = new_shared_secret.k();
-            // FIXME clear k?
+            // TODO clear k?
             Self {
                 shared_secret: new_shared_secret,
                 root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
@@ -1888,7 +1888,6 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if instances `s1` and `s2` are the same.
-    // FIXME need better name, 'distinct' bytes?
     pub fn compare_scalars_distinct(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
         assert!(!core::ptr::eq(s1, s2), "BUG: s1 and s2 are same instance");
         compare(
@@ -1918,7 +1917,6 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if instances `p1` and `p2` are the same.
-    // FIXME need better name, 'distinct' bytes?
     pub fn compare_points_distinct(
         p1: &ed448::Point,
         p2: &ed448::Point,
@@ -1943,7 +1941,6 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if two provided byte-slices are same instance. (To prevent accidental programming errors.)
-    // FIXME need better name, 'distinct' bytes?
     pub fn compare_bytes_distinct(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         assert!(
             !core::ptr::eq(data1, data2),

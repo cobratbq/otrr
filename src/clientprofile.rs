@@ -65,7 +65,6 @@ impl ClientProfile {
     #[must_use]
     pub fn sign(
         &self,
-        // FIXME ECDHKeyPair -> Ed448KeyPair (long-term identity)
         identity_keypair: &ed448::EdDSAKeyPair,
         legacy_keypair: Option<&dsa::Keypair>,
     ) -> ClientProfilePayload {
@@ -79,7 +78,7 @@ impl ClientProfile {
             Field::Versions(self.versions.clone()),
             Field::Expiration(self.expiration),
         ];
-        // FIXME there is a specific order of fields for legacy-key-signing and identity-signing. Right now we take order as received.
+        // TODO there is a specific order of fields for legacy-key-signing and identity-signing. Right now we take order as received.
         if let Some(public_key) = &self.legacy_key {
             fields.push(Field::LegacyKey(public_key.clone()));
             let mut encoder = OTREncoder::new();
@@ -180,8 +179,6 @@ impl ClientProfilePayload {
         let mut expiration: Option<i64> = Option::None;
         let mut legacy_key: Option<dsa::PublicKey> = Option::None;
         let mut transitional_signature: Option<dsa::Signature> = Option::None;
-        // FIXME validate transitional signature
-        // FIXME validate signature
         for f in &self.fields {
             match f {
                 Field::OwnerTag(tag) => {
@@ -418,7 +415,6 @@ impl ForgingKey {
 }
 
 fn verify_versions(versions: &[Version]) -> Result<(), OTRError> {
-    // FIXME version 1 is deprecated, version 2 is not advisable mainly due to lack of support for multiple instances.
     for v in versions {
         match v {
             Version::V3 | Version::V4 => continue,

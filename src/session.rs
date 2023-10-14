@@ -355,7 +355,6 @@ impl Session {
     }
 
     fn verify_encoded_message_header(&self, msg: &EncodedMessage) -> Result<(), OTRError> {
-        // FIXME move to Session? (seems to be non-dependent)
         match msg.version {
             Version::None => {
                 return Err(OTRError::ProtocolViolation(
