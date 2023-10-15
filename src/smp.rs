@@ -178,6 +178,7 @@ impl SMPContext {
 
     fn dispatch(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
+            // TODO rephrase to use pattern guards to avoid tricky behavior with const in patterns?
             tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1 | TLV_TYPE_SMP_MESSAGE_1Q, _) => {
                 self.handle_message_1(tlv)
             }

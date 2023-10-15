@@ -90,31 +90,31 @@ fn parse_encoded_content(
     decoder: &mut OTRDecoder,
 ) -> Result<EncodedMessageType, OTRError> {
     match (version, message_type) {
-        (Version::V3, OTR_DH_COMMIT_TYPE_CODE) => Ok(EncodedMessageType::DHCommit(
-            ake::DHCommitMessage::decode(decoder)?,
-        )),
-        (Version::V3, OTR_DH_KEY_TYPE_CODE) => Ok(EncodedMessageType::DHKey(
-            ake::DHKeyMessage::decode(decoder)?,
-        )),
-        (Version::V3, OTR_REVEAL_SIGNATURE_TYPE_CODE) => Ok(EncodedMessageType::RevealSignature(
-            ake::RevealSignatureMessage::decode(decoder)?,
-        )),
-        (Version::V3, OTR_SIGNATURE_TYPE_CODE) => Ok(EncodedMessageType::Signature(
-            ake::SignatureMessage::decode(decoder)?,
-        )),
-        (Version::V3, OTR_DATA_TYPE_CODE) => {
+        (Version::V3, typecode) if typecode == OTR_DH_COMMIT_TYPE_CODE => Ok(
+            EncodedMessageType::DHCommit(ake::DHCommitMessage::decode(decoder)?),
+        ),
+        (Version::V3, typecode) if typecode == OTR_DH_KEY_TYPE_CODE => Ok(
+            EncodedMessageType::DHKey(ake::DHKeyMessage::decode(decoder)?),
+        ),
+        (Version::V3, typecode) if typecode == OTR_REVEAL_SIGNATURE_TYPE_CODE => Ok(
+            EncodedMessageType::RevealSignature(ake::RevealSignatureMessage::decode(decoder)?),
+        ),
+        (Version::V3, typecode) if typecode == OTR_SIGNATURE_TYPE_CODE => Ok(
+            EncodedMessageType::Signature(ake::SignatureMessage::decode(decoder)?),
+        ),
+        (Version::V3, typecode) if typecode == OTR_DATA_TYPE_CODE => {
             Ok(EncodedMessageType::Data(DataMessage::decode(decoder)?))
         }
-        (Version::V4, OTR_IDENTITY_TYPE_CODE) => Ok(EncodedMessageType::Identity(
-            dake::IdentityMessage::decode(decoder)?,
-        )),
-        (Version::V4, OTR_AUTHR_TYPE_CODE) => Ok(EncodedMessageType::AuthR(
-            dake::AuthRMessage::decode(decoder)?,
-        )),
-        (Version::V4, OTR_AUTHI_TYPE_CODE) => Ok(EncodedMessageType::AuthI(
-            dake::AuthIMessage::decode(decoder)?,
-        )),
-        (Version::V4, OTR_DATA_TYPE_CODE) => {
+        (Version::V4, typecode) if typecode == OTR_IDENTITY_TYPE_CODE => Ok(
+            EncodedMessageType::Identity(dake::IdentityMessage::decode(decoder)?),
+        ),
+        (Version::V4, typecode) if typecode == OTR_AUTHR_TYPE_CODE => Ok(
+            EncodedMessageType::AuthR(dake::AuthRMessage::decode(decoder)?),
+        ),
+        (Version::V4, typecode) if typecode == OTR_AUTHI_TYPE_CODE => Ok(
+            EncodedMessageType::AuthI(dake::AuthIMessage::decode(decoder)?),
+        ),
+        (Version::V4, typecode) if typecode == OTR_DATA_TYPE_CODE => {
             Ok(EncodedMessageType::Data4(DataMessage4::decode(decoder)?))
         }
         _ => Err(OTRError::ProtocolViolation(

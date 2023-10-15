@@ -1094,7 +1094,7 @@ mod tests {
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
         assert!(matches!(
             bob.end(tag_alice),
-            Ok(UserMessage::Reset(tag_alice))
+            Ok(UserMessage::Reset(tag)) if tag == tag_alice
         ));
         assert!(matches!(
             bob.status(tag_alice),
@@ -1119,7 +1119,7 @@ mod tests {
         ));
         assert!(matches!(
             alice.end(tag_bob),
-            Ok(UserMessage::Reset(tag_bob))
+            Ok(UserMessage::Reset(tag)) if tag == tag_bob
         ));
         assert!(matches!(
             alice.status(tag_bob),
@@ -1204,7 +1204,7 @@ mod tests {
             .extend(bob.send(tag_alice, b"KTHXBYE!").unwrap());
         assert!(matches!(
             bob.end(tag_alice),
-            Ok(UserMessage::Reset(tag_alice))
+            Ok(UserMessage::Reset(tag)) if tag == tag_alice
         ));
         assert!(matches!(
             bob.status(tag_alice),
@@ -1229,7 +1229,7 @@ mod tests {
         ));
         assert!(matches!(
             alice.end(tag_bob),
-            Ok(UserMessage::Reset(tag_bob))
+            Ok(UserMessage::Reset(tag)) if tag == tag_bob
         ));
         assert!(matches!(
             alice.status(tag_bob),
