@@ -179,13 +179,21 @@ impl SMPContext {
     fn dispatch(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         match tlv {
             // TODO rephrase to use pattern guards to avoid tricky behavior with const in patterns?
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_1 | TLV_TYPE_SMP_MESSAGE_1Q, _) => {
+            tlv @ TLV(tlvtype, _)
+                if *tlvtype == TLV_TYPE_SMP_MESSAGE_1 || *tlvtype == TLV_TYPE_SMP_MESSAGE_1Q =>
+            {
                 self.handle_message_1(tlv)
             }
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_2, _) => self.handle_message_2(tlv),
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_3, _) => self.handle_message_3(tlv),
-            tlv @ TLV(TLV_TYPE_SMP_MESSAGE_4, _) => self.handle_message_4(tlv),
-            TLV(TLV_TYPE_SMP_ABORT, _) => Err(OTRError::SMPAborted(false)),
+            tlv @ TLV(tlvtype, _) if *tlvtype == TLV_TYPE_SMP_MESSAGE_2 => {
+                self.handle_message_2(tlv)
+            }
+            tlv @ TLV(tlvtype, _) if *tlvtype == TLV_TYPE_SMP_MESSAGE_3 => {
+                self.handle_message_3(tlv)
+            }
+            tlv @ TLV(tlvtype, _) if *tlvtype == TLV_TYPE_SMP_MESSAGE_4 => {
+                self.handle_message_4(tlv)
+            }
+            TLV(tlvtype, _) if *tlvtype == TLV_TYPE_SMP_ABORT => Err(OTRError::SMPAborted(false)),
             _ => panic!("BUG: incorrect TLV type: {}", tlv.0),
         }
     }
