@@ -734,8 +734,8 @@ pub mod otr4 {
         }
 
         #[must_use]
-        pub fn next(&self) -> &Selector {
-            &self.next
+        pub fn next(&self) -> Selector {
+            self.next.clone()
         }
 
         /// `rotate_sender` rotates the sender keys of the Double Ratchet.
@@ -763,7 +763,7 @@ pub mod otr4 {
         }
 
         /// `rotate_sender_chainkey` rotates the sender chainkey for the next message (in the same
-        /// ratchet).
+        /// ratchet). This also overwrites the current chainkey.
         ///
         /// # Panics
         /// In case of improper use: rotation of the sender chainkey is not allowed according to the
@@ -791,9 +791,8 @@ pub mod otr4 {
             let new_shared_secret =
                 self.shared_secret
                     .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
-            let new_k = new_shared_secret.k();
-            // FIXME clear k?
-            Ok(Self {
+            let mut new_k = new_shared_secret.k();
+            let rotated = Self {
                 shared_secret: new_shared_secret,
                 root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
                 sender: self.sender.clone(),
@@ -804,7 +803,9 @@ pub mod otr4 {
                 next: Selector::SENDER,
                 i: self.i + 1,
                 pn: self.pn,
-            })
+            };
+            utils::bytes::clear(&mut new_k);
+            Ok(rotated)
         }
 
         pub fn rotate_receiver_chainkey(&mut self) {
@@ -852,12 +853,12 @@ pub mod otr4 {
         }
 
         #[must_use]
-        pub fn sender_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
+        pub fn sender_keys(&self) -> Keys {
             self.sender.keys()
         }
 
         #[must_use]
-        pub fn receiver_keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
+        pub fn receiver_keys(&self) -> Keys {
             self.receiver.keys()
         }
     }
@@ -888,12 +889,22 @@ pub mod otr4 {
         }
 
         /// `keys` produces the MK_enc, MK_mac and extra symmetric key respectively.
-        fn keys(&self) -> ([u8; 64], [u8; 64], [u8; 64]) {
+        fn keys(&self) -> Keys {
             assert!(utils::bytes::any_nonzero(&self.chain_key));
             let mk_enc = kdf::<64>(USAGE_MESSAGE_KEY, &self.chain_key);
             let mk_mac = kdf::<64>(USAGE_MAC_KEY, &mk_enc);
             let esk = kdf2(USAGE_EXTRA_SYMMETRIC_KEY, &[0xff], &self.chain_key);
-            (mk_enc, mk_mac, esk)
+            Keys(mk_enc, mk_mac, esk)
+        }
+    }
+
+    /// `Keys` contains resp. MK_enc, MK_mac, and Extra Symmetric Key (base key). `Keys` implements
+    /// `Drop` and will therefore clear itself.
+    pub struct Keys(pub [u8; 64], pub [u8; 64], pub [u8; 64]);
+
+    impl Drop for Keys {
+        fn drop(&mut self) {
+            utils::bytes::clear3(&mut self.0, &mut self.1, &mut self.2);
         }
     }
 
@@ -976,7 +987,7 @@ pub mod otr4 {
             dh_next: BigUint,
         ) -> Result<Self, CryptoError> {
             assert_eq!(third, dh_next != self.public_dh);
-            // FIXME double-check, but prly need to clear ecdh.private and dh.private now, after having rotated others' public keys.
+            // TODO after rotating other party's public keys, we should clear our corresponding private keys, as next rotation will be of our keypairs. (clearing is not possible yet with BigUint)
             Self::next(
                 self.ecdh.clone(),
                 self.dh.clone(),
@@ -997,18 +1008,21 @@ pub mod otr4 {
         ) -> Result<Self, CryptoError> {
             ed448::verify(&public_ecdh)?;
             dh3072::verify(&public_dh)?;
-            // FIXME verification
-            let k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
+            assert!(utils::bytes::any_nonzero(&brace_key_prev));
+            let mut k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
+            assert!(utils::bytes::any_nonzero(&k_ecdh));
             let brace_key = if third {
-                let k_dh =
+                let mut k_dh =
                     utils::biguint::to_bytes_le_fixed::<57>(&dh.generate_shared_secret(&public_dh));
-                kdf(USAGE_THIRD_BRACE_KEY, &k_dh)
+                let new_brace_key = kdf(USAGE_THIRD_BRACE_KEY, &k_dh);
+                utils::bytes::clear(&mut k_dh);
+                new_brace_key
             } else {
                 assert!(utils::bytes::any_nonzero(&brace_key_prev));
                 kdf(USAGE_BRACE_KEY, &brace_key_prev)
             };
             let k = kdf2::<K_LENGTH>(USAGE_SHARED_SECRET, &k_ecdh, &brace_key);
-            // FIXME key material needs clearing/cleaning up (depends on sender/receiver purpose)
+            utils::bytes::clear(&mut k_ecdh);
             Ok(Self {
                 ecdh,
                 dh,
@@ -1078,8 +1092,6 @@ pub mod chacha20 {
         ChaCha20,
     };
 
-    const NONCE: [u8; 12] = [0u8; 12];
-
     #[must_use]
     pub fn encrypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
         crypt(key, m)
@@ -1091,7 +1103,8 @@ pub mod chacha20 {
     }
 
     fn crypt(key: [u8; 32], m: &[u8]) -> Vec<u8> {
-        let mut cipher = ChaCha20::new(&key.into(), &NONCE.into());
+        const ZERO_NONCE: [u8; 12] = [0u8; 12];
+        let mut cipher = ChaCha20::new(&key.into(), &ZERO_NONCE.into());
         let mut buffer = Vec::from(m);
         cipher.apply_keystream(&mut buffer);
         buffer
@@ -1216,24 +1229,25 @@ pub mod ed448 {
         #[must_use]
         pub fn sign(&self, message: &[u8]) -> Signature {
             // FIXME needs to be looked over
-            let h = shake256::digest::<114>(&self.0);
+            let mut h = shake256::digest::<114>(&self.0);
             let mut secret_bytes = [0u8; 57];
             secret_bytes.clone_from_slice(&h[..57]);
             let mut prefix = [0u8; 57];
             prefix.clone_from_slice(&h[57..]);
             prune(&mut secret_bytes);
             let s = BigUint::from_bytes_le(&secret_bytes);
-            let encoded_A = (&*G * &s).encode();
-            let buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, &ph(message));
+            let mut encoded_A = (&*G * &s).encode();
+            let mut buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, &ph(message));
             let r = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
-            let buffer_K =
+            let mut buffer_K =
                 utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(message));
             let k = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_K));
             let encoded_S =
                 utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
-            // FIXME clear temporary variables, byte-arrays.
+            utils::bytes::clear3(&mut buffer_K, &mut buffer_R, &mut encoded_A);
+            utils::bytes::clear3(&mut secret_bytes, &mut prefix, &mut h);
             Signature(encoded_R, encoded_S)
         }
     }
@@ -1436,7 +1450,6 @@ pub mod ed448 {
         /// In case of implementation errors (bad usage).
         #[allow(non_snake_case, clippy::similar_names)]
         pub fn sign(
-            // FIXME should be Ed448KeyPair? (or general keypair being either ECDH or Ed448)
             keypair: &EdDSAKeyPair,
             A1: &Point,
             A2: &Point,
@@ -1737,7 +1750,6 @@ pub mod ed448 {
         }
     }
 
-    // FIXME consider moving everything out of signature and treat it as a dump data store. (same for DSA, to be consistent)
     impl Signature {
         /// `decode` decodes an OTR-encoded EdDSA signature.
         ///

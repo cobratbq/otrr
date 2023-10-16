@@ -534,7 +534,7 @@ impl ProtocolState for EncryptedOTR4State {
 
 impl EncryptedOTR4State {
     fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
-        if *self.double_ratchet.next() == otr4::Selector::SENDER {
+        if self.double_ratchet.next() == otr4::Selector::SENDER {
             self.double_ratchet = self.double_ratchet.rotate_sender();
         }
         let keys = self.double_ratchet.sender_keys();
@@ -542,7 +542,8 @@ impl EncryptedOTR4State {
         let mut message = DataMessage4 {
             flags,
             pn: self.double_ratchet.pn(),
-            i: self.double_ratchet.i(),
+            // TODO do I understand correctly that `saturating_sub` will stay 0 if 1 subtracted from 0?
+            i: self.double_ratchet.i().saturating_sub(1),
             j: self.double_ratchet.j(),
             ecdh: self.double_ratchet.ecdh_public().clone(),
             dh: self.double_ratchet.dh_public().clone(),
@@ -565,6 +566,8 @@ impl EncryptedOTR4State {
         message
             .validate()
             .expect("BUG: we should be producing valid data-messages.");
+        // FIXME need to verify if this approach to rotating is in sync with spec. (needs testing) If we rotate here, we will reduce exposure of message keys after use ... maybe somewhat artificial urgency.
+        self.double_ratchet.rotate_sender_chainkey();
         message
     }
 
@@ -584,7 +587,7 @@ impl EncryptedOTR4State {
                 "Stored message keys are not supported yet.",
             ));
         } else if msg.i == self.double_ratchet.i() + 1 {
-            assert_eq!(otr4::Selector::RECEIVER, *self.double_ratchet.next());
+            assert_eq!(otr4::Selector::RECEIVER, self.double_ratchet.next());
             speculate = self.double_ratchet.clone();
             speculate = speculate
                 .rotate_receiver(msg.ecdh.clone(), msg.dh.clone())
@@ -595,6 +598,7 @@ impl EncryptedOTR4State {
         }
         // TODO should we perform a sanity check in order to not go to far out in the chainkey message id counter?
         while speculate.k() < msg.j {
+            // FIXME need to fast-forward and store all keys we pass by.
             speculate.rotate_receiver_chainkey();
         }
         let keys = speculate.receiver_keys();
@@ -605,11 +609,10 @@ impl EncryptedOTR4State {
         );
         constant::compare_bytes_distinct(&authenticator, &msg.authenticator)
             .map_err(OTRError::CryptographicViolation)?;
+        let content = chacha20::decrypt(Self::extract_encryption_key(&keys.0), &msg.encrypted);
         self.double_ratchet = speculate;
-        Ok(chacha20::decrypt(
-            Self::extract_encryption_key(&keys.0),
-            &msg.encrypted,
-        ))
+        self.double_ratchet.rotate_receiver_chainkey();
+        Ok(content)
     }
 
     fn extract_encryption_key(mk_enc: &[u8; 64]) -> [u8; 32] {
@@ -627,6 +630,7 @@ impl ProtocolState for FinishedState {
     }
 
     fn version(&self) -> Version {
+        // TODO consider if it makes sense to keep the protocol version of the last encrypted session? (may be useful to evaluate re-establishing secure session if different version is used)
         Version::None
     }
 

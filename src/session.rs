@@ -404,6 +404,7 @@ impl Session {
     /// # Panics
     ///
     /// Will panic on inappropriate user-input. Panics are most likely traced back to incorrect use.
+    // TODO do we check if message contains null-bytes? (Nulls are not allowed, because it's the separator between message and TLVs.)
     pub fn send(
         &mut self,
         instance: InstanceTag,

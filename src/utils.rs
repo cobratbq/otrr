@@ -67,8 +67,37 @@ pub mod bytes {
     }
 
     /// `clear` fills provided byte-array with zeroes.
-    pub fn clear(data: &mut [u8]) {
-        data.fill(0);
+    pub fn clear(buffer: &mut [u8]) {
+        buffer.fill(0);
+    }
+
+    /// `clear2` fills provided 2 byte-array with zeroes.
+    pub fn clear2(buffer1: &mut [u8], buffer2: &mut [u8]) {
+        buffer1.fill(0);
+        buffer2.fill(0);
+    }
+
+    /// `clear3` fills provided 2 byte-array with zeroes.
+    pub fn clear3(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8]) {
+        buffer1.fill(0);
+        buffer2.fill(0);
+        buffer3.fill(0);
+    }
+
+    /// `clear4` fills provided 2 byte-array with zeroes.
+    pub fn clear4(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8], buffer4: &mut [u8]) {
+        buffer1.fill(0);
+        buffer2.fill(0);
+        buffer3.fill(0);
+        buffer4.fill(0);
+    }
+
+    /// `concatenate` concatenates three byte-arrays into a new byte-array.
+    pub fn concatenate(v1: &[u8], v2: &[u8]) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(v1);
+        buffer.extend_from_slice(v2);
+        buffer
     }
 
     /// `concatenate3` concatenates three byte-arrays into a new byte-array.
