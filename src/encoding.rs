@@ -48,7 +48,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_byte` reads a single byte from buffer.
     pub fn read_u8(&mut self) -> Result<u8, OTRError> {
-        log::trace!("read byte");
+        log::trace!("decode byte");
         if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
         }
@@ -59,7 +59,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_short` reads a short value (2 bytes, big-endian) from buffer.
     pub fn read_u16(&mut self) -> Result<u16, OTRError> {
-        log::trace!("read short");
+        log::trace!("decode short");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -70,7 +70,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_short_le` reads a short value (2 bytes, little-endian) from buffer.
     pub fn read_u16_le(&mut self) -> Result<u16, OTRError> {
-        log::trace!("read short (Little-Endian)");
+        log::trace!("decode short (little-endian)");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -81,7 +81,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_u32(&mut self) -> Result<u32, OTRError> {
-        log::trace!("read int");
+        log::trace!("decode int");
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -94,17 +94,18 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_i64(&mut self) -> Result<i64, OTRError> {
+        log::trace!("decode int (64-bit, signed)");
         Ok(i64::from_be_bytes(self.read::<8>()?))
     }
 
     pub fn read_instance_tag(&mut self) -> Result<InstanceTag, OTRError> {
-        log::trace!("read instance tag");
+        log::trace!("decode instance tag");
         verify(self.read_u32()?).or(Err(OTRError::ProtocolViolation("Illegal instance tag.")))
     }
 
     /// `read_data` reads variable-length data from buffer.
     pub fn read_data(&mut self) -> Result<Vec<u8>, OTRError> {
-        log::trace!("read DATA");
+        log::trace!("decode DATA");
         let len = self.read_u32()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
@@ -116,7 +117,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_mpi` reads MPI from buffer.
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
-        log::trace!("read MPI");
+        log::trace!("decode MPI");
         let len = self.read_u32()? as usize;
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
@@ -128,7 +129,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// Read sequence of MPI values as defined by SMP.
     pub fn read_mpi_sequence(&mut self) -> Result<Vec<BigUint>, OTRError> {
-        log::trace!("read sequence of MPIs");
+        log::trace!("decode sequence of MPIs");
         let len = self.read_u32()? as usize;
         let mut mpis = Vec::new();
         for _ in 0..len {
@@ -139,7 +140,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_ctr` reads CTR value from buffer.
     pub fn read_ctr(&mut self) -> Result<[u8; CTR_LEN], OTRError> {
-        log::trace!("read CTR");
+        log::trace!("decode CTR");
         if self.0.len() < CTR_LEN {
             return Err(OTRError::IncompleteMessage);
         }
@@ -148,7 +149,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_mac` reads a MAC value from buffer.
     pub fn read_mac(&mut self) -> Result<[u8; MAC_LEN], OTRError> {
-        log::trace!("read MAC");
+        log::trace!("decode MAC");
         if self.0.len() < MAC_LEN {
             return Err(OTRError::IncompleteMessage);
         }
@@ -157,7 +158,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_public_key` reads a DSA public key from the buffer.
     pub fn read_public_key(&mut self) -> Result<dsa::PublicKey, OTRError> {
-        log::trace!("read DSA public key");
+        log::trace!("decode DSA public key");
         let pktype = self.read_u16()?;
         if pktype != 0u16 {
             return Err(OTRError::ProtocolViolation(
@@ -172,7 +173,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
-        log::trace!("read all TLVs");
+        log::trace!("decode all TLVs");
         let mut tlvs = Vec::new();
         while !self.0.is_empty() {
             tlvs.push(self.read_tlv()?);
@@ -182,7 +183,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_tlv` reads a type-length-value record from the content.
     pub fn read_tlv(&mut self) -> Result<TLV, OTRError> {
-        log::trace!("read TLV");
+        log::trace!("decode TLV");
         let typ = self.read_u16()?;
         let len = self.read_u16()? as usize;
         if self.0.len() < len {
@@ -198,7 +199,7 @@ impl<'a> OTRDecoder<'a> {
     /// present, read until no more bytes left. Returns all bytes read, except the terminating NULL
     /// if present.
     pub fn read_bytes_null_terminated(&mut self) -> Vec<u8> {
-        log::trace!("read until null-terminated or empty");
+        log::trace!("decode until null-terminated or empty");
         let mut bytes = Vec::new();
         for i in 0..self.0.len() {
             if self.0[i] == 0 {
@@ -212,26 +213,32 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_ed448_signature(&mut self) -> Result<ed448::Signature, OTRError> {
-        Ok(ed448::Signature::from(&self.read()?))
+        log::trace!("decode Ed448 signature");
+        ed448::Signature::decode(self)
     }
 
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
+        log::trace!("decode Ed448 point");
         ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)
     }
 
     pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
+        log::trace!("decode Ed448 scalar");
         Ok(ed448::decode_scalar(&self.read()?))
     }
 
     pub fn read_mac4(&mut self) -> Result<[u8; MAC4_LEN], OTRError> {
+        log::trace!("decode OTRv4 MAC");
         self.read()
     }
 
     pub fn read_nonce(&mut self) -> Result<[u8; NONCE_LEN], OTRError> {
+        log::trace!("decode nonce");
         self.read()
     }
 
     pub fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
+        log::trace!("read {N} bytes");
         if self.0.len() < N {
             return Err(OTRError::IncompleteMessage);
         }

@@ -511,10 +511,13 @@ impl OTREncodable for DHCommitMessage {
 
 impl DHCommitMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<DHCommitMessage, OTRError> {
-        Ok(DHCommitMessage {
+        log::trace!("decoding DH-Commit message…");
+        let message = DHCommitMessage {
             gx_encrypted: decoder.read_data()?,
             gx_hashed: decoder.read_data()?,
-        })
+        };
+        log::trace!("decoding DH-Commit message… done.");
+        Ok(message)
     }
 }
 
@@ -530,9 +533,12 @@ impl OTREncodable for DHKeyMessage {
 
 impl DHKeyMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<DHKeyMessage, OTRError> {
-        Ok(DHKeyMessage {
+        log::trace!("decoding DH-Key message…");
+        let message = DHKeyMessage {
             gy: decoder.read_mpi()?,
-        })
+        };
+        log::trace!("decoding DH-Key message… done.");
+        Ok(message)
     }
 }
 
@@ -561,13 +567,16 @@ impl OTREncodable for RevealSignatureMessage {
 
 impl RevealSignatureMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<RevealSignatureMessage, OTRError> {
-        Ok(RevealSignatureMessage {
+        log::trace!("decoding Reveal Signature message…");
+        let message = RevealSignatureMessage {
             key: aes128::Key(decoder.read_data()?.try_into().or(Err(
                 OTRError::ProtocolViolation("Invalid format for 128-bit AES key."),
             ))?),
             signature_encrypted: decoder.read_data()?,
             signature_mac: decoder.read_mac()?,
-        })
+        };
+        log::trace!("decoding Reveal Signature message… done.");
+        Ok(message)
     }
 }
 
@@ -586,10 +595,13 @@ impl OTREncodable for SignatureMessage {
 
 impl SignatureMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<SignatureMessage, OTRError> {
-        Ok(SignatureMessage {
+        log::trace!("decoding Signature message…");
+        let message = SignatureMessage {
             signature_encrypted: decoder.read_data()?,
             signature_mac: decoder.read_mac()?,
-        })
+        };
+        log::trace!("decoding Signature message… done.");
+        Ok(message)
     }
 }
 

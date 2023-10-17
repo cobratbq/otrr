@@ -50,6 +50,7 @@ impl Account {
 
     // TODO is this everything that's needed?
     fn restore_clientprofile(host: &dyn Host) -> Result<ClientProfile, OTRError> {
+        log::trace!("Account: restoring client profile…");
         let bytes = host.client_profile();
         // TODO automatically generate new profile if there is an error, or feed-back the error and assume steps need to be taken on the host?
         if bytes.is_empty() {

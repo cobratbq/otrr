@@ -126,37 +126,17 @@ impl ClientProfilePayload {
     /// In case of failure to properly read and decode payload from bytes, or upon failing
     /// validation.
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        log::trace!("decoding client profile payload…");
         let n = decoder.read_u32()? as usize;
         let mut fields = Vec::with_capacity(n);
         for _ in 0..n {
-            match decoder.read_u16()? {
-                TYPE_OWNERINSTANCETAG => fields.push(Field::OwnerTag(decoder.read_u32()?)),
-                TYPE_ED448_PUBLIC_KEY => {
-                    fields.push(Field::IdentityKey(IdentityKey::decode(decoder)?));
-                }
-                TYPE_ED448_FORGING_KEY => {
-                    fields.push(Field::ForgingKey(ForgingKey::decode(decoder)?));
-                }
-                TYPE_VERSIONS => {
-                    fields.push(Field::Versions(parse_versions(&decoder.read_data()?)));
-                }
-                TYPE_EXPIRATION => {
-                    fields.push(Field::Expiration(decoder.read_i64()?));
-                }
-                TYPE_DSA_PUBLIC_KEY => fields.push(Field::LegacyKey(decoder.read_public_key()?)),
-                TYPE_TRANSITIONAL_SIGNATURE => fields.push(Field::TransitionalSignature(
-                    dsa::Signature::decode(decoder)?,
-                )),
-                _ => {
-                    return Err(OTRError::ProtocolViolation(
-                        "Unknown client profile field-type",
-                    ))
-                }
-            }
+            fields.push(Field::decode(decoder)?);
         }
-        let signature = decoder.read_ed448_signature()?;
+        let signature = ed448::Signature::decode(decoder)?;
         let payload = Self { fields, signature };
+        log::trace!("decoding client profile payload… validating…");
         payload.validate()?;
+        log::trace!("decoding client profile payload… validating… done.");
         Ok(payload)
     }
 
@@ -172,6 +152,7 @@ impl ClientProfilePayload {
     // TODO now assumes fields order is reliable for signatures, which is not guaranteed by OTRv4 spec, as there it lists fields explicitly by name.
     #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
+        log::trace!("validating client profile: collecting fields…");
         let mut owner_tag: Option<InstanceTag> = Option::None;
         let mut identity_key: Option<ed448::Point> = Option::None;
         let mut forging_key: Option<ed448::Point> = Option::None;
@@ -225,6 +206,7 @@ impl ClientProfilePayload {
                 }
             };
         }
+        log::trace!("validating client profile: validating signature…");
         if owner_tag.is_none()
             || identity_key.is_none()
             || forging_key.is_none()
@@ -252,28 +234,27 @@ impl ClientProfilePayload {
         )
         .map_err(OTRError::CryptographicViolation)?;
         if let Some(legacy_key) = &legacy_key {
+            log::trace!("validating client profile: validating transitional signature…");
             assert!(transitional_signature.is_some());
             let mut encoder = OTREncoder::new();
-            self.fields
-                .iter()
-                .filter(|f| {
-                    matches!(
-                        f,
-                        Field::OwnerTag(_)
-                            | Field::IdentityKey(_)
-                            | Field::ForgingKey(_)
-                            | Field::Versions(_)
-                            | Field::Expiration(_)
-                            | Field::LegacyKey(_)
-                    )
-                })
-                .for_each(|f| {
-                    encoder.write_encodable(f);
-                });
+            for f in &self.fields {
+                match f {
+                    Field::OwnerTag(_)
+                    | Field::IdentityKey(_)
+                    | Field::ForgingKey(_)
+                    | Field::Versions(_)
+                    | Field::Expiration(_)
+                    | Field::LegacyKey(_) => {
+                        encoder.write_encodable(f);
+                    }
+                    Field::TransitionalSignature(_) => continue,
+                }
+            }
             legacy_key
                 .validate(transitional_signature.as_ref().unwrap(), &encoder.to_vec())
                 .map_err(OTRError::CryptographicViolation)?;
         }
+        // TODO double-check: there was some mention about transitional signature being optional even in presence of DSA public key(?) Probably requires changes to the code.
         Ok(ClientProfile {
             owner_tag: owner_tag.unwrap(),
             identity_key: identity_key.unwrap(),
@@ -341,11 +322,15 @@ impl Field {
             TYPE_VERSIONS => Ok(Self::Versions(parse_versions(&decoder.read_data()?))),
             TYPE_EXPIRATION => Ok(Self::Expiration(decoder.read_i64()?)),
             TYPE_DSA_PUBLIC_KEY => Ok(Self::LegacyKey(decoder.read_public_key()?)),
-            TYPE_TRANSITIONAL_SIGNATURE => Ok(Self::TransitionalSignature(dsa::Signature::decode(decoder)?)),
+            TYPE_TRANSITIONAL_SIGNATURE => Ok(Self::TransitionalSignature(dsa::Signature::decode(
+                decoder,
+            )?)),
             _ => {
                 log::info!("Unsupported field type: {:?}", typ);
-                Err(OTRError::ProtocolViolation("Unsupported field type encountered."))
-            },
+                Err(OTRError::ProtocolViolation(
+                    "Unsupported field type encountered.",
+                ))
+            }
         }
     }
 }

@@ -446,19 +446,21 @@ impl OTREncodable for IdentityMessage {
         encoder
             .write_encodable(&self.profile)
             .write_ed448_point(&self.y)
-            .write_ed448_scalar(&self.b)
+            .write_mpi(&self.b)
             .write_ed448_point(&self.ecdh0)
-            .write_ed448_scalar(&self.dh0);
+            .write_mpi(&self.dh0);
     }
 }
 
 impl IdentityMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        log::trace!("decoding OTRv4 Identity message…");
         let profile = ClientProfilePayload::decode(decoder)?;
         let y = decoder.read_ed448_point()?;
-        let b = decoder.read_ed448_scalar()?;
+        let b = decoder.read_mpi()?;
         let ecdh0 = decoder.read_ed448_point()?;
-        let dh0 = decoder.read_ed448_scalar()?;
+        let dh0 = decoder.read_mpi()?;
+        log::trace!("decoding OTRv4 Identity message… done.");
         Ok(Self {
             profile,
             y,
@@ -495,21 +497,23 @@ impl OTREncodable for AuthRMessage {
         encoder
             .write_encodable(&self.profile_payload)
             .write_ed448_point(&self.x)
-            .write_ed448_scalar(&self.a)
+            .write_mpi(&self.a)
             .write_encodable(&self.sigma)
             .write_ed448_point(&self.ecdh0)
-            .write_ed448_scalar(&self.dh0);
+            .write_mpi(&self.dh0);
     }
 }
 
 impl AuthRMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        log::trace!("decoding OTRv4 Auth-R message…");
         let profile_payload = ClientProfilePayload::decode(decoder)?;
         let x = decoder.read_ed448_point()?;
-        let a = decoder.read_ed448_scalar()?;
+        let a = decoder.read_mpi()?;
         let sigma = ed448::RingSignature::decode(decoder)?;
         let ecdh0 = decoder.read_ed448_point()?;
-        let dh0 = decoder.read_ed448_scalar()?;
+        let dh0 = decoder.read_mpi()?;
+        log::trace!("decoding OTRv4 Auth-R message… done.");
         Ok(Self {
             profile_payload,
             x,
@@ -544,7 +548,9 @@ impl OTREncodable for AuthIMessage {
 
 impl AuthIMessage {
     pub fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
+        log::trace!("decoding OTRv4 Auth-I message…");
         let sigma = ed448::RingSignature::decode(decoder)?;
+        log::trace!("decoding OTRv4 Auth-I message… done.");
         Ok(Self { sigma })
     }
 }
