@@ -5,7 +5,7 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 
 use crate::{
-    crypto::{chacha20, constant, dh, dh3072, dsa, ed448, otr, otr4, sha1},
+    crypto::{chacha20, constant, dh, dsa, otr, otr4, sha1},
     encoding::{MessageFlags, OTRDecoder, OTREncoder, FINGERPRINT_LEN, MAC_LEN, TLV},
     instancetag::{InstanceTag, INSTANCE_ZERO},
     keymanager::KeyManager,
@@ -439,14 +439,6 @@ impl ProtocolState for EncryptedOTR4State {
         authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         log::trace!("ENCRYPTED(OTRv4): handling OTRv4 DATA message…");
-        // FIXME ensure instance tags have been checked.
-        if let Err(error) = ed448::verify(&msg.ecdh).map_err(OTRError::CryptographicViolation) {
-            return (Err(error), None);
-        }
-        if let Err(error) = dh3072::verify(&msg.dh).map_err(OTRError::CryptographicViolation) {
-            return (Err(error), None);
-        }
-        // FIXME strictly verify data message: (drop early to avoid unnecessary speculative rotation) at most 1 ratchet difference, receiver must be expected to rotate next, ...
         match self.decrypt_message(msg, authenticator_data) {
             Ok(decrypted) => match parse_message(&decrypted) {
                 msg @ Ok(Message::ConfidentialFinished(_)) => {
@@ -574,10 +566,7 @@ impl EncryptedOTR4State {
             &keys.1,
             &authenticator_data,
         );
-        // FIXME temporary logic to verify produced data message.
-        message
-            .validate()
-            .expect("BUG: we should be producing valid data-messages.");
+        debug_assert!(message.validate().is_ok());
         // FIXME need to verify if this approach to rotating is in sync with spec. (needs testing) If we rotate here, we will reduce exposure of message keys after use ... maybe somewhat artificial urgency.
         self.double_ratchet.rotate_sender_chainkey();
         message
@@ -605,11 +594,14 @@ impl EncryptedOTR4State {
             msg.revealed.len() / otr4::MAC_LENGTH,
         );
         if msg.i > self.double_ratchet.i() {
-            return Err(OTRError::ProtocolViolation("Message contains illegal content: ratchet ID cannot be in the far future."));
+            return Err(OTRError::ProtocolViolation(
+                "Message contains illegal content: ratchet ID cannot be in the far future.",
+            ));
         }
         let current_ratchet = self.double_ratchet.i().saturating_sub(1);
         let mut speculate: otr4::DoubleRatchet;
-        if msg.i < current_ratchet || (msg.i == current_ratchet && msg.j < self.double_ratchet.k()) {
+        if msg.i < current_ratchet || (msg.i == current_ratchet && msg.j < self.double_ratchet.k())
+        {
             log::trace!("Working with stored message keys…");
             // FIXME 1. get key from stored-keys-store
             return Err(OTRError::UserError(
@@ -769,7 +761,6 @@ pub enum ProtocolMaterial {
         their_dsa: dsa::PublicKey,
     },
     /// DAKE is the OTRv4 DAKE mixed key material.
-    // FIXME fix instance tags wherever the enum variant is used.
     DAKE {
         ssid: SSID,
         double_ratchet: otr4::DoubleRatchet,

@@ -123,6 +123,7 @@ impl DAKEContext {
     /// In case of failure to validate message or failed to process due to protocol violation, e.g.
     /// incorrect state.
     // TODO Identity Message also needs to be handled in ENCRYPTED_MESSAGES and FINISHED states.
+    // FIXME we need to pass in transport-level attributes, e.g. account ID of local user and contact ID of remote user, to include in `phi`.
     #[allow(clippy::too_many_lines)]
     pub fn handle_identity(
         &mut self,
@@ -181,7 +182,6 @@ impl DAKEContext {
         ));
         tbytes.extend_from_slice(&message.y.encode());
         tbytes.extend_from_slice(&x.public().encode());
-        // FIXME need big-endian or little-endian?
         tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.b).to_vec());
         tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a.public()).to_vec());
         let profile = profile_payload.validate()?;
@@ -196,7 +196,7 @@ impl DAKEContext {
                 .write_mpi(dh0.public())
                 .write_ed448_point(&message.ecdh0)
                 .write_mpi(&message.dh0)
-                // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
                 //.write_data(account_id)
                 //.write_data(contact_id)
                 .to_vec(),
@@ -224,7 +224,6 @@ impl DAKEContext {
         let b_message = message.b.clone();
         let shared_secret = otr4::MixedSharedSecret::new(x, a, message.y, message.b)
             .map_err(OTRError::CryptographicViolation)?;
-        // FIXME clean up used key material (a, x, b, y)
         let k = shared_secret.k();
         self.state = State::AwaitingAuthI {
             profile_alice: profile_payload,
@@ -255,7 +254,7 @@ impl DAKEContext {
         &mut self,
         message: AuthRMessage,
     ) -> Result<(MixedKeyMaterial, EncodedMessageType), OTRError> {
-        if let State::AwaitingAuthR {
+        let State::AwaitingAuthR {
             y,
             b,
             payload: payload_bob,
@@ -263,135 +262,123 @@ impl DAKEContext {
             dh0,
             identity_message: _,
         } = &self.state
-        {
-            log::trace!("Handling Auth-R message…");
-            let profile_alice = message.validate()?;
-            let mut tbytes: Vec<u8> = Vec::new();
-            tbytes.push(0x00);
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
-                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+        else {
+            return Err(OTRError::IncorrectState(
+                "Unexpected message received. Ignoring.",
             ));
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-                &OTREncoder::new()
-                    .write_encodable(&message.profile_payload)
-                    .to_vec(),
-            ));
-            tbytes.extend_from_slice(&y.public().encode());
-            tbytes.extend_from_slice(&message.x.encode());
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
-            let profile_bob = payload_bob.validate()?;
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_R_PHI,
-                &OTREncoder::new()
-                    .write_u32(profile_alice.owner_tag)
-                    .write_u32(profile_bob.owner_tag)
-                    .write_ed448_point(&message.ecdh0)
-                    .write_mpi(&message.dh0)
-                    .write_ed448_point(ecdh0.public())
-                    .write_mpi(dh0.public())
-                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
-                    //.write_data(contact_id)
-                    //.write_data(account_id)
-                    .to_vec(),
-            ));
-            log::trace!("Verifying Auth-R sigma…");
-            message
-                .sigma
-                .verify(
-                    &profile_bob.forging_key,
-                    &profile_alice.identity_key,
-                    y.public(),
-                    &tbytes,
-                )
-                .map_err(OTRError::CryptographicViolation)?;
-            log::trace!("Auth-R sigma verified.");
-            // Generate response Auth-I Message.
-            let mut tbytes: Vec<u8> = Vec::new();
-            tbytes.push(0x01);
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-            ));
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-                &OTREncoder::new()
-                    .write_encodable(&message.profile_payload)
-                    .to_vec(),
-            ));
-            tbytes.extend_from_slice(&y.public().encode());
-            tbytes.extend_from_slice(&message.x.encode());
-            // FIXME double-check if it is big-endian byte-order, fixed-size byte-array.
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
-            // FIXME this is a different phi?
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_PHI,
-                &OTREncoder::new()
-                    .write_u32(profile_alice.owner_tag)
-                    .write_u32(profile_bob.owner_tag)
-                    .write_ed448_point(ecdh0.public())
-                    .write_mpi(dh0.public())
-                    .write_ed448_point(&message.ecdh0)
-                    .write_mpi(&message.dh0)
-                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
-                    //.write_data(account_id)
-                    //.write_data(contact_id)
-                    .to_vec(),
-            ));
-            let keypair_identity = self.host.keypair_identity();
-            let sigma = ed448::RingSignature::sign(
-                keypair_identity,
-                keypair_identity.public(),
-                &profile_alice.forging_key,
-                &message.x,
+        };
+        log::trace!("Handling Auth-R message…");
+        let profile_alice = message.validate()?;
+        let mut tbytes: Vec<u8> = Vec::new();
+        tbytes.push(0x00);
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
+            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+        ));
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
+            &OTREncoder::new()
+                .write_encodable(&message.profile_payload)
+                .to_vec(),
+        ));
+        tbytes.extend_from_slice(&y.public().encode());
+        tbytes.extend_from_slice(&message.x.encode());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
+        let profile_bob = payload_bob.validate()?;
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_R_PHI,
+            &OTREncoder::new()
+                .write_u32(profile_alice.owner_tag)
+                .write_u32(profile_bob.owner_tag)
+                .write_ed448_point(&message.ecdh0)
+                .write_mpi(&message.dh0)
+                .write_ed448_point(ecdh0.public())
+                .write_mpi(dh0.public())
+                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
+                //.write_data(contact_id)
+                //.write_data(account_id)
+                .to_vec(),
+        ));
+        log::trace!("Verifying Auth-R sigma…");
+        message
+            .sigma
+            .verify(
+                &profile_bob.forging_key,
+                &profile_alice.identity_key,
+                y.public(),
                 &tbytes,
             )
             .map_err(OTRError::CryptographicViolation)?;
-            // Calculate cryptographic material.
-            let shared_secret =
-                otr4::MixedSharedSecret::new(y.clone(), b.clone(), message.x, message.a)
-                    .map_err(OTRError::CryptographicViolation)?;
-            let k = shared_secret.k();
-            let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, &k);
-            let prev_root_key =
-                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, &k);
-            let shared_secret = otr4::MixedSharedSecret::new(
-                ecdh0.clone(),
-                dh0.clone(),
-                message.ecdh0,
-                message.dh0,
-            )
-            .map_err(OTRError::CryptographicViolation)?;
-            let double_ratchet = otr4::DoubleRatchet::initialize(
-                &otr4::Selector::RECEIVER,
-                shared_secret,
-                prev_root_key,
-            );
-            let double_ratchet = double_ratchet.rotate_sender();
+        log::trace!("Auth-R sigma verified.");
+        // Generate response Auth-I Message.
+        let mut tbytes: Vec<u8> = Vec::new();
+        tbytes.push(0x01);
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+        ));
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+            &OTREncoder::new()
+                .write_encodable(&message.profile_payload)
+                .to_vec(),
+        ));
+        tbytes.extend_from_slice(&y.public().encode());
+        tbytes.extend_from_slice(&message.x.encode());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_PHI,
+            &OTREncoder::new()
+                .write_u32(profile_alice.owner_tag)
+                .write_u32(profile_bob.owner_tag)
+                .write_ed448_point(ecdh0.public())
+                .write_mpi(dh0.public())
+                .write_ed448_point(&message.ecdh0)
+                .write_mpi(&message.dh0)
+                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
+                //.write_data(account_id)
+                //.write_data(contact_id)
+                .to_vec(),
+        ));
+        let keypair_identity = self.host.keypair_identity();
+        let sigma = ed448::RingSignature::sign(
+            keypair_identity,
+            keypair_identity.public(),
+            &profile_alice.forging_key,
+            &message.x,
+            &tbytes,
+        )
+        .map_err(OTRError::CryptographicViolation)?;
+        // Calculate cryptographic material.
+        let shared_secret =
+            otr4::MixedSharedSecret::new(y.clone(), b.clone(), message.x, message.a)
+                .map_err(OTRError::CryptographicViolation)?;
+        let k = shared_secret.k();
+        let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, &k);
+        let prev_root_key = otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, &k);
+        let shared_secret =
+            otr4::MixedSharedSecret::new(ecdh0.clone(), dh0.clone(), message.ecdh0, message.dh0)
+                .map_err(OTRError::CryptographicViolation)?;
+        let double_ratchet = otr4::DoubleRatchet::initialize(
+            &otr4::Selector::RECEIVER,
+            shared_secret,
+            prev_root_key,
+        );
+        let double_ratchet = double_ratchet.rotate_sender();
 
-            // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
-            self.state = State::Initial;
-            Ok((
-                MixedKeyMaterial {
-                    ssid,
-                    double_ratchet,
-                    us: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
-                    them: otr4::fingerprint(
-                        &profile_alice.identity_key,
-                        &profile_alice.forging_key,
-                    ),
-                },
-                EncodedMessageType::AuthI(AuthIMessage { sigma }),
-            ))
-        } else {
-            // FIXME double-check if we can use IncorrectState, as it seems to be tied closely to FINISHED state.
-            Err(OTRError::IncorrectState(
-                "Unexpected message received. Ignoring.",
-            ))
-        }
+        // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
+        self.state = State::Initial;
+        Ok((
+            MixedKeyMaterial {
+                ssid,
+                double_ratchet,
+                us: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
+                them: otr4::fingerprint(&profile_alice.identity_key, &profile_alice.forging_key),
+            },
+            EncodedMessageType::AuthI(AuthIMessage { sigma }),
+        ))
     }
 
     /// `handle_auth_i` processes a received Auth-I message and returns, if user secret matches,
@@ -405,7 +392,7 @@ impl DAKEContext {
     /// # Errors
     /// In case of protocol violations or cryptographic failures.
     pub fn handle_auth_i(&mut self, message: AuthIMessage) -> Result<MixedKeyMaterial, OTRError> {
-        if let State::AwaitingAuthI {
+        let State::AwaitingAuthI {
             profile_alice: payload_alice,
             profile_bob: payload_bob,
             x,
@@ -418,78 +405,73 @@ impl DAKEContext {
             ecdh0_other,
             dh0_other,
         } = &self.state
-        {
-            let profile_alice = payload_alice.validate()?;
-            let mut tbytes: Vec<u8> = Vec::new();
-            tbytes.push(0x01);
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+        else {
+            return Err(OTRError::IncorrectState(
+                "Unexpected message received. Ignoring.",
             ));
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-                &OTREncoder::new().write_encodable(payload_alice).to_vec(),
-            ));
-            tbytes.extend_from_slice(&y.encode());
-            tbytes.extend_from_slice(&x.encode());
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b).to_vec());
-            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a).to_vec());
-            let profile_bob = payload_bob.validate()?;
-            tbytes.extend_from_slice(&otr4::hwc::<64>(
-                otr4::USAGE_AUTH_I_PHI,
-                &OTREncoder::new()
-                    .write_u32(profile_alice.owner_tag)
-                    .write_u32(profile_bob.owner_tag)
-                    .write_ed448_point(ecdh0_other)
-                    .write_mpi(dh0_other)
-                    .write_ed448_point(ecdh0.public())
-                    .write_mpi(dh0.public())
-                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
-                    //.write_data(contact_id)
-                    //.write_data(account_id)
-                    .to_vec(),
-            ));
-            // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
-            log::trace!("Verifying Auth-I sigma…");
-            message
-                .sigma
-                .verify(
-                    &profile_bob.identity_key,
-                    &profile_alice.forging_key,
-                    x,
-                    &tbytes,
-                )
-                .map_err(OTRError::CryptographicViolation)?;
-            log::trace!("Auth-I sigma verified.");
-            // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
-            let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
-            let prev_root_key =
-                otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, k);
-            let shared_secret = otr4::MixedSharedSecret::new(
-                ecdh0.clone(),
-                dh0.clone(),
-                ecdh0_other.clone(),
-                dh0_other.clone(),
+        };
+        let profile_alice = payload_alice.validate()?;
+        let mut tbytes: Vec<u8> = Vec::new();
+        tbytes.push(0x01);
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+        ));
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+            &OTREncoder::new().write_encodable(payload_alice).to_vec(),
+        ));
+        tbytes.extend_from_slice(&y.encode());
+        tbytes.extend_from_slice(&x.encode());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b).to_vec());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a).to_vec());
+        let profile_bob = payload_bob.validate()?;
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_I_PHI,
+            &OTREncoder::new()
+                .write_u32(profile_alice.owner_tag)
+                .write_u32(profile_bob.owner_tag)
+                .write_ed448_point(ecdh0_other)
+                .write_mpi(dh0_other)
+                .write_ed448_point(ecdh0.public())
+                .write_mpi(dh0.public())
+                // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                //.write_data(contact_id)
+                //.write_data(account_id)
+                .to_vec(),
+        ));
+        // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
+        log::trace!("Verifying Auth-I sigma…");
+        message
+            .sigma
+            .verify(
+                &profile_bob.identity_key,
+                &profile_alice.forging_key,
+                x,
+                &tbytes,
             )
             .map_err(OTRError::CryptographicViolation)?;
-            let double_ratchet = otr4::DoubleRatchet::initialize(
-                &otr4::Selector::SENDER,
-                shared_secret,
-                prev_root_key,
-            );
-            // TODO validating the profile again just to acquire the correct data-type is a bit annoying, as we previously accepted the profile, but now we could potentially run into validation issues if near the expiration threshold.
-            let profile_bob = payload_bob.validate()?;
-            Ok(MixedKeyMaterial {
-                ssid,
-                double_ratchet,
-                us: otr4::fingerprint(&profile_alice.identity_key, &profile_alice.forging_key),
-                them: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
-            })
-        } else {
-            Err(OTRError::IncorrectState(
-                "Unexpected message received. Ignoring.",
-            ))
-        }
+        log::trace!("Auth-I sigma verified.");
+        // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
+        let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
+        let prev_root_key = otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, k);
+        let shared_secret = otr4::MixedSharedSecret::new(
+            ecdh0.clone(),
+            dh0.clone(),
+            ecdh0_other.clone(),
+            dh0_other.clone(),
+        )
+        .map_err(OTRError::CryptographicViolation)?;
+        let double_ratchet =
+            otr4::DoubleRatchet::initialize(&otr4::Selector::SENDER, shared_secret, prev_root_key);
+        // TODO validating the profile again just to acquire the correct data-type is a bit annoying, as we previously accepted the profile, but now we could potentially run into validation issues if near the expiration threshold.
+        let profile_bob = payload_bob.validate()?;
+        Ok(MixedKeyMaterial {
+            ssid,
+            double_ratchet,
+            us: otr4::fingerprint(&profile_alice.identity_key, &profile_alice.forging_key),
+            them: otr4::fingerprint(&profile_bob.identity_key, &profile_bob.forging_key),
+        })
     }
 }
 

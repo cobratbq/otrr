@@ -292,8 +292,8 @@ impl Session {
                 receiver: _,
                 message: _,
             }) => {
-                // FIXME implement: illegal case with 0 sender instance tag
-                todo!("implement: illegal case with 0 sender instance tag")
+                log::debug!("Encoded message with sender-tag 0. This is illegal in OTR protocol.");
+                Ok(UserMessage::None)
             }
             MessageType::Encoded(
                 msg @ EncodedMessage {
@@ -795,6 +795,7 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             (Version::V4, EncodedMessageType::Data4(msg)) => {
+                msg.validate()?;
                 // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
