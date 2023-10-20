@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-use crate::{crypto::dh, utils::{self, biguint::ZERO}, OTRError, messages::KeyID};
+use crate::{crypto::dh, utils::{self, biguint::ZERO}, OTRError};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
@@ -323,6 +323,9 @@ impl Counter {
 // value than internal state.
 const COUNTER_INITIAL_VALUE: [u8; COUNTER_HALF_LEN] = [0, 0, 0, 0, 0, 0, 0, 0];
 const COUNTER_HALF_LEN: usize = 8;
+
+/// `KeyID` represents a single key ID to identify keys within the keymanager.
+pub type KeyID = u32;
 
 #[cfg(test)]
 mod tests {}

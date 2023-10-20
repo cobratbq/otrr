@@ -639,6 +639,7 @@ pub mod otr4 {
     const BRACE_KEY_LENGTH: usize = 32;
     const CHAIN_KEY_LENGTH: usize = 64;
     pub const MAC_LENGTH: usize = 64;
+    pub const MESSAGEKEY_LENGTH: usize = 64;
 
     const USAGE_FINGERPRINT: u8 = 0x00;
     const USAGE_THIRD_BRACE_KEY: u8 = 0x01;
@@ -895,9 +896,9 @@ pub mod otr4 {
 
         /// `keys` produces the MK_enc, MK_mac and extra symmetric key respectively.
         fn keys(&self) -> Keys {
-            assert!(utils::bytes::any_nonzero(&self.chain_key));
-            let mk_enc = kdf::<64>(USAGE_MESSAGE_KEY, &self.chain_key);
-            let mk_mac = kdf::<64>(USAGE_MAC_KEY, &mk_enc);
+            debug_assert!(utils::bytes::any_nonzero(&self.chain_key));
+            let mk_enc = kdf(USAGE_MESSAGE_KEY, &self.chain_key);
+            let mk_mac = kdf(USAGE_MAC_KEY, &mk_enc);
             let esk = kdf2(USAGE_EXTRA_SYMMETRIC_KEY, &[0xff], &self.chain_key);
             Keys(mk_enc, mk_mac, esk)
         }
@@ -905,7 +906,7 @@ pub mod otr4 {
 
     /// `Keys` contains resp. MK_enc, MK_mac, and Extra Symmetric Key (base key). `Keys` implements
     /// `Drop` and will therefore clear itself.
-    pub struct Keys(pub [u8; 64], pub [u8; 64], pub [u8; 64]);
+    pub struct Keys(pub [u8; MESSAGEKEY_LENGTH], pub [u8; MESSAGEKEY_LENGTH], pub [u8; MESSAGEKEY_LENGTH]);
 
     impl Drop for Keys {
         fn drop(&mut self) {

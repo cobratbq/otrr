@@ -604,11 +604,12 @@ impl EncryptedOTR4State {
             msg.encrypted.len(),
             msg.revealed.len() / otr4::MAC_LENGTH,
         );
-        assert!(msg.i <= self.double_ratchet.i());
-        // TODO take into account max(self.double_ratchet.i(), 0) for starting situation.
+        if msg.i > self.double_ratchet.i() {
+            return Err(OTRError::ProtocolViolation("Message contains illegal content: ratchet ID cannot be in the far future."));
+        }
+        let current_ratchet = self.double_ratchet.i().saturating_sub(1);
         let mut speculate: otr4::DoubleRatchet;
-        let ratchet_i = self.double_ratchet.i().saturating_sub(1);
-        if msg.i < ratchet_i || (msg.i == ratchet_i && msg.j < self.double_ratchet.k()) {
+        if msg.i < current_ratchet || (msg.i == current_ratchet && msg.j < self.double_ratchet.k()) {
             log::trace!("Working with stored message keys…");
             // FIXME 1. get key from stored-keys-store
             return Err(OTRError::UserError(
@@ -618,7 +619,7 @@ impl EncryptedOTR4State {
             log::trace!("Rotating the double ratchet forward to the right ratchet…");
             if self.double_ratchet.next() != otr4::Selector::RECEIVER {
                 log::trace!("Protocol violation: there cannot be a valid message for a future ratchet, if we need to rotate sender keys first.");
-                return Err(OTRError::ProtocolViolation("Message received in future ratchet even though we are the ones who perform the next ratchet."));
+                return Err(OTRError::ProtocolViolation("Message received in future ratchet even though we need to execute the next ratchet."));
             }
             speculate = self.double_ratchet.clone();
             speculate = speculate
@@ -630,7 +631,7 @@ impl EncryptedOTR4State {
         }
         // TODO should we perform a sanity check in order to not go to far out in the chainkey message id counter?
         while speculate.k() < msg.j {
-            // FIXME need to fast-forward and store all keys we pass by.
+            // FIXME need to fast-forward and store all keys we pass by. (different method, store internally?)
             speculate.rotate_receiver_chainkey();
         }
         let keys = speculate.receiver_keys();

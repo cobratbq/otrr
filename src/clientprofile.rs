@@ -95,10 +95,7 @@ impl ClientProfile {
         let bytes = encoder.to_vec();
         let signature = identity_keypair.sign(&bytes);
         let payload = ClientProfilePayload { fields, signature };
-        // TODO temporary validation? (just for soundness check during development?)
-        payload
-            .validate()
-            .expect("BUG: validation of constructed client profile payload should never fail.");
+        debug_assert!(payload.validate().is_ok());
         payload
     }
 }

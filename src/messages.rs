@@ -6,11 +6,11 @@ use regex::bytes::Regex;
 
 use crate::{
     ake,
-    crypto::{ed448, otr4},
+    crypto::{dh3072, ed448, otr4},
     dake,
     encoding::{MessageFlags, OTRDecoder, OTREncodable, OTREncoder, CTR_LEN, MAC4_LEN, MAC_LEN},
     instancetag::InstanceTag,
-    utils, OTRError, Version,
+    utils, OTRError, Version, keymanager::KeyID,
 };
 
 const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";
@@ -303,9 +303,6 @@ pub struct DataMessage {
     pub revealed: Vec<u8>,
 }
 
-// FIXME consider where to define `KeyID`
-pub type KeyID = u32;
-
 impl DataMessage {
     fn decode(decoder: &mut OTRDecoder) -> Result<Self, OTRError> {
         let flags = MessageFlags::from_bits(decoder.read_u8()?)
@@ -402,13 +399,21 @@ impl OTREncodable for DataMessage4 {
 
 impl DataMessage4 {
     pub fn validate(&self) -> Result<(), OTRError> {
+        dh3072::verify(&self.dh).map_err(OTRError::CryptographicViolation)?;
+        ed448::verify(&self.ecdh).map_err(OTRError::CryptographicViolation)?;
         if self.revealed.len() % otr4::MAC_LENGTH != 0 {
             return Err(OTRError::ProtocolViolation(
                 "Revealed MACs data does not have expected length.",
             ));
         }
-        // FIXME implement: validation of DataMessage4
-        todo!("implement: validation of DataMessage4")
+        for i in 0..(self.authenticator.len() / otr4::MAC_LENGTH) {
+            debug_assert!(utils::bytes::any_nonzero(
+                &self.authenticator[i..i + otr4::MAC_LENGTH]
+            ));
+        }
+        debug_assert!(utils::bytes::any_nonzero(&self.authenticator));
+        // TODO consider if there are more things to verify.
+        Ok(())
     }
 }
 

@@ -17,6 +17,8 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
+// FIXME implement fragmentation/assembling for OTRv4 (out-of-order assembling, addition of the identity field)
+
 /// OTR: "Start with the OTR message as you would normally transmit it. Break it up into
 /// sufficiently small pieces. Let the number of pieces be (`n`), and the pieces be `piece[1]`,
 /// `piece[2]`,`...`,`piece[n]`. Transmit (`n`) OTR version 3 fragmented messages with the following
