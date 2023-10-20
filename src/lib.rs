@@ -236,7 +236,11 @@ pub trait Host {
     /// secret answer that is necessary to continue the SMP.
     fn query_smp_secret(&self, question: &[u8]) -> Option<Vec<u8>>;
 
-    /// `client_profile` retrieves the client profile from the host application.
+    /// `client_profile` retrieves the client profile from the host application. An empty vector
+    /// indicates that no client profile exists, therefore one will be generated from internally and
+    /// keypairs will be queried from the host to complete a payload. `update_client_profile` is
+    /// called with a (renewed) client profile payload that should be stored by the host/chat
+    /// application.
     // TODO callers in DAKE will assume a readily-available profile payload is guaranteed. Is this ensured for all cases?
     fn client_profile(&self) -> Vec<u8>;
 

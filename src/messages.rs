@@ -196,6 +196,7 @@ pub enum MessageType {
     Encoded(EncodedMessage),
 }
 
+#[derive(Debug)]
 pub struct EncodedMessage {
     pub version: Version,
     pub sender: InstanceTag,
@@ -264,6 +265,23 @@ pub enum EncodedMessageType {
     AuthI(dake::AuthIMessage),
     /// OTRv4 (Encrypted) data-message.
     Data4(DataMessage4),
+}
+
+impl core::fmt::Debug for EncodedMessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unencoded(_) => f.debug_tuple("Unencoded").finish(),
+            Self::DHCommit(_) => f.debug_tuple("DHCommit").finish(),
+            Self::DHKey(_) => f.debug_tuple("DHKey").finish(),
+            Self::RevealSignature(_) => f.debug_tuple("RevealSignature").finish(),
+            Self::Signature(_) => f.debug_tuple("Signature").finish(),
+            Self::Data(_) => f.debug_tuple("Data").finish(),
+            Self::Identity(_) => f.debug_tuple("Identity").finish(),
+            Self::AuthR(_) => f.debug_tuple("AuthR").finish(),
+            Self::AuthI(_) => f.debug_tuple("AuthI").finish(),
+            Self::Data4(_) => f.debug_tuple("Data4").finish(),
+        }
+    }
 }
 
 pub struct DataMessage {

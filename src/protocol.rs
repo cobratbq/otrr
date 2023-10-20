@@ -78,6 +78,7 @@ impl ProtocolState for PlaintextState {
         _: &DataMessage,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("PLAINTEXT: handling OTR DATA message… rejected.");
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -86,6 +87,7 @@ impl ProtocolState for PlaintextState {
         _: &DataMessage4,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("PLAINTEXT: handling OTRv4 DATA message… rejected.");
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
@@ -182,6 +184,7 @@ impl ProtocolState for EncryptedOTR3State {
         msg: &DataMessage,
         authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("ENCRYPTED(OTR): handling OTR DATA message…");
         if msg.revealed.len() % 20 != 0
             || (!msg.revealed.is_empty() && utils::bytes::all_zero(&msg.revealed))
         {
@@ -210,6 +213,7 @@ impl ProtocolState for EncryptedOTR3State {
         _: &DataMessage4,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("ENCRYPTED(OTR): handling OTRv4 DATA message… rejected.");
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(self.their_instance)), None)
     }
@@ -425,6 +429,7 @@ impl ProtocolState for EncryptedOTR4State {
         _: &DataMessage,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("ENCRYPTED(OTRv4): handling OTR DATA message… rejected.");
         (Err(OTRError::UnreadableMessage(self.their_instance)), None)
     }
 
@@ -433,6 +438,7 @@ impl ProtocolState for EncryptedOTR4State {
         msg: &DataMessage4,
         authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("ENCRYPTED(OTRv4): handling OTRv4 DATA message…");
         // FIXME ensure instance tags have been checked.
         if let Err(error) = ed448::verify(&msg.ecdh).map_err(OTRError::CryptographicViolation) {
             return (Err(error), None);
@@ -534,6 +540,12 @@ impl ProtocolState for EncryptedOTR4State {
 
 impl EncryptedOTR4State {
     fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
+        log::trace!(
+            "Current double ratchet state: i={}, j={}, k={}",
+            self.double_ratchet.i(),
+            self.double_ratchet.j(),
+            self.double_ratchet.k()
+        );
         if self.double_ratchet.next() == otr4::Selector::SENDER {
             self.double_ratchet = self.double_ratchet.rotate_sender();
         }
@@ -576,24 +588,44 @@ impl EncryptedOTR4State {
         msg: &DataMessage4,
         authenticator_data: &[u8],
     ) -> Result<Vec<u8>, OTRError> {
-        assert!(msg.i <= self.double_ratchet.i() + 1);
+        log::debug!("OTRv4: decrypting data message…");
+        log::trace!(
+            "Current double ratchet state: i={}, j={}, k={}",
+            self.double_ratchet.i(),
+            self.double_ratchet.j(),
+            self.double_ratchet.k()
+        );
+        log::trace!(
+            "Data-message: flags={}, pn={}, i={}, j={}, content=[{}], reveals={}",
+            msg.flags.bits(),
+            msg.pn,
+            msg.i,
+            msg.j,
+            msg.encrypted.len(),
+            msg.revealed.len() / otr4::MAC_LENGTH,
+        );
+        assert!(msg.i <= self.double_ratchet.i());
         // TODO take into account max(self.double_ratchet.i(), 0) for starting situation.
         let mut speculate: otr4::DoubleRatchet;
-        if msg.i < self.double_ratchet.i()
-            || (msg.i == self.double_ratchet.i() && msg.j < self.double_ratchet.k())
-        {
+        let ratchet_i = self.double_ratchet.i().saturating_sub(1);
+        if msg.i < ratchet_i || (msg.i == ratchet_i && msg.j < self.double_ratchet.k()) {
+            log::trace!("Working with stored message keys…");
             // FIXME 1. get key from stored-keys-store
             return Err(OTRError::UserError(
                 "Stored message keys are not supported yet.",
             ));
-        } else if msg.i == self.double_ratchet.i() + 1 {
-            assert_eq!(otr4::Selector::RECEIVER, self.double_ratchet.next());
+        } else if msg.i == self.double_ratchet.i() {
+            log::trace!("Rotating the double ratchet forward to the right ratchet…");
+            if self.double_ratchet.next() != otr4::Selector::RECEIVER {
+                log::trace!("Protocol violation: there cannot be a valid message for a future ratchet, if we need to rotate sender keys first.");
+                return Err(OTRError::ProtocolViolation("Message received in future ratchet even though we are the ones who perform the next ratchet."));
+            }
             speculate = self.double_ratchet.clone();
             speculate = speculate
                 .rotate_receiver(msg.ecdh.clone(), msg.dh.clone())
                 .map_err(OTRError::CryptographicViolation)?;
-            assert_eq!(msg.i, speculate.i());
         } else {
+            log::trace!("Working with the current ratchet…");
             speculate = self.double_ratchet.clone();
         }
         // TODO should we perform a sanity check in order to not go to far out in the chainkey message id counter?
@@ -639,6 +671,7 @@ impl ProtocolState for FinishedState {
         _: &DataMessage,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("FINISHED: handling OTR DATA message… rejected.");
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }
 
@@ -647,6 +680,7 @@ impl ProtocolState for FinishedState {
         _: &DataMessage4,
         _: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
+        log::trace!("FINISHED: handling OTRv4 DATA message… rejected.");
         // TODO use ERROR_2 error code
         (Err(OTRError::UnreadableMessage(INSTANCE_ZERO)), None)
     }

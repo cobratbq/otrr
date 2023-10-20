@@ -255,6 +255,7 @@ impl ClientProfilePayload {
                 .map_err(OTRError::CryptographicViolation)?;
         }
         // TODO double-check: there was some mention about transitional signature being optional even in presence of DSA public key(?) Probably requires changes to the code.
+        log::trace!("validating client profile: success.");
         Ok(ClientProfile {
             owner_tag: owner_tag.unwrap(),
             identity_key: identity_key.unwrap(),

@@ -44,12 +44,12 @@ impl DAKEContext {
                 "Authenticated key exchange in progress.",
             ));
         }
-        log::trace!("DAKE: reading client profile payload from host…");
+        log::trace!("reading client profile payload from host…");
         let payload = self.host.client_profile();
         let mut decoder = OTRDecoder::new(&payload);
         let payload = ClientProfilePayload::decode(&mut decoder)?;
         decoder.done()?;
-        log::trace!("DAKE: generating new ephemeral keypairs.");
+        log::trace!("generating new ephemeral keypairs.");
         let y = ed448::ECDHKeyPair::generate();
         let b = dh3072::KeyPair::generate();
         let ecdh0 = ed448::ECDHKeyPair::generate();
@@ -61,7 +61,7 @@ impl DAKEContext {
             ecdh0: ecdh0.public().clone(),
             dh0: dh0.public().clone(),
         };
-        log::trace!("DAKE: message constructed; transitioning to AWAITING_AUTH_R and returning Identity-message for sending.");
+        log::trace!("message constructed; transitioning to AWAITING_AUTH_R and returning Identity-message for sending.");
         self.state = State::AwaitingAuthR {
             y,
             b,
@@ -78,7 +78,46 @@ impl DAKEContext {
         // FIXME need to send response when we abort?
     }
 
+    /// `transfer` provides DAKEContext --if and only if in the proper state-- for transfer to
+    /// another instance.
+    pub fn transfer(&self) -> Result<DAKEContext, OTRError> {
+        log::trace!("Attempting state transfer…");
+        match self.state {
+            State::AwaitingAuthR {
+                y: _,
+                b: _,
+                payload: _,
+                ecdh0: _,
+                dh0: _,
+                identity_message: _,
+            } => Ok(Self {
+                host: Rc::clone(&self.host),
+                state: self.state.clone(),
+            }),
+            State::Initial
+            | State::AwaitingAuthI {
+                profile_alice: _,
+                profile_bob: _,
+                x: _,
+                y: _,
+                a: _,
+                b: _,
+                k: _,
+                ecdh0: _,
+                dh0: _,
+                ecdh0_other: _,
+                dh0_other: _,
+            } => Err(OTRError::IncorrectState(
+                "State transfers are only legal in case of state AwaitingAuthR.",
+            )),
+        }
+    }
+
     /// `handle_identity` handles identity messages.
+    /// - `account_id` is the identifier of the local account.
+    /// - `contact_id` is the identifier of the remote contact.
+    ///
+    /// NOTE: Alice receives the Identity message, sends Auth-R.
     ///
     /// # Errors
     /// In case of failure to validate message or failed to process due to protocol violation, e.g.
@@ -123,9 +162,9 @@ impl DAKEContext {
             }
         }
         // Generate own key material and construct Auth-R Message.
-        let profile_payload = self.host.client_profile();
-        let mut profile_decoder = OTRDecoder::new(&profile_payload);
-        let profile = ClientProfilePayload::decode(&mut profile_decoder)?;
+        let profile_payload_bytes = self.host.client_profile();
+        let mut profile_decoder = OTRDecoder::new(&profile_payload_bytes);
+        let profile_payload = ClientProfilePayload::decode(&mut profile_decoder)?;
         profile_decoder.done()?;
         let x = ed448::ECDHKeyPair::generate();
         let a = dh3072::KeyPair::generate();
@@ -138,15 +177,30 @@ impl DAKEContext {
         ));
         tbytes.extend_from_slice(&otr4::hwc::<64>(
             otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(&profile).to_vec(),
+            &profile_payload_bytes,
         ));
         tbytes.extend_from_slice(&message.y.encode());
         tbytes.extend_from_slice(&x.public().encode());
         // FIXME need big-endian or little-endian?
-        tbytes.extend_from_slice(&message.b.to_bytes_be());
-        tbytes.extend_from_slice(&a.public().to_bytes_be());
-        let phi = self.generate_phi();
-        tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_R_PHI, &phi));
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.b).to_vec());
+        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a.public()).to_vec());
+        let profile = profile_payload.validate()?;
+        let ecdh0 = ed448::ECDHKeyPair::generate();
+        let dh0 = dh3072::KeyPair::generate();
+        tbytes.extend_from_slice(&otr4::hwc::<64>(
+            otr4::USAGE_AUTH_R_PHI,
+            &OTREncoder::new()
+                .write_u32(profile.owner_tag)
+                .write_u32(profile_bob.owner_tag)
+                .write_ed448_point(ecdh0.public())
+                .write_mpi(dh0.public())
+                .write_ed448_point(&message.ecdh0)
+                .write_mpi(&message.dh0)
+                // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                //.write_data(account_id)
+                //.write_data(contact_id)
+                .to_vec(),
+        ));
         let identity_keypair = self.host.keypair_identity();
         let sigma = ed448::RingSignature::sign(
             identity_keypair,
@@ -156,10 +210,8 @@ impl DAKEContext {
             &tbytes,
         )
         .map_err(OTRError::CryptographicViolation)?;
-        let ecdh0 = ed448::ECDHKeyPair::generate();
-        let dh0 = dh3072::KeyPair::generate();
         let response = AuthRMessage {
-            profile_payload: profile.clone(),
+            profile_payload: profile_payload.clone(),
             x: x.public().clone(),
             a: a.public().clone(),
             sigma,
@@ -175,7 +227,7 @@ impl DAKEContext {
         // FIXME clean up used key material (a, x, b, y)
         let k = shared_secret.k();
         self.state = State::AwaitingAuthI {
-            profile_alice: profile,
+            profile_alice: profile_payload,
             profile_bob: message.profile.clone(),
             x: x_public,
             y: y_message,
@@ -191,6 +243,10 @@ impl DAKEContext {
     }
 
     /// `handle_auth_r` handles incoming Auth-R messages.
+    /// - `account_id` is the identifier of the local account.
+    /// - `contact_id` is the identifier of the remote contact.
+    ///
+    /// NOTE: Bob receives the Auth-R message, sends Auth-I.
     ///
     /// # Errors
     /// In case of violation of protocol or cryptographic failures.
@@ -208,9 +264,10 @@ impl DAKEContext {
             identity_message: _,
         } = &self.state
         {
+            log::trace!("Handling Auth-R message…");
             let profile_alice = message.validate()?;
             let mut tbytes: Vec<u8> = Vec::new();
-            tbytes.push(0);
+            tbytes.push(0x00);
             tbytes.extend_from_slice(&otr4::hwc::<64>(
                 otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
                 &OTREncoder::new().write_encodable(payload_bob).to_vec(),
@@ -225,9 +282,22 @@ impl DAKEContext {
             tbytes.extend_from_slice(&message.x.encode());
             tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
             tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
-            let phi = self.generate_phi();
-            tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_R_PHI, &phi));
             let profile_bob = payload_bob.validate()?;
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_PHI,
+                &OTREncoder::new()
+                    .write_u32(profile_alice.owner_tag)
+                    .write_u32(profile_bob.owner_tag)
+                    .write_ed448_point(&message.ecdh0)
+                    .write_mpi(&message.dh0)
+                    .write_ed448_point(ecdh0.public())
+                    .write_mpi(dh0.public())
+                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                    //.write_data(contact_id)
+                    //.write_data(account_id)
+                    .to_vec(),
+            ));
+            log::trace!("Verifying Auth-R sigma…");
             message
                 .sigma
                 .verify(
@@ -237,8 +307,9 @@ impl DAKEContext {
                     &tbytes,
                 )
                 .map_err(OTRError::CryptographicViolation)?;
+            log::trace!("Auth-R sigma verified.");
             // Generate response Auth-I Message.
-            let mut tbytes = Vec::new();
+            let mut tbytes: Vec<u8> = Vec::new();
             tbytes.push(0x01);
             tbytes.extend_from_slice(&otr4::hwc::<64>(
                 otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
@@ -253,9 +324,23 @@ impl DAKEContext {
             tbytes.extend_from_slice(&y.public().encode());
             tbytes.extend_from_slice(&message.x.encode());
             // FIXME double-check if it is big-endian byte-order, fixed-size byte-array.
-            tbytes.extend_from_slice(&b.public().to_bytes_be());
-            tbytes.extend_from_slice(&message.a.to_bytes_be());
-            tbytes.extend_from_slice(&otr4::hwc::<64>(otr4::USAGE_AUTH_I_PHI, &phi));
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
+            // FIXME this is a different phi?
+            tbytes.extend_from_slice(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_PHI,
+                &OTREncoder::new()
+                    .write_u32(profile_alice.owner_tag)
+                    .write_u32(profile_bob.owner_tag)
+                    .write_ed448_point(ecdh0.public())
+                    .write_mpi(dh0.public())
+                    .write_ed448_point(&message.ecdh0)
+                    .write_mpi(&message.dh0)
+                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                    //.write_data(account_id)
+                    //.write_data(contact_id)
+                    .to_vec(),
+            ));
             let keypair_identity = self.host.keypair_identity();
             let sigma = ed448::RingSignature::sign(
                 keypair_identity,
@@ -285,6 +370,7 @@ impl DAKEContext {
                 shared_secret,
                 prev_root_key,
             );
+            let double_ratchet = double_ratchet.rotate_sender();
 
             // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
             self.state = State::Initial;
@@ -311,6 +397,10 @@ impl DAKEContext {
     /// `handle_auth_i` processes a received Auth-I message and returns, if user secret matches,
     /// the key material needed for the encrypted session, or if the secret does not match, nothing
     /// useful.
+    /// - `account_id` is the identifier of the local account.
+    /// - `contact_id` is the identifier of the remote contact.
+    ///
+    /// NOTE: Alice receives the Auth-I message.
     ///
     /// # Errors
     /// In case of protocol violations or cryptographic failures.
@@ -330,8 +420,7 @@ impl DAKEContext {
         } = &self.state
         {
             let profile_alice = payload_alice.validate()?;
-            let keypair = self.host.keypair_identity();
-            let mut tbytes = Vec::new();
+            let mut tbytes: Vec<u8> = Vec::new();
             tbytes.push(0x01);
             tbytes.extend_from_slice(&otr4::hwc::<64>(
                 otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
@@ -343,17 +432,35 @@ impl DAKEContext {
             ));
             tbytes.extend_from_slice(&y.encode());
             tbytes.extend_from_slice(&x.encode());
-            tbytes.extend_from_slice(&b.to_bytes_be());
-            tbytes.extend_from_slice(&a.to_bytes_be());
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b).to_vec());
+            tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a).to_vec());
+            let profile_bob = payload_bob.validate()?;
             tbytes.extend_from_slice(&otr4::hwc::<64>(
                 otr4::USAGE_AUTH_I_PHI,
-                &self.generate_phi(),
+                &OTREncoder::new()
+                    .write_u32(profile_alice.owner_tag)
+                    .write_u32(profile_bob.owner_tag)
+                    .write_ed448_point(ecdh0_other)
+                    .write_mpi(dh0_other)
+                    .write_ed448_point(ecdh0.public())
+                    .write_mpi(dh0.public())
+                    // TODO disabled for need to acquire account (local) and contact (remote) identifiers
+                    //.write_data(contact_id)
+                    //.write_data(account_id)
+                    .to_vec(),
             ));
             // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
+            log::trace!("Verifying Auth-I sigma…");
             message
                 .sigma
-                .verify(keypair.public(), &profile_alice.forging_key, x, &tbytes)
+                .verify(
+                    &profile_bob.identity_key,
+                    &profile_alice.forging_key,
+                    x,
+                    &tbytes,
+                )
                 .map_err(OTRError::CryptographicViolation)?;
+            log::trace!("Auth-I sigma verified.");
             // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
             let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
             let prev_root_key =
@@ -384,11 +491,6 @@ impl DAKEContext {
             ))
         }
     }
-
-    fn generate_phi(&self) -> Vec<u8> {
-        // FIXME implement: generating phi value
-        todo!("implement: generating phi value")
-    }
 }
 
 /// `MixedKeyMaterial` represents the result of the OTRv4 DAKE that includes the mixed shared
@@ -402,6 +504,7 @@ pub struct MixedKeyMaterial {
 
 /// Interactive DAKE states.
 #[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
 enum State {
     /// `Initial` is the state where Bob initiates the Interactive DAKE or Alice receives Bob's
     /// `IdentityMessage`.

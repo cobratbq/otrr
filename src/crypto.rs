@@ -674,6 +674,7 @@ pub mod otr4 {
     /// an identifier.
     pub type Fingerprint = [u8; 56];
 
+    // TODO manage MAC reveals
     #[derive(Clone)]
     pub struct DoubleRatchet {
         shared_secret: MixedSharedSecret,
@@ -688,6 +689,8 @@ pub mod otr4 {
     impl Drop for DoubleRatchet {
         fn drop(&mut self) {
             utils::bytes::clear(&mut self.root_key);
+            self.i = 0;
+            self.pn = 0;
         }
     }
 
@@ -874,6 +877,7 @@ pub mod otr4 {
     impl Drop for Ratchet {
         fn drop(&mut self) {
             utils::bytes::clear(&mut self.chain_key);
+            self.message_id = 0;
         }
     }
 
@@ -1009,12 +1013,12 @@ pub mod otr4 {
         ) -> Result<Self, CryptoError> {
             ed448::verify(&public_ecdh)?;
             dh3072::verify(&public_dh)?;
-            assert!(utils::bytes::any_nonzero(&brace_key_prev));
             let mut k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
             assert!(utils::bytes::any_nonzero(&k_ecdh));
             let brace_key = if third {
-                let mut k_dh =
-                    utils::biguint::to_bytes_le_fixed::<57>(&dh.generate_shared_secret(&public_dh));
+                let mut k_dh = utils::biguint::to_bytes_le_fixed::<{ dh3072::ENCODED_LENGTH }>(
+                    &dh.generate_shared_secret(&public_dh),
+                );
                 let new_brace_key = kdf(USAGE_THIRD_BRACE_KEY, &k_dh);
                 utils::bytes::clear(&mut k_dh);
                 new_brace_key
@@ -1423,6 +1427,7 @@ pub mod ed448 {
             A3: &Point,
             m: &[u8],
         ) -> Result<(), CryptoError> {
+            log::trace!("Verifying ring-signature…");
             let T1 = &*G * &self.r1 + A1 * &self.c1;
             let T2 = &*G * &self.r2 + A2 * &self.c2;
             let T3 = &*G * &self.r3 + A3 * &self.c3;
@@ -1675,8 +1680,8 @@ pub mod ed448 {
         /// # Panics
         /// In case of bugs.
         #[must_use]
-        pub fn encode(&self) -> [u8; 57] {
-            let mut encoded = utils::biguint::to_bytes_le_fixed::<57>(&self.y);
+        pub fn encode(&self) -> [u8; ENCODED_LENGTH] {
+            let mut encoded = utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&self.y);
             assert_eq!(0, encoded[56]);
             let x_bytes = self.x.to_bytes_le();
             let x_bit = if x_bytes.is_empty() {
@@ -1827,6 +1832,7 @@ pub mod dh3072 {
 
     use super::CryptoError;
 
+    pub const ENCODED_LENGTH: usize = 384;
     /// p is the prime (modulus).
     pub static P: Lazy<BigUint> = Lazy::new(|| {
         // FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF
@@ -1939,7 +1945,7 @@ pub mod dh3072 {
 
         #[must_use]
         pub fn generate_shared_secret(&self, other: &BigUint) -> BigUint {
-            &self.private * other
+            other.modpow(&self.private, &P)
         }
     }
 }
