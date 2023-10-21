@@ -128,6 +128,8 @@ impl DAKEContext {
     pub fn handle_identity(
         &mut self,
         message: IdentityMessage,
+        account: &[u8],
+        contact: &[u8],
     ) -> Result<EncodedMessageType, OTRError> {
         let profile_bob: ClientProfile;
         match &self.state {
@@ -196,9 +198,8 @@ impl DAKEContext {
                 .write_mpi(dh0.public())
                 .write_ed448_point(&message.ecdh0)
                 .write_mpi(&message.dh0)
-                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
-                //.write_data(account_id)
-                //.write_data(contact_id)
+                .write_data(account)
+                .write_data(contact)
                 .to_vec(),
         ));
         let identity_keypair = self.host.keypair_identity();
@@ -253,6 +254,8 @@ impl DAKEContext {
     pub fn handle_auth_r(
         &mut self,
         message: AuthRMessage,
+        account: &[u8],
+        contact: &[u8],
     ) -> Result<(MixedKeyMaterial, EncodedMessageType), OTRError> {
         let State::AwaitingAuthR {
             y,
@@ -295,9 +298,8 @@ impl DAKEContext {
                 .write_mpi(&message.dh0)
                 .write_ed448_point(ecdh0.public())
                 .write_mpi(dh0.public())
-                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
-                //.write_data(contact_id)
-                //.write_data(account_id)
+                .write_data(contact)
+                .write_data(account)
                 .to_vec(),
         ));
         log::trace!("Verifying Auth-R sigma…");
@@ -337,9 +339,8 @@ impl DAKEContext {
                 .write_mpi(dh0.public())
                 .write_ed448_point(&message.ecdh0)
                 .write_mpi(&message.dh0)
-                // FIXME disabled for need to acquire account (local) and contact (remote) identifiers (and possibly freeform other transport-level attributes)
-                //.write_data(account_id)
-                //.write_data(contact_id)
+                .write_data(account)
+                .write_data(contact)
                 .to_vec(),
         ));
         let keypair_identity = self.host.keypair_identity();
@@ -367,8 +368,6 @@ impl DAKEContext {
             prev_root_key,
         );
         let double_ratchet = double_ratchet.rotate_sender();
-
-        // FIXME should generate sending keys here (as part of Double Ratchet), but this can probably be delayed until use. Check otr4j implementation.
         self.state = State::Initial;
         Ok((
             MixedKeyMaterial {
@@ -391,7 +390,12 @@ impl DAKEContext {
     ///
     /// # Errors
     /// In case of protocol violations or cryptographic failures.
-    pub fn handle_auth_i(&mut self, message: AuthIMessage) -> Result<MixedKeyMaterial, OTRError> {
+    pub fn handle_auth_i(
+        &mut self,
+        message: AuthIMessage,
+        account: &[u8],
+        contact: &[u8],
+    ) -> Result<MixedKeyMaterial, OTRError> {
         let State::AwaitingAuthI {
             profile_alice: payload_alice,
             profile_bob: payload_bob,
@@ -435,9 +439,8 @@ impl DAKEContext {
                 .write_mpi(dh0_other)
                 .write_ed448_point(ecdh0.public())
                 .write_mpi(dh0.public())
-                // TODO disabled for need to acquire account (local) and contact (remote) identifiers
-                //.write_data(contact_id)
-                //.write_data(account_id)
+                .write_data(contact)
+                .write_data(account)
                 .to_vec(),
         ));
         // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
@@ -452,7 +455,6 @@ impl DAKEContext {
             )
             .map_err(OTRError::CryptographicViolation)?;
         log::trace!("Auth-I sigma verified.");
-        // FIXME initialize double ratchet, check otr4j for initial initialization steps to avoid having to reinvent the most practical way of starting this process.
         let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
         let prev_root_key = otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, k);
         let shared_secret = otr4::MixedSharedSecret::new(
@@ -491,7 +493,7 @@ enum State {
     /// `Initial` is the state where Bob initiates the Interactive DAKE or Alice receives Bob's
     /// `IdentityMessage`.
     Initial,
-    /// `AwaitingAuthR` is the state for Alice as she awaits Bob's `AuthRMessage`.
+    /// `AwaitingAuthR` is the state for Bob as she awaits Alice's `AuthRMessage`.
     AwaitingAuthR {
         y: ed448::ECDHKeyPair,
         b: dh3072::KeyPair,
@@ -500,7 +502,7 @@ enum State {
         dh0: dh3072::KeyPair,
         identity_message: IdentityMessage,
     },
-    /// `AwaitingAuthI` is the state for Bob as he awaits Alice's `AuthIMessage`.
+    /// `AwaitingAuthI` is the state for Alice as he awaits Bob's `AuthIMessage`.
     AwaitingAuthI {
         profile_alice: clientprofile::ClientProfilePayload,
         profile_bob: clientprofile::ClientProfilePayload,
@@ -556,7 +558,6 @@ impl IdentityMessage {
     }
 
     fn validate(&self) -> Result<ClientProfile, OTRError> {
-        // FIXME client profile's instance tag needs to be validated against instance tag in session to make sure message is properly constructed belonging to the instance tag of the message.
         let profile_bob = self.profile.validate()?;
         ed448::verify(&self.y).map_err(OTRError::CryptographicViolation)?;
         dh3072::verify(&self.b).map_err(OTRError::CryptographicViolation)?;
@@ -568,7 +569,6 @@ impl IdentityMessage {
 
 #[derive(Clone)]
 pub struct AuthRMessage {
-    // FIXME define auth-r message
     pub profile_payload: clientprofile::ClientProfilePayload,
     pub x: ed448::Point,
     pub a: BigUint,
@@ -610,7 +610,6 @@ impl AuthRMessage {
     }
 
     fn validate(&self) -> Result<ClientProfile, OTRError> {
-        // FIXME client profile's instance tag needs to be validated against instance tag in session to make sure message is properly constructed belonging to the instance tag of the message.
         let profile_alice = self.profile_payload.validate()?;
         ed448::verify(&self.x).map_err(OTRError::CryptographicViolation)?;
         dh3072::verify(&self.a).map_err(OTRError::CryptographicViolation)?;

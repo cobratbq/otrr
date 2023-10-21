@@ -32,13 +32,19 @@ impl Account {
     /// # Errors
     /// In case of failure to reconstruct client profile.
     // FIXME need method for acquiring session for specified address (create or retrieve)
-    pub fn new(policy: Policy, host: Rc<dyn Host>) -> Result<Self, OTRError> {
+    pub fn new(
+        policy: Policy,
+        host: Rc<dyn Host>,
+        account: Vec<u8>,
+        contact: Vec<u8>,
+    ) -> Result<Self, OTRError> {
         let sessions = collections::HashMap::new();
-        // FIXME issues while reconstructing client profile. Do we need a OTRError that allows wrapping another OTRError, such that it is possible to provide context?
         let profile = Self::restore_clientprofile(host.as_ref())?;
         let details = Rc::new(AccountDetails {
             policy,
             tag: profile.owner_tag,
+            account,
+            contact,
         });
         Ok(Self {
             host,
@@ -775,12 +781,12 @@ impl Instance {
                 }
             }
             (Version::V4, EncodedMessageType::Identity(message)) => {
-                let response = self.dake.handle_identity(message)?;
+                let response = self.dake.handle_identity(message, &self.details.account, &self.details.contact)?;
                 self.inject(self.dake.version(), sender, response);
                 Ok(UserMessage::None)
             }
             (Version::V4, EncodedMessageType::AuthR(message)) => {
-                let (MixedKeyMaterial{ssid, double_ratchet, us, them}, response) = self.dake.handle_auth_r(message)?;
+                let (MixedKeyMaterial{ssid, double_ratchet, us, them}, response) = self.dake.handle_auth_r(message, &self.details.account, &self.details.contact)?;
                 self.inject(self.dake.version(), sender, response);
                 self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet, us, them });
                 // TODO is this assertion valid? (what if we perform new DAKE while in encrypted session?)
@@ -788,7 +794,7 @@ impl Instance {
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             (Version::V4, EncodedMessageType::AuthI(message)) => {
-                let MixedKeyMaterial{ssid, double_ratchet, us, them} = self.dake.handle_auth_i(message)?;
+                let MixedKeyMaterial{ssid, double_ratchet, us, them} = self.dake.handle_auth_i(message, &self.details.account, &self.details.contact)?;
                 self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet, us, them });
                 // TODO is this assertion valid? (what if we perform new DAKE while in encrypted session?)
                 assert_eq!(ProtocolStatus::Encrypted, self.state.status());
@@ -1009,6 +1015,8 @@ impl Instance {
 struct AccountDetails {
     policy: Policy,
     tag: InstanceTag,
+    account: Vec<u8>,
+    contact: Vec<u8>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -1033,8 +1041,10 @@ fn filter_versions(policy: &Policy, versions: &[Version]) -> Vec<Version> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
+
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
     use crate::{
@@ -1081,7 +1091,13 @@ mod tests {
             forging_alice,
             RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(Policy::ALLOW_V3, Rc::clone(&host_alice)).unwrap();
+        let mut account_alice = Account::new(
+            Policy::ALLOW_V3,
+            Rc::clone(&host_alice),
+            Vec::from("alice"),
+            Vec::from("bob"),
+        )
+        .unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
@@ -1091,7 +1107,13 @@ mod tests {
             forging_bob,
             RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(Policy::ALLOW_V3, Rc::clone(&host_bob)).unwrap();
+        let mut account_bob = Account::new(
+            Policy::ALLOW_V3,
+            Rc::clone(&host_bob),
+            Vec::from("bob"),
+            Vec::from("alice"),
+        )
+        .unwrap();
         let bob = account_bob.session(b"alice");
 
         messages_bob
@@ -1132,7 +1154,13 @@ mod tests {
             forging_alice,
             RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(Policy::ALLOW_V3, Rc::clone(&host_alice)).unwrap();
+        let mut account_alice = Account::new(
+            Policy::ALLOW_V3,
+            Rc::clone(&host_alice),
+            Vec::from("alice"),
+            Vec::from("bob"),
+        )
+        .unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
@@ -1142,7 +1170,13 @@ mod tests {
             forging_bob,
             RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(Policy::ALLOW_V3, Rc::clone(&host_bob)).unwrap();
+        let mut account_bob = Account::new(
+            Policy::ALLOW_V3,
+            Rc::clone(&host_bob),
+            Vec::from("bob"),
+            Vec::from("alice"),
+        )
+        .unwrap();
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();
@@ -1234,6 +1268,8 @@ mod tests {
                 ed448::EdDSAKeyPair::generate(),
                 RefCell::new(Vec::new()),
             )),
+            Vec::from("alice"),
+            Vec::from("bob"),
         )
         .unwrap();
         let alice = account_alice.session(b"bob");
@@ -1247,6 +1283,8 @@ mod tests {
                 ed448::EdDSAKeyPair::generate(),
                 RefCell::new(Vec::new()),
             )),
+            Vec::from("bob"),
+            Vec::from("alice"),
         )
         .unwrap();
         let bob = account_bob.session(b"alice");
@@ -1341,6 +1379,8 @@ mod tests {
                 ed448::EdDSAKeyPair::generate(),
                 RefCell::new(Vec::new()),
             )),
+            Vec::from("alice"),
+            Vec::from("bob"),
         )
         .unwrap();
         let alice = account_alice.session(b"bob");
@@ -1354,6 +1394,8 @@ mod tests {
                 ed448::EdDSAKeyPair::generate(),
                 RefCell::new(Vec::new()),
             )),
+            Vec::from("bob"),
+            Vec::from("alice"),
         )
         .unwrap();
         let bob = account_bob.session(b"alice");
