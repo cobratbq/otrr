@@ -1142,7 +1142,7 @@ pub mod ed448 {
         str::FromStr,
     };
 
-    use num_bigint::{BigInt, BigUint, ModInverse, ToBigInt};
+    use num_bigint::{BigInt, ModInverse, ToBigInt};
     use num_integer::Integer;
     use once_cell::sync::Lazy;
     use zeroize::Zeroize;
@@ -1164,29 +1164,29 @@ pub mod ed448 {
     //        1506189835876003536878655418784733982303233503462500531545062832660)
     static G: Lazy<Point> = Lazy::new(|| {
         Point{
-        x: BigUint::from_str("224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710").unwrap(),
-        y: BigUint::from_str("298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660").unwrap(),
+        x: BigInt::from_str("224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710").unwrap(),
+        y: BigInt::from_str("298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660").unwrap(),
     }
     });
 
     /// `I` is the neutral element, or identity.
     static I: Lazy<Point> = Lazy::new(|| Point {
-        x: (*utils::biguint::ZERO).clone(),
-        y: (*utils::biguint::ONE).clone(),
+        x: (*utils::bigint::ZERO).clone(),
+        y: (*utils::bigint::ONE).clone(),
     });
 
     /// p, the modulus
-    static P: Lazy<BigUint> = Lazy::new(|| {
-        BigUint::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
+    static P: Lazy<BigInt> = Lazy::new(|| {
+        BigInt::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
     });
 
     /// q, the prime order
-    static Q: Lazy<BigUint> = Lazy::new(|| {
-        BigUint::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
+    static Q: Lazy<BigInt> = Lazy::new(|| {
+        BigInt::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
     });
 
     /// d, '-39081'
-    static D: Lazy<BigUint> = Lazy::new(|| &*P - &BigUint::from_str("39081").unwrap());
+    static D: Lazy<BigInt> = Lazy::new(|| BigInt::from_str("-39081").unwrap());
 
     /// `generator` returns the Ed448 base-point.
     #[must_use]
@@ -1201,17 +1201,19 @@ pub mod ed448 {
 
     /// `modulus` returns the Ed448 modulus
     #[must_use]
-    pub fn modulus() -> &'static BigUint {
+    pub fn modulus() -> &'static BigInt {
+        // FIXME temporary
         &P
     }
 
     /// `prime_order` provides the prime order value `q`.
     #[must_use]
-    pub fn prime_order() -> &'static BigUint {
+    pub fn prime_order() -> &'static BigInt {
+        // FIXME temporary
         &Q
     }
 
-    pub struct EdDSAKeyPair([u8; ENCODED_LENGTH], BigUint, Point);
+    pub struct EdDSAKeyPair([u8; ENCODED_LENGTH], BigInt, Point);
 
     impl EdDSAKeyPair {
         #[must_use]
@@ -1221,7 +1223,7 @@ pub mod ed448 {
             let mut secret_key_source = [0u8; ENCODED_LENGTH];
             secret_key_source.copy_from_slice(&h[..ENCODED_LENGTH]);
             prune(&mut secret_key_source);
-            let secret_key = BigUint::from_bytes_le(&secret_key_source);
+            let secret_key = BigInt::from_bytes_le(num_bigint::Sign::Plus, &secret_key_source);
             let public_key = &*G * &secret_key;
             Self(symmetric_key, secret_key, public_key)
         }
@@ -1242,17 +1244,19 @@ pub mod ed448 {
             let mut prefix = [0u8; 57];
             prefix.clone_from_slice(&h[57..]);
             prune(&mut secret_bytes);
-            let s = BigUint::from_bytes_le(&secret_bytes);
+            let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &secret_bytes);
             let mut encoded_A = (&*G * &s).encode();
-            let mut buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, &ph(message));
-            let r = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_R));
+            let mut buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, message);
+            let r =
+                BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
             let mut buffer_K =
-                utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, &ph(message));
-            let k = BigUint::from_bytes_le(&shake256::digest::<114>(&buffer_K));
+                utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, message);
+            let k =
+                BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_K));
             let encoded_S =
-                utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
+                utils::bigint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
             utils::bytes::clear3(&mut buffer_K, &mut buffer_R, &mut encoded_A);
             utils::bytes::clear3(&mut secret_bytes, &mut prefix, &mut h);
             Signature(encoded_R, encoded_S)
@@ -1277,12 +1281,12 @@ pub mod ed448 {
     }
 
     #[must_use]
-    pub fn hash_point_to_scalar(purpose: u8, point: &Point) -> BigUint {
+    pub fn hash_point_to_scalar(purpose: u8, point: &Point) -> BigInt {
         hash_to_scalar(purpose, &point.encode())
     }
 
     #[must_use]
-    pub fn hash_point_to_scalar2(purpose: u8, point1: &Point, point2: &Point) -> BigUint {
+    pub fn hash_point_to_scalar2(purpose: u8, point1: &Point, point2: &Point) -> BigInt {
         let mut buffer = Vec::new();
         buffer.extend_from_slice(&point1.encode());
         buffer.extend_from_slice(&point2.encode());
@@ -1291,32 +1295,32 @@ pub mod ed448 {
 
     // TODO pruning is not strictly necessary because the scalars resulting from hash_to_scalar are not used on the curve, merely as proofs.
     #[must_use]
-    pub fn hash_to_scalar(purpose: u8, data: &[u8]) -> BigUint {
+    pub fn hash_to_scalar(purpose: u8, data: &[u8]) -> BigInt {
         decode_scalar(&hwc::<57>(purpose, data))
     }
 
-    /// `decode_scalar` decodes an encoded scalar into `BigUint`.
+    /// `decode_scalar` decodes an encoded scalar into `BigInt`.
     ///
     /// # Panics
     /// Panics if all bytes are zero. (sanity-check)
     #[must_use]
-    pub fn decode_scalar(encoded: &[u8; 57]) -> BigUint {
+    pub fn decode_scalar(encoded: &[u8; 57]) -> BigInt {
         assert!(utils::bytes::any_nonzero(encoded));
-        BigUint::from_bytes_le(encoded).mod_floor(&*Q)
+        BigInt::from_bytes_le(num_bigint::Sign::Plus, encoded).mod_floor(&*Q)
     }
 
     // TODO currently cloning the keypair to re-obtain ownership. Is there a way to avoid that without too much borrow checker complexity?
     #[derive(Clone)]
-    pub struct ECDHKeyPair(BigUint, Point);
+    pub struct ECDHKeyPair(BigInt, Point);
 
     impl ECDHKeyPair {
         /// `generate` generates a key pair for Ed448 ECDH.
         #[must_use]
         pub fn generate() -> Self {
             let r = random_in_Zq();
-            let mut buffer = shake256::digest::<114>(&r.to_bytes_le());
+            let mut buffer = shake256::digest::<114>(&r.to_bytes_le().1);
             prune(&mut buffer);
-            let s = BigUint::from_bytes_le(&buffer);
+            let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &buffer);
             // FIXME securely delete r, h
             let public = (&*G) * &s;
             Self(s, public)
@@ -1344,8 +1348,9 @@ pub mod ed448 {
         m: &[u8],
     ) -> Result<(), CryptoError> {
         let R = Point::decode(&signature.0)?;
-        let s = BigUint::from_bytes_le(&signature.1);
-        if s < *utils::biguint::ZERO || s >= *Q {
+        verify(&R)?;
+        let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &signature.1);
+        if s.sign() != num_bigint::Sign::Plus || s >= *Q {
             return Err(CryptoError::VerificationFailure(
                 "illegal data: s component",
             ));
@@ -1354,30 +1359,28 @@ pub mod ed448 {
             &dom4(EDDSA_CONTEXT),
             &signature.0,
             &public_key.encode(),
-            &ph(m),
+            m,
         ));
-        let k = BigUint::from_bytes_le(&digest);
+        let k = BigInt::from_bytes_le(num_bigint::Sign::Plus, &digest);
         let lhs = &*G * &s;
         let rhs = R + public_key * &k;
-        if lhs == rhs {
-            // REMARK consider swapping rhs and lhs, just to annoy people reading the code.
-            Ok(())
-        } else {
-            Err(CryptoError::VerificationFailure(
+        if constant::compare_points_distinct(&lhs, &rhs).is_err() {
+            return Err(CryptoError::VerificationFailure(
                 "Signature failed to validate message.",
-            ))
+            ));
         }
+        Ok(())
     }
 
-    // FIXME Ring signatures and other BigUint code (SMP4) is really waaaaay too slow. (undoubtedly my own fault)
+    // TODO Ring signatures and other BigUint code (SMP4) is really waaaaay too slow. (undoubtedly my own fault)
     #[derive(Clone)]
     pub struct RingSignature {
-        c1: BigUint,
-        r1: BigUint,
-        c2: BigUint,
-        r2: BigUint,
-        c3: BigUint,
-        r3: BigUint,
+        c1: BigInt,
+        r1: BigInt,
+        c2: BigInt,
+        r2: BigInt,
+        c3: BigInt,
+        r3: BigInt,
     }
 
     impl OTREncodable for RingSignature {
@@ -1508,10 +1511,10 @@ pub mod ed448 {
             let sigma = match (eq1, eq2, eq3) {
                 (true, false, false) => {
                     //let c1 = &c - &c2 - &c3;
-                    let c1_derived = (&c + &*Q - &c2 + &*Q - &c3).mod_floor(&*Q);
+                    let c1_derived = (&c - &c2 - &c3).mod_floor(&*Q);
                     //let r1 = &t - &c1 * &keypair.0;
                     let r1_derived =
-                        (&t + &*Q - &(&c1_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
+                        (&t - &(&c1_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
                     Self {
                         c1: c1_derived,
                         r1: r1_derived,
@@ -1523,10 +1526,10 @@ pub mod ed448 {
                 }
                 (false, true, false) => {
                     //let c2 = &c - &c1 - &c3;
-                    let c2_derived = (&c + &*Q - &c1 + &*Q - &c3).mod_floor(&*Q);
+                    let c2_derived = (&c - &c1 - &c3).mod_floor(&*Q);
                     //let r2 = &t - &c2 * &keypair.0;
                     let r2_derived =
-                        (&t + &*Q - &(&c2_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
+                        (&t - &(&c2_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
                     Self {
                         c1,
                         r1,
@@ -1538,10 +1541,10 @@ pub mod ed448 {
                 }
                 (false, false, true) => {
                     //let c3 = &c - &c1 - &c2;
-                    let c3_derived = (&c + &*Q - &c1 + &*Q - &c2).mod_floor(&*Q);
+                    let c3_derived = (&c - &c1 - &c2).mod_floor(&*Q);
                     //let r3 = &t - &c3 * &keypair.0;
                     let r3_derived =
-                        (&t + &*Q - &(&c3_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
+                        (&t - &(&c3_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
                     Self {
                         c1,
                         r1,
@@ -1560,8 +1563,8 @@ pub mod ed448 {
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct Point {
-        x: BigUint,
-        y: BigUint,
+        x: BigInt,
+        y: BigInt,
     }
 
     impl Drop for Point {
@@ -1571,27 +1574,28 @@ pub mod ed448 {
         }
     }
 
-    impl Mul<BigUint> for Point {
+    // TODO is this variant (non-reference) needed, or is it handled by the compiler?
+    impl Mul<BigInt> for Point {
         type Output = Self;
 
-        fn mul(self, rhs: BigUint) -> Self::Output {
+        fn mul(self, rhs: BigInt) -> Self::Output {
             self.mul0(&rhs)
         }
     }
 
-    impl<'b> Mul<&'b BigUint> for Point {
+    impl<'b> Mul<&'b BigInt> for Point {
         type Output = Self;
 
-        fn mul(self, scalar: &'b BigUint) -> Self::Output {
+        fn mul(self, scalar: &'b BigInt) -> Self::Output {
             self.mul0(scalar)
         }
     }
 
-    impl<'a, 'b> Mul<&'b BigUint> for &'a Point {
+    impl<'a, 'b> Mul<&'b BigInt> for &'a Point {
         type Output = Point;
 
         // TODO implementation of scalar multiplication is not constant-time
-        fn mul(self, scalar: &'b BigUint) -> Self::Output {
+        fn mul(self, scalar: &'b BigInt) -> Self::Output {
             self.mul0(scalar)
         }
     }
@@ -1642,30 +1646,30 @@ pub mod ed448 {
         /// Panics if there are bugs.
         pub fn decode(encoded: &[u8; 57]) -> Result<Point, CryptoError> {
             let x_bit = (encoded[56] & 0b1000_0000) >> 7;
-            let y = BigUint::from_bytes_le(&encoded[..56]);
+            let y = BigInt::from_bytes_le(num_bigint::Sign::Plus, &encoded[..56]);
             if y.cmp(&*P).is_ge() {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point contains illegal y component",
                 ));
             }
-            let num = (&y * &y - &*utils::biguint::ONE).mod_floor(&*P);
-            let denom = (&y * &y * &*D - &*utils::biguint::ONE).mod_floor(&*P);
+            let num = &y * &y - &*utils::bigint::ONE;
+            let denom = &y * &y * &*D - &*utils::bigint::ONE;
             // REMARK the `exponent` for `modpow` could be precomputed.
             let x = (&num
                 * &num
                 * &num
                 * &denom
                 * (&num * &num * &num * &num * &num * &denom * &denom * &denom).modpow(
-                    &((&*P - &*utils::biguint::THREE) / &*utils::biguint::FOUR),
+                    &((&*P - &*utils::bigint::THREE) / &*utils::bigint::FOUR),
                     &P,
                 ))
             .mod_floor(&*P);
-            if num != (&x * &x * &denom).mod_floor(&*P) {
+            if num.mod_floor(&*P) != (&x * &x * &denom).mod_floor(&*P) {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: no square root exists",
                 ));
             }
-            if x == *utils::biguint::ZERO && x_bit != 0 {
+            if x == *utils::bigint::ZERO && x_bit != 0 {
                 return Err(CryptoError::VerificationFailure(
                     "Encoded point: sign-bit is 1 for x = 0",
                 ));
@@ -1683,9 +1687,9 @@ pub mod ed448 {
         /// In case of bugs.
         #[must_use]
         pub fn encode(&self) -> [u8; ENCODED_LENGTH] {
-            let mut encoded = utils::biguint::to_bytes_le_fixed::<ENCODED_LENGTH>(&self.y);
+            let mut encoded = utils::bigint::to_bytes_le_fixed::<ENCODED_LENGTH>(&self.y);
             assert_eq!(0, encoded[56]);
-            let x_bytes = self.x.to_bytes_le();
+            let x_bytes = self.x.to_bytes_le().1;
             let x_bit = if x_bytes.is_empty() {
                 0
             } else {
@@ -1696,14 +1700,14 @@ pub mod ed448 {
         }
 
         // TODO implementation of scalar multiplication is not constant-time
-        fn mul0(&self, scalar: &BigUint) -> Point {
+        fn mul0(&self, scalar: &BigInt) -> Point {
             let mut result = Point {
-                x: utils::biguint::ZERO.clone(),
-                y: utils::biguint::ONE.clone(),
+                x: utils::bigint::ZERO.clone(),
+                y: utils::bigint::ONE.clone(),
             };
             let mut temp: Point = self.clone();
             for i in 0..scalar.bits() {
-                if utils::biguint::bit(scalar, i) {
+                if utils::bigint::bit(scalar, i) {
                     result = result.add0(&temp);
                 }
                 temp = temp.add0(&temp);
@@ -1719,34 +1723,23 @@ pub mod ed448 {
             if rhs.is_identity() {
                 return self.clone();
             }
-            // FIXME rewrite to do this with `BigUint` instead of conversion to `BigInt` and back.
-            let lhs_x = self.x.to_bigint().unwrap();
-            let lhs_y = self.y.to_bigint().unwrap();
-            let rhs_x = rhs.x.to_bigint().unwrap();
-            let rhs_y = rhs.y.to_bigint().unwrap();
-            let result_x: BigInt = &(&lhs_x * &rhs_y + &lhs_y * &rhs_x)
-                * (&*ONE + &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+            let result_x: BigInt = &(&self.x * &rhs.y + &self.y * &rhs.x)
+                * (&*ONE + &(&*D * &self.x * &rhs.x * &self.y * &rhs.y))
                     .mod_inverse(&*P)
                     .unwrap();
-            let result_y: BigInt = &(&lhs_y * &rhs_y - &lhs_x * &rhs_x)
-                * (&*ONE - &(&*D * &lhs_x * &rhs_x * &lhs_y * &rhs_y))
+            let result_y: BigInt = &(&self.y * &rhs.y - &self.x * &rhs.x)
+                * (&*ONE - &(&*D * &self.x * &rhs.x * &self.y * &rhs.y))
                     .mod_inverse(&*P)
                     .unwrap();
             Point {
-                x: result_x
-                    .mod_floor(&P.to_bigint().unwrap())
-                    .to_biguint()
-                    .unwrap(),
-                y: result_y
-                    .mod_floor(&P.to_bigint().unwrap())
-                    .to_biguint()
-                    .unwrap(),
+                x: result_x.mod_floor(&P.to_bigint().unwrap()),
+                y: result_y.mod_floor(&P.to_bigint().unwrap()),
             }
         }
 
         #[must_use]
         pub fn is_identity(&self) -> bool {
-            self.x == *utils::biguint::ZERO && self.y == *utils::biguint::ONE
+            self.x == *utils::bigint::ZERO && self.y == *utils::bigint::ONE
         }
     }
 
@@ -1784,11 +1777,6 @@ pub mod ed448 {
         buffer
     }
 
-    fn ph(x: &[u8]) -> Vec<u8> {
-        // TODO basically a NOOP, this is actually rather stupid, but it reflects the rfc. Should probably just be deleted, but I'll nitpick later.
-        Vec::from(x)
-    }
-
     const PREFIX_SIGED448: &[u8] = b"SigEd448";
     const EDDSA_CONTEXT: &[u8] = b"";
 
@@ -1800,7 +1788,7 @@ pub mod ed448 {
     // TODO is non-zero value a hard requirement? If so, change assert into a retry-loop.
     #[allow(non_snake_case)]
     #[must_use]
-    pub fn random_in_Zq() -> BigUint {
+    pub fn random_in_Zq() -> BigInt {
         let mut h = shake256::digest::<57>(&utils::random::secure_bytes::<57>());
         // TODO all-zero is possible but very unlikely. Maybe remove the assertion, as pruning will ensure there are non-zero bytes, but it would be highly suspicious nonetheless.
         assert!(bytes::any_nonzero(&h));
@@ -1955,7 +1943,7 @@ pub mod dh3072 {
 /// `constant` module provides constant-time operations.
 // TODO check at some moment that it's okay to encode points/scalars to preserve proper constant-time guarantees.
 pub mod constant {
-    use num_bigint::BigUint;
+    use num_bigint::BigInt;
 
     use super::{ed448, verify_nonzero, CryptoError};
 
@@ -1967,25 +1955,24 @@ pub mod constant {
     ///
     /// # Panics
     /// Panics if instances `s1` and `s2` are the same.
-    pub fn compare_scalars_distinct(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
+    pub fn compare_scalars_distinct(s1: &BigInt, s2: &BigInt) -> Result<(), CryptoError> {
         assert!(!core::ptr::eq(s1, s2), "BUG: s1 and s2 are same instance");
-        compare(
-            &s1.to_bytes_le(),
-            &s2.to_bytes_le(),
-            "verification of scalars failed",
-        )
+        compare_scalars(s1, s2)
     }
 
     /// `compare_scalars` compares two scalars in constant time and returns result.
     ///
     /// # Errors
     /// In case comparison fails, i.e. scalars are not equal.
-    pub fn compare_scalars(s1: &BigUint, s2: &BigUint) -> Result<(), CryptoError> {
-        compare(
-            &s1.to_bytes_le(),
-            &s2.to_bytes_le(),
-            "verification of scalars failed",
-        )
+    pub fn compare_scalars(s1: &BigInt, s2: &BigInt) -> Result<(), CryptoError> {
+        let (sign1, encoded1) = s1.to_bytes_le();
+        let (sign2, encoded2) = s2.to_bytes_le();
+        if sign1 != sign2 {
+            return Err(CryptoError::VerificationFailure(
+                "verification of scalars failed",
+            ));
+        }
+        compare(&encoded1, &encoded2, "verification of scalars failed")
     }
 
     /// `compare_different_points` checks if two points are the same in constant-time by comparing
@@ -2057,7 +2044,8 @@ pub enum CryptoError {
 #[cfg(test)]
 mod tests {
     use crate::{
-        crypto, encoding,
+        crypto,
+        encoding::{self, OTRDecoder},
         utils::{
             self,
             biguint::{ONE, TWO, ZERO},
@@ -2219,34 +2207,34 @@ mod tests {
     fn test_scalar_multiplication() {
         let n = ed448::random_in_Zq();
         let p = ed448::generator() * &n;
-        assert_eq!(&p + &p, &p * &*utils::biguint::TWO);
-        assert_eq!(&p + &p + &p, &p * &*utils::biguint::THREE);
-        assert_eq!(&p + &p + &p + &p, &p * &*utils::biguint::FOUR);
-        assert_eq!(&p + &p + &p + &p + &p, &p * &*utils::biguint::FIVE);
-        assert_eq!(&p + &p + &p + &p + &p + &p, &p * &*utils::biguint::SIX);
+        assert_eq!(&p + &p, &p * &*utils::bigint::TWO);
+        assert_eq!(&p + &p + &p, &p * &*utils::bigint::THREE);
+        assert_eq!(&p + &p + &p + &p, &p * &*utils::bigint::FOUR);
+        assert_eq!(&p + &p + &p + &p + &p, &p * &*utils::bigint::FIVE);
+        assert_eq!(&p + &p + &p + &p + &p + &p, &p * &*utils::bigint::SIX);
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::SEVEN
+            &p * &*utils::bigint::SEVEN
         );
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::EIGHT
+            &p * &*utils::bigint::EIGHT
         );
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::NINE
+            &p * &*utils::bigint::NINE
         );
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::TEN
+            &p * &*utils::bigint::TEN
         );
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::ELEVEN
+            &p * &*utils::bigint::ELEVEN
         );
         assert_eq!(
             &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p + &p,
-            &p * &*utils::biguint::TWELVE
+            &p * &*utils::bigint::TWELVE
         );
     }
 
@@ -2349,5 +2337,20 @@ mod tests {
         ed448::validate(kp2.public(), &sig2, &m).unwrap();
         ed448::validate(kp2.public(), &sig1, &m).unwrap_err();
         ed448::validate(kp1.public(), &sig2, &m).unwrap_err();
+    }
+
+    #[test]
+    fn test_verify_signature() {
+        //&hex::encode(public_key.encode()) = "e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500"
+        let encoded: [u8; 57] = hex::decode(b"e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500").unwrap().try_into().unwrap();
+        let public_key = ed448::Point::decode(&encoded).unwrap();
+        assert!(ed448::verify(&public_key).is_ok());
+        //&hex::encode(signature.0) = "aa47e956b256f7649868d5828837a45d288710c5ba46f49db6ab672f6a5cbac6209c6dc7f49133e9eb3c3033d367d8a564ad9befcc854e4799"
+        //&hex::encode(signature.1) = "991941669a7aba00c29cb6038a1b63201c110a02870d12ac6ef3ea036c4e9d932adb8239e957bff05db47fce0d3d4021de1255245fd99c4ab2"
+        let sig_bytes = hex::decode(b"aa47e956b256f7649868d5828837a45d288710c5ba46f49db6ab672f6a5cbac6209c6dc7f49133e9eb3c3033d367d8a564ad9befcc854e4799991941669a7aba00c29cb6038a1b63201c110a02870d12ac6ef3ea036c4e9d932adb8239e957bff05db47fce0d3d4021de1255245fd99c4ab2").unwrap();
+        let signature = ed448::Signature::decode(&mut OTRDecoder::new(&sig_bytes)).unwrap();
+        //&hex::encode(m) = "0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13"
+        let m = hex::decode(b"0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13").unwrap();
+        assert!(ed448::validate(&public_key, &signature, &m).is_ok());
     }
 }

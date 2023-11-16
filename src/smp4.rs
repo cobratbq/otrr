@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use num_bigint::BigUint;
+use num_bigint::{BigUint, BigInt, ToBigInt};
 use num_integer::Integer;
 use zeroize::Zeroize;
 
@@ -85,9 +85,9 @@ impl SMP4Context {
         let r2 = ed448::random_in_Zq();
         let r3 = ed448::random_in_Zq();
         let c2 = ed448::hash_point_to_scalar(0x01, &(G * &r2));
-        let d2 = (q + r2 - &(&a2 * &c2).mod_floor(q)).mod_floor(q);
+        let d2 = (r2 - &(&a2 * &c2).mod_floor(q)).mod_floor(q);
         let c3 = ed448::hash_point_to_scalar(0x02, &(G * &r3));
-        let d3 = (q + r3 - &(&a3 * &c3).mod_floor(q)).mod_floor(q);
+        let d3 = (r3 - &(&a3 * &c3).mod_floor(q)).mod_floor(q);
         let G2a = G * &a2;
         ed448::verify(&G2a).map_err(OTRError::CryptographicViolation)?;
         let G3a = G * &a3;
@@ -103,8 +103,8 @@ impl SMP4Context {
             .to_vec();
         self.state = State::ExpectSMP2 {
             x: self.compute_secret(&self.us, &self.them, secret),
-            a2,
-            a3,
+            a2: a2.to_biguint().unwrap(),
+            a3: a3.to_biguint().unwrap(),
         };
         Ok(TLV(TLV_SMP_MESSAGE_1, smp1))
     }
@@ -184,22 +184,23 @@ impl SMP4Context {
         let G2b = G * &b2;
         let G3b = G * &b3;
         let c2 = ed448::hash_point_to_scalar(0x03, &(G * &r2));
-        let d2 = (q + &r2 - &(&b2 * &c2).mod_floor(q)).mod_floor(q);
+        let d2 = (&r2 - &(&b2 * &c2).mod_floor(q)).mod_floor(q);
         let c3 = ed448::hash_point_to_scalar(0x04, &(G * &r3));
-        let d3 = (q + &r3 - &(&b3 * &c3).mod_floor(q)).mod_floor(q);
+        let d3 = (&r3 - &(&b3 * &c3).mod_floor(q)).mod_floor(q);
         // Prepare state for next message.
         let G2 = &G2a * &b2;
         ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
         let G3 = &G3a * &b3;
         ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-        let y = self.compute_secret(&self.them, &self.us, &secret);
+        // FIXME change return type?
+        let y = self.compute_secret(&self.them, &self.us, &secret).to_bigint().unwrap();
         let Pb = &G3 * &r4;
         ed448::verify(&Pb).map_err(OTRError::CryptographicViolation)?;
         let Qb = &(G * &r4) + &(&G2 * &y);
         ed448::verify(&Qb).map_err(OTRError::CryptographicViolation)?;
         let cp = ed448::hash_point_to_scalar2(0x05, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
-        let d5 = (q + &r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
-        let d6 = (q + &r6 - (&y * &cp).mod_floor(q)).mod_floor(q);
+        let d5 = (&r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
+        let d6 = (&r6 - (&y * &cp).mod_floor(q)).mod_floor(q);
         let smp2 = OTREncoder::new()
             .write_ed448_point(&G2b)
             .write_ed448_scalar(&c2)
@@ -217,7 +218,7 @@ impl SMP4Context {
             G3a,
             G2,
             G3,
-            b3,
+            b3: b3.to_biguint().unwrap(),
             Pb,
             Qb,
         };
@@ -228,18 +229,18 @@ impl SMP4Context {
     fn handle_message_2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_2);
         let q = ed448::prime_order();
-        let x: BigUint;
-        let a2: BigUint;
-        let a3: BigUint;
+        let x: BigInt;
+        let a2: BigInt;
+        let a3: BigInt;
         if let State::ExpectSMP2 {
             x: x_,
             a2: a2_,
             a3: a3_,
         } = &self.state
         {
-            x = x_.mod_floor(q);
-            a2 = a2_.clone();
-            a3 = a3_.clone();
+            x = x_.to_bigint().unwrap().mod_floor(q);
+            a2 = a2_.to_bigint().unwrap();
+            a3 = a3_.to_bigint().unwrap();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "Expected to receive SMP message 2",
@@ -296,11 +297,11 @@ impl SMP4Context {
         let Qa = &(G * &r4) + &(&G2 * &x);
         let DeltaQaQb = &Qa + &-&Qb;
         let cp = ed448::hash_point_to_scalar2(0x06, &(&G3 * &r5), &(&(G * &r5) + &(&G2 * &r6)));
-        let d5 = (q + &r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
-        let d6 = (q + &r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
+        let d5 = (&r5 - (&r4 * &cp).mod_floor(q)).mod_floor(q);
+        let d6 = (&r6 - (&x * &cp).mod_floor(q)).mod_floor(q);
         let Ra = &DeltaQaQb * &a3;
         let cr = ed448::hash_point_to_scalar2(0x07, &(G * &r7), &(&DeltaQaQb * &r7));
-        let d7 = (q + &r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
+        let d7 = (&r7 - (&a3 * &cr).mod_floor(q)).mod_floor(q);
         let smp3 = OTREncoder::new()
             .write_ed448_point(&Pa)
             .write_ed448_point(&Qa)
@@ -315,7 +316,7 @@ impl SMP4Context {
             G3b,
             DeltaPaPb,
             DeltaQaQb,
-            a3,
+            a3: a3.to_biguint().unwrap(),
         };
         Ok(TLV(TLV_SMP_MESSAGE_3, smp3))
     }
@@ -328,7 +329,7 @@ impl SMP4Context {
         let G3a: ed448::Point;
         let G2: ed448::Point;
         let G3: ed448::Point;
-        let b3: BigUint;
+        let b3: BigInt;
         let Pb: ed448::Point;
         let Qb: ed448::Point;
         if let State::ExpectSMP3 {
@@ -343,7 +344,7 @@ impl SMP4Context {
             G3a = G3a_.clone();
             G2 = G2_.clone();
             G3 = G3_.clone();
-            b3 = b3_.clone();
+            b3 = b3_.to_bigint().unwrap();
             Pb = Pb_.clone();
             Qb = Qb_.clone();
         } else {
@@ -391,7 +392,7 @@ impl SMP4Context {
         let Rb = &DeltaQaQb * &b3;
         let cr = ed448::hash_point_to_scalar2(0x08, &(G * &r7), &(&DeltaQaQb * &r7));
         let q = ed448::prime_order();
-        let d7 = (q + &r7 - (&b3 * &cr).mod_floor(q)).mod_floor(q);
+        let d7 = (&r7 - (&b3 * &cr).mod_floor(q)).mod_floor(q);
         let smp4 = OTREncoder::new()
             .write_ed448_point(&Rb)
             .write_ed448_scalar(&cr)
@@ -414,7 +415,7 @@ impl SMP4Context {
         let G3b: ed448::Point;
         let DeltaPaPb: ed448::Point;
         let DeltaQaQb: ed448::Point;
-        let a3: BigUint;
+        let a3: BigInt;
         if let State::ExpectSMP4 {
             G3b: G3b_,
             DeltaPaPb: DeltaPaPb_,
@@ -425,7 +426,7 @@ impl SMP4Context {
             G3b = G3b_.clone();
             DeltaPaPb = DeltaPaPb_.clone();
             DeltaQaQb = DeltaQaQb_.clone();
-            a3 = a3_.clone();
+            a3 = a3_.to_bigint().unwrap();
         } else {
             return Err(OTRError::ProtocolViolation(
                 "Expected to receive SMP message 4",
@@ -496,7 +497,7 @@ pub enum SMP4Status {
     Completed,
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, clippy::large_enum_variant)]
 enum State {
     ExpectSMP1,
     ExpectSMP2 {

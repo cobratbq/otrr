@@ -3,7 +3,7 @@
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
 use bitflags::bitflags;
-use num_bigint::BigUint;
+use num_bigint::{BigUint, BigInt};
 
 use crate::{
     crypto::{dsa, ed448},
@@ -32,7 +32,7 @@ impl Drop for OTRDecoder<'_> {
             // If the buffer is not fully drained, this may indicate that somewhere in the
             // implementation we went wrong, resulting in incomplete work. Or, alternatively, the
             // input data, that originated from the other party, does not confirm to the protocol.
-            log::warn!("unread bytes remaining in buffer");
+            log::warn!("{} unread bytes left in discarded buffer", self.0.len());
         }
     }
 }
@@ -222,7 +222,7 @@ impl<'a> OTRDecoder<'a> {
         ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)
     }
 
-    pub fn read_ed448_scalar(&mut self) -> Result<BigUint, OTRError> {
+    pub fn read_ed448_scalar(&mut self) -> Result<BigInt, OTRError> {
         log::trace!("decode Ed448 scalar");
         Ok(ed448::decode_scalar(&self.read()?))
     }
@@ -255,7 +255,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `done` can be used to express the end of decoding. The instance is consumed.
     /// NOTE during clean-up we verify if the buffer is fully drained.
-    // TODO inspect uses of OTRDecoder and check if `done()` is called everywhere applicable.
+    // FIXME is `done` unsustainable due to unpredictable behavior w.r.t. number of received messages?
     pub fn done(self) -> Result<(), OTRError> {
         if self.0.is_empty() {
             Ok(())
@@ -393,9 +393,9 @@ impl OTREncoder {
         self
     }
 
-    pub fn write_ed448_scalar(&mut self, scalar: &BigUint) -> &mut Self {
+    pub fn write_ed448_scalar(&mut self, scalar: &BigInt) -> &mut Self {
         self.buffer
-            .extend_from_slice(&utils::biguint::to_bytes_le_fixed::<
+            .extend_from_slice(&utils::bigint::to_bytes_le_fixed::<
                 { ed448::ENCODED_LENGTH },
             >(scalar));
         self

@@ -74,13 +74,12 @@ fn parse_encoded_message(data: &[u8]) -> Result<MessageType, OTRError> {
     let message_type = decoder.read_u8()?;
     let sender: InstanceTag = decoder.read_instance_tag()?;
     let receiver: InstanceTag = decoder.read_instance_tag()?;
-    let encoded = parse_encoded_content(&version, message_type, &mut decoder)?;
-    decoder.done()?;
+    let encoded_message = parse_encoded_content(&version, message_type, &mut decoder)?;
     Result::Ok(MessageType::Encoded(EncodedMessage {
         version,
         sender,
         receiver,
-        message: encoded,
+        message: encoded_message,
     }))
 }
 
