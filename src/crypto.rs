@@ -2,12 +2,7 @@
 
 use std::fmt::Debug;
 
-use once_cell::sync::Lazy;
-use ring::rand::SystemRandom;
-
 use crate::utils;
-
-static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 // TODO double-check all big-endian/little-endian use. (generate ECDH uses little-endian)
 // TODO check on if/how to clear/drop BigUint values after use.
@@ -27,7 +22,7 @@ pub mod dh {
         biguint::{ONE, TWO},
     };
 
-    use super::{CryptoError, RAND};
+    use super::CryptoError;
 
     /// GENERATOR (g): 2
     static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
@@ -128,7 +123,7 @@ pub mod dh {
             //   key pairs for yourself, and set our_keyid = 2. Note that all DH key pairs should
             //   have a private part that is at least 320 bits long."
             let mut v = [0u8; 192];
-            (*RAND)
+            (*utils::random::RANDOM)
                 .fill(&mut v)
                 .expect("Failed to produce random bytes for random big unsigned integer value.");
             assert!(utils::bytes::any_nonzero(&v));
@@ -336,7 +331,7 @@ pub mod aes128 {
     use ring::rand::SecureRandom;
     use std::ops::Drop;
 
-    use super::RAND;
+    use crate::utils;
 
     const KEY_LENGTH: usize = 16;
 
@@ -350,9 +345,11 @@ pub mod aes128 {
         ///
         /// # Panics
         /// Panics if it fails to generate (sufficient) random data.
+        #[must_use]
         pub fn generate() -> Self {
             let mut key = [0u8; 16];
-            RAND.fill(&mut key)
+            (*utils::random::RANDOM)
+                .fill(&mut key)
                 .expect("BUG: Failed to acquire random bytes. (This was not anticipated to fail.)");
             Key(key)
         }

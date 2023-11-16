@@ -4,14 +4,13 @@ use std::rc::Rc;
 
 use num_bigint::BigUint;
 use num_integer::Integer;
-use once_cell::sync::Lazy;
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::rand::SecureRandom;
 use zeroize::Zeroize;
 
 use crate::{
     crypto::{dh, otr, sha256, CryptoError},
     encoding::{OTRDecoder, OTREncoder, FINGERPRINT_LEN},
-    Host, OTRError, TLVType, SSID, TLV,
+    utils, Host, OTRError, TLVType, SSID, TLV,
 };
 
 pub fn is_smp_tlv(tlv: &TLV) -> bool {
@@ -31,9 +30,6 @@ const TLV_TYPE_SMP_MESSAGE_4: TLVType = 5;
 const TLV_TYPE_SMP_ABORT: TLVType = 6;
 /// TLV similar to message 1 but includes a user-specified question (null-terminated) in the payload.
 const TLV_TYPE_SMP_MESSAGE_1Q: TLVType = 7;
-
-static RAND: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
-
 pub struct SMPContext {
     status: SMPStatus,
     state: SMPState,
@@ -757,7 +753,7 @@ fn compute_secret(
 
 fn random() -> BigUint {
     let mut v = [0u8; 192];
-    (*RAND)
+    (*utils::random::RANDOM)
         .fill(&mut v)
         .expect("Failed to produce random bytes for random big unsigned integer value.");
     BigUint::from_bytes_be(&v).mod_floor(dh::q())

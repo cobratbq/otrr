@@ -273,19 +273,19 @@ pub mod random {
     use once_cell::sync::Lazy;
     use ring::rand::{SecureRandom, SystemRandom};
 
-    /// `RANDOM` is an instance of `SystemRandom`.
+    /// `RANDOM` is an instance of `ring::rand::SystemRandom`.
     pub static RANDOM: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
     /// `secure_bytes` produces the specified number of secure bytes as a byte-array.
     pub fn secure_bytes<const N: usize>() -> [u8; N] {
         let mut bytes = [0u8; N];
-        RANDOM.fill(&mut bytes).unwrap();
+        (*RANDOM).fill(&mut bytes).unwrap();
         bytes
     }
 
     /// `fill_secure_bytes` fills provided buffer with bytes from (secure) random number generator.
     pub fn fill_secure_bytes(buffer: &mut [u8]) {
-        RANDOM.fill(buffer).unwrap();
+        (*RANDOM).fill(buffer).unwrap();
     }
 }
 
