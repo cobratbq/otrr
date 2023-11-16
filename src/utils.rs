@@ -77,14 +77,14 @@ pub mod bytes {
         buffer2.fill(0);
     }
 
-    /// `clear3` fills provided 2 byte-array with zeroes.
+    /// `clear3` fills provided 3 byte-array with zeroes.
     pub fn clear3(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8]) {
         buffer1.fill(0);
         buffer2.fill(0);
         buffer3.fill(0);
     }
 
-    /// `clear4` fills provided 2 byte-array with zeroes.
+    /// `clear4` fills provided 4 byte-array with zeroes.
     pub fn clear4(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8], buffer4: &mut [u8]) {
         buffer1.fill(0);
         buffer2.fill(0);
@@ -142,6 +142,29 @@ pub mod bigint {
     pub static TWO: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8));
     pub static THREE: Lazy<BigInt> = Lazy::new(|| BigInt::from(3u8));
     pub static FOUR: Lazy<BigInt> = Lazy::new(|| BigInt::from(4u8));
+    pub static FIVE: Lazy<BigInt> = Lazy::new(|| BigInt::from(5u8));
+    pub static SIX: Lazy<BigInt> = Lazy::new(|| BigInt::from(6u8));
+    pub static SEVEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(7u8));
+    pub static EIGHT: Lazy<BigInt> = Lazy::new(|| BigInt::from(8u8));
+    pub static NINE: Lazy<BigInt> = Lazy::new(|| BigInt::from(9u8));
+    pub static TEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(10u8));
+    pub static ELEVEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(11u8));
+    pub static TWELVE: Lazy<BigInt> = Lazy::new(|| BigInt::from(12u8));
+
+    pub fn to_bytes_le_fixed<const N: usize>(v: &BigInt) -> [u8; N] {
+        let mut result = [0u8; N];
+        let bytes = v.to_bytes_le().1;
+        assert!(result.len() >= bytes.len());
+        result[..bytes.len()].copy_from_slice(&bytes);
+        result
+    }
+
+    // TODO assuming u64-sized limbs, but should be checked because it can be influenced with a flag
+    pub fn bit(v: &BigInt, i: usize) -> bool {
+        let (limb_idx, bit_idx) = (i / 64, i % 64);
+        let limb = v.get_limb(limb_idx);
+        (limb & 1 << bit_idx) != 0
+    }
 }
 
 pub mod biguint {

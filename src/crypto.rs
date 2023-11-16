@@ -903,7 +903,11 @@ pub mod otr4 {
 
     /// `Keys` contains resp. MK_enc, MK_mac, and Extra Symmetric Key (base key). `Keys` implements
     /// `Drop` and will therefore clear itself.
-    pub struct Keys(pub [u8; MESSAGEKEY_LENGTH], pub [u8; MESSAGEKEY_LENGTH], pub [u8; MESSAGEKEY_LENGTH]);
+    pub struct Keys(
+        pub [u8; MESSAGEKEY_LENGTH],
+        pub [u8; MESSAGEKEY_LENGTH],
+        pub [u8; MESSAGEKEY_LENGTH],
+    );
 
     impl Drop for Keys {
         fn drop(&mut self) {
