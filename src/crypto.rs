@@ -2081,7 +2081,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "BUG: references provided for verification must be different.")]
     #[allow(unused_must_use)]
     fn test_dh_verify_panic_on_same() {
         let v1 = BigUint::from(7u8);
@@ -2151,13 +2151,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "BUG: data1 and data2 parameters are same instance")]
     fn test_zero_length_slices() {
         constant::compare_bytes_distinct(&[], &[]).unwrap();
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "BUG: data1 and data2 parameters are same instance")]
     fn test_zero_slices() {
         constant::compare_bytes_distinct(&[0, 0, 0, 0], &[0, 0, 0, 0]).unwrap();
     }
@@ -2292,7 +2292,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "BUG: illegal combination of public keys.")]
     fn test_ring_sign_verify_incorrect_public_key_1() {
         let m = utils::random::secure_bytes::<250>();
         let keypair = ed448::EdDSAKeyPair::generate();
