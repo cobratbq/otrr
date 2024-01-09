@@ -1135,7 +1135,6 @@ mod shake256 {
     }
 }
 
-// FIXME I am not fully confident that the changes made to avoid negative values are correct. Needs interop testing and/or review. (E.g. `D` -> `-39081 =?= P-39081`, holds for multiplication? -- likely yes)
 pub mod ed448 {
     use std::{
         ops::{Add, Mul, Neg},
@@ -1180,7 +1179,7 @@ pub mod ed448 {
         BigInt::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
     });
 
-    /// q, the prime order
+    /// q, the (prime) order
     static Q: Lazy<BigInt> = Lazy::new(|| {
         BigInt::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
     });
@@ -1206,9 +1205,9 @@ pub mod ed448 {
         &P
     }
 
-    /// `prime_order` provides the prime order value `q`.
+    /// `order` provides the (prime) order value `q`.
     #[must_use]
-    pub fn prime_order() -> &'static BigInt {
+    pub fn order() -> &'static BigInt {
         // FIXME temporary
         &Q
     }
@@ -1246,20 +1245,20 @@ pub mod ed448 {
             prune(&mut secret_bytes);
             let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &secret_bytes);
             let mut encoded_A = (&*G * &s).encode();
-            let mut buffer_R = utils::bytes::concatenate3(&dom4(b""), &prefix, message);
+            let mut buffer_R = utils::bytes::concatenate3(&dom4(EDDSA_CONTEXT), &prefix, message);
             let r =
                 BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
             let mut buffer_K =
-                utils::bytes::concatenate4(&dom4(b""), &encoded_R, &encoded_A, message);
+                utils::bytes::concatenate4(&dom4(EDDSA_CONTEXT), &encoded_R, &encoded_A, message);
             let k =
                 BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_K));
-            let encoded_S =
+            let encoded_s =
                 utils::bigint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
             utils::bytes::clear3(&mut buffer_K, &mut buffer_R, &mut encoded_A);
             utils::bytes::clear3(&mut secret_bytes, &mut prefix, &mut h);
-            Signature(encoded_R, encoded_S)
+            Signature(encoded_R, encoded_s)
         }
     }
 
@@ -1348,6 +1347,7 @@ pub mod ed448 {
         m: &[u8],
     ) -> Result<(), CryptoError> {
         let R = Point::decode(&signature.0)?;
+        // TODO call to `verify` is probably redundant. (Checked as part of decoding.)
         verify(&R)?;
         let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &signature.1);
         if s.sign() != num_bigint::Sign::Plus || s >= *Q {
@@ -1364,12 +1364,7 @@ pub mod ed448 {
         let k = BigInt::from_bytes_le(num_bigint::Sign::Plus, &digest);
         let lhs = &*G * &s;
         let rhs = R + public_key * &k;
-        if constant::compare_points_distinct(&lhs, &rhs).is_err() {
-            return Err(CryptoError::VerificationFailure(
-                "Signature failed to validate message.",
-            ));
-        }
-        Ok(())
+        constant::compare_points_distinct(&lhs, &rhs)
     }
 
     // TODO Ring signatures and other BigUint code (SMP4) is really waaaaay too slow. (undoubtedly my own fault)

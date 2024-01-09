@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use num_bigint::{BigUint, BigInt, ToBigInt};
+use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_integer::Integer;
 use zeroize::Zeroize;
 
@@ -79,7 +79,7 @@ impl SMP4Context {
 
     fn initiate0(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
         let G = ed448::generator();
-        let q = ed448::prime_order();
+        let q = ed448::order();
         let a2 = ed448::random_in_Zq();
         let a3 = ed448::random_in_Zq();
         let r2 = ed448::random_in_Zq();
@@ -162,7 +162,7 @@ impl SMP4Context {
         dec.done()?;
         // verify and process data from TLV.
         let G = ed448::generator();
-        let q = ed448::prime_order();
+        let q = ed448::order();
         let c2_expected = ed448::hash_point_to_scalar(0x01, &(&(G * &d2) + &(&G2a * &c2)));
         constant::compare_scalars_distinct(&c2_expected, &c2)
             .map_err(OTRError::CryptographicViolation)?;
@@ -193,7 +193,10 @@ impl SMP4Context {
         let G3 = &G3a * &b3;
         ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
         // FIXME change return type?
-        let y = self.compute_secret(&self.them, &self.us, &secret).to_bigint().unwrap();
+        let y = self
+            .compute_secret(&self.them, &self.us, &secret)
+            .to_bigint()
+            .unwrap();
         let Pb = &G3 * &r4;
         ed448::verify(&Pb).map_err(OTRError::CryptographicViolation)?;
         let Qb = &(G * &r4) + &(&G2 * &y);
@@ -228,7 +231,7 @@ impl SMP4Context {
     /// `handle_message_2` handles TLV payload for SMP message 2.
     fn handle_message_2(&mut self, tlv: &TLV) -> Result<TLV, OTRError> {
         assert_eq!(tlv.0, TLV_SMP_MESSAGE_2);
-        let q = ed448::prime_order();
+        let q = ed448::order();
         let x: BigInt;
         let a2: BigInt;
         let a3: BigInt;
@@ -391,7 +394,7 @@ impl SMP4Context {
         let r7 = ed448::random_in_Zq();
         let Rb = &DeltaQaQb * &b3;
         let cr = ed448::hash_point_to_scalar2(0x08, &(G * &r7), &(&DeltaQaQb * &r7));
-        let q = ed448::prime_order();
+        let q = ed448::order();
         let d7 = (&r7 - (&b3 * &cr).mod_floor(q)).mod_floor(q);
         let smp4 = OTREncoder::new()
             .write_ed448_point(&Rb)
