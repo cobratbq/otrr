@@ -315,9 +315,11 @@ impl AKEContext {
                     keyid_b,
                     AKEError::DataProcessing("keyid_b is zero, must be non-zero value"),
                 )?;
-                let sig_m_b = dsa::Signature::decode(&mut decoder).or(Err(
-                    AKEError::DataProcessing("Failed to read signature from X_B"),
-                ))?;
+                let sig_m_b = decoder
+                    .read_dsa_signature()
+                    .or(Err(AKEError::DataProcessing(
+                        "Failed to read signature from X_B",
+                    )))?;
                 // Reconstruct and verify m_b against Bob's signature, to ensure identity material is unchanged.
                 let m_b = sha256::hmac(
                     &secrets.m1,
@@ -420,9 +422,11 @@ impl AKEContext {
                     keyid_a,
                     AKEError::DataProcessing("keyid_a is zero, must be a non-zero value"),
                 )?;
-                let sig_m_a = dsa::Signature::decode(&mut decoder).or(Err(
-                    AKEError::DataProcessing("Failed to read signature from X_A"),
-                ))?;
+                let sig_m_a = decoder
+                    .read_dsa_signature()
+                    .or(Err(AKEError::DataProcessing(
+                        "Failed to read signature from X_A",
+                    )))?;
                 decoder
                     .done()
                     .or(Err(AKEError::DataProcessing("data left over in buffer")))?;
