@@ -396,7 +396,7 @@ pub mod dsa {
     use num_bigint::BigUint;
     use num_integer::Integer;
 
-    use crate::{encoding::OTREncodable, utils, OTRError};
+    use crate::encoding::OTREncodable;
 
     use super::CryptoError;
 
@@ -514,6 +514,10 @@ pub mod dsa {
     }
 
     impl Signature {
+        /// from constructs a Signature from its mathematical components.
+        ///
+        /// # Errors
+        /// In case of bad input.
         pub fn from(r: BigUint, s: BigUint) -> Result<Self, CryptoError> {
             Ok(Self(dsa::Signature::from_components(r, s).map_err(
                 |_| {
@@ -522,28 +526,6 @@ pub mod dsa {
                     )
                 },
             )?))
-        }
-
-        /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
-        ///
-        /// # Errors
-        /// In case of failure to decode the encoded signature.
-        // FIXME get decoder out of here, this is faulty code (read_mpi needed).
-        pub fn decode(decoder: &mut crate::encoding::OTRDecoder) -> Result<Self, OTRError> {
-            log::trace!("decode DSA signature…");
-            let r = decoder.read::<PARAM_Q_LENGTH>()?;
-            let s = decoder.read::<PARAM_Q_LENGTH>()?;
-            let signature = dsa::Signature::from_components(
-                BigUint::from_bytes_be(&r),
-                BigUint::from_bytes_be(&s),
-            )
-            .map_err(|_| {
-                OTRError::CryptographicViolation(CryptoError::VerificationFailure(
-                    "Illegal data: decoded data does not contain valid DSA signature.",
-                ))
-            })?;
-            log::trace!("decode DSA signature… done.");
-            Ok(Self(signature))
         }
     }
 
@@ -1806,7 +1788,7 @@ pub mod ed448 {
     /// Panics if invalid input is provided. (sanity-checks)
     pub fn prune(v: &mut [u8]) {
         assert!(v.len() >= 57);
-        assert!(bytes::any_nonzero(v));
+        assert!(bytes::any_nonzero(&v[..57]));
         v[0] &= 0b1111_1100;
         v[55] |= 0b1000_0000;
         v[56] = 0;
@@ -2045,7 +2027,7 @@ pub enum CryptoError {
 mod tests {
     use crate::{
         crypto,
-        encoding::{self, OTRDecoder},
+        encoding::{self, OTRDecoder, OTREncodable, OTREncoder},
         utils::{
             self,
             biguint::{ONE, TWO, ZERO},
@@ -2340,18 +2322,39 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_signature() {
-        //&hex::encode(public_key.encode()) = "e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500"
-        let encoded: [u8; 57] = hex::decode(b"e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500").unwrap().try_into().unwrap();
-        let public_key = ed448::Point::decode(&encoded).unwrap();
-        assert!(ed448::verify(&public_key).is_ok());
-        //&hex::encode(signature.0) = "aa47e956b256f7649868d5828837a45d288710c5ba46f49db6ab672f6a5cbac6209c6dc7f49133e9eb3c3033d367d8a564ad9befcc854e4799"
-        //&hex::encode(signature.1) = "991941669a7aba00c29cb6038a1b63201c110a02870d12ac6ef3ea036c4e9d932adb8239e957bff05db47fce0d3d4021de1255245fd99c4ab2"
-        let sig_bytes = hex::decode(b"aa47e956b256f7649868d5828837a45d288710c5ba46f49db6ab672f6a5cbac6209c6dc7f49133e9eb3c3033d367d8a564ad9befcc854e4799991941669a7aba00c29cb6038a1b63201c110a02870d12ac6ef3ea036c4e9d932adb8239e957bff05db47fce0d3d4021de1255245fd99c4ab2").unwrap();
-        let signature = ed448::Signature::decode(&mut OTRDecoder::new(&sig_bytes)).unwrap();
-        //&hex::encode(m) = "0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13"
-        let m = hex::decode(b"0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13").unwrap();
-        assert!(ed448::validate(&public_key, &signature, &m).is_ok());
+    fn test_verify_signature_static() {
+        //let m = utils::random::secure_bytes::<200>();
+        //dbg!(&hex::encode(m));
+        let m = hex::decode("6af513ac165479d6cfa4e47aaafc1beea2860062f6f3f163fa8edb9a8e9b5281952da13d3ff1d90f2cde03aa6c82aab5dc7817c8f4a09a625f85c3ceb7d33987d83a5b387e529ae41ae9abb45842373723b4e3c80514ac9fa69ebb3282eae231a235b494b41fd0fb4c5a74bdc1a631b052554bdd407cf1d9af2d52734c76e3f756a232bd382b24f360f465c010aef41149a1878cfd209e4f38591b61f0be980efcfcb9ac6abd513434dfb5353be51b80c54866aab0e30cd05aa95d35ea8a6f4431df50eb1ea8a794").unwrap();
+        //let keypair = ed448::EdDSAKeyPair::generate();
+        //let pk_encoded = keypair.public().encode();
+        //dbg!(&hex::encode(pk_encoded));
+        let pk_encoded: [u8; 57] = hex::decode("d1c5cf379dfdc749615e0aa9f2d37e1f4999a830966ddef392e7f071b9675c40fea1c493cca2cc47e63478a69c47c9abfbf29cf5525e1cab00").unwrap().try_into().unwrap();
+        //let signature = keypair.sign(&m);
+        //dbg!(&hex::encode(
+        //    OTREncoder::new().write_encodable(&signature).to_vec()
+        //));
+        let signature = hex::decode("492280a466d0cb22a485865329ab3a54a447154017b3965f0b626fa2a2ae7af1b6dc81a097a8dfa7c9436c1d66fbd9e4301aae82e9f187a500e4a787359120c41c56c6aefa7441ed6ee5ac1ab60457031cd6c6a1aecb044e23a201210ca508685539b27e2eea12672300bc7f38688cde3200").unwrap();
+        //let decoded_signature = ed448::Signature::decode(&mut OTRDecoder::new(
+        //    &OTREncoder::new().write_encodable(&signature).to_vec(),
+        //))
+        let decoded_signature = ed448::Signature::decode(&mut OTRDecoder::new(&signature)).unwrap();
+        let decoded_point = ed448::Point::decode(&pk_encoded).unwrap();
+        ed448::validate(&decoded_point, &decoded_signature, &m).unwrap();
+    }
+
+    #[test]
+    fn test_verify_signature_dynamic() {
+        let m = utils::random::secure_bytes::<200>();
+        let keypair = ed448::EdDSAKeyPair::generate();
+        let signature = keypair.sign(&m);
+        let pk_encoded = keypair.public().encode();
+        let mut enc = OTREncoder::new();
+        signature.encode(&mut enc);
+        let decoded_signature =
+            ed448::Signature::decode(&mut OTRDecoder::new(&enc.to_vec())).unwrap();
+        let decoded_point = ed448::Point::decode(&pk_encoded).unwrap();
+        ed448::validate(&decoded_point, &decoded_signature, &m).unwrap();
     }
 
     #[test]
