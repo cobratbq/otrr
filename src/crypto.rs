@@ -438,7 +438,7 @@ pub mod dsa {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug, PartialEq, PartialOrd)]
     pub struct PublicKey(Rc<VerifyingKey>);
 
     impl PublicKey {
@@ -508,21 +508,27 @@ pub mod dsa {
 
     impl OTREncodable for Signature {
         fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-            // sig = [u8;20] ++ [u8;20] = r ++ s = 2 * SIGNATURE_PARAM_LEN
-            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
-                self.0.r(),
-            ));
-            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
-                self.0.s(),
-            ));
+            encoder.write_mpi(self.0.r());
+            encoder.write_mpi(self.0.s());
         }
     }
 
     impl Signature {
+        pub fn from(r: BigUint, s: BigUint) -> Result<Self, CryptoError> {
+            Ok(Self(dsa::Signature::from_components(r, s).map_err(
+                |_| {
+                    CryptoError::VerificationFailure(
+                        "Illegal data: decoded data does not contain valid DSA signature.",
+                    )
+                },
+            )?))
+        }
+
         /// `read_signature` reads a DSA signature (IEEE-P1393 format) from buffer.
         ///
         /// # Errors
         /// In case of failure to decode the encoded signature.
+        // FIXME get decoder out of here, this is faulty code (read_mpi needed).
         pub fn decode(decoder: &mut crate::encoding::OTRDecoder) -> Result<Self, OTRError> {
             log::trace!("decode DSA signature…");
             let r = decoder.read::<PARAM_Q_LENGTH>()?;
@@ -1347,7 +1353,6 @@ pub mod ed448 {
         m: &[u8],
     ) -> Result<(), CryptoError> {
         let R = Point::decode(&signature.0)?;
-        // TODO call to `verify` is probably redundant. (Checked as part of decoding.)
         verify(&R)?;
         let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &signature.1);
         if s.sign() != num_bigint::Sign::Plus || s >= *Q {
@@ -2050,7 +2055,7 @@ mod tests {
 
     use super::{
         constant, dh,
-        ed448::{self, RingSignature},
+        ed448::{self, Point, RingSignature},
         CryptoError,
     };
 
@@ -2194,7 +2199,7 @@ mod tests {
         let n = ed448::random_in_Zq();
         let point = ed448::generator() * &n;
         ed448::verify(&point).unwrap();
-        assert!((&point * ed448::prime_order()).is_identity());
+        assert!((&point * ed448::order()).is_identity());
         assert_eq!(ed448::identity(), &(&point + &-&point));
     }
 
@@ -2347,5 +2352,41 @@ mod tests {
         //&hex::encode(m) = "0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13"
         let m = hex::decode(b"0001574bea9200021000e61aff76921ea7fcc34d781657414dbac978308b022d63f3738378f55517988018b5832f50fe42a8007d077b9272c49df36f96cb1c2e015500000312000434a9c06be8fbb36e962853c6fa834d86819e7f98d2d89f0d698f207c3e5946afc95b3872b9e7d9d62588513c632980bf39808aad91b9858000040000000233340005000000006546f08f0006000000000080fd7f53811d75122952df4a9c2eece4e7f611b7523cef4400c31e3f80b6512669455d402251fb593d8d58fabfc5f5ba30f6cb9b556cd7813b801d346ff26660b76b9950a5a49f9fe8047b1022c24fbba9d7feb7c61bf83b57e7c6a8a6150f04fb83f6d3c51ec3023554135a169132f675f3ae2b61d72aeff22203199dd14801c7000000149760508f15230bccb292b982a2eb840bf0581cf500000080f7e1a085d69b3ddecbbcab5c36b857b97994afbbfa3aea82f9574c0b3d0782675159578ebad4594fe67107108180b449167123e84c281613b7cf09328cc8a6e13c167a8b547c8d28e0a3ae1e2bb3a675916ea37f0bfa213562f1fb627a01243bcca4f1bea8519089a883dfe15ae59f06928b665e807b552564014c3bfecf492a00000080a62ed27c88087c59a48fd19485ea2ac582192d9d645a318cb1f0c024676ca7e83653f5dedfcf7cf2859636b6252b3aac14501a09458cf868036fb25717ff3224f38ab685fababd922f6e1b96633cb7d9c65ea956b536ff574179e5d00623f5981c274e12584a78b57f77b9137b1d5c6ef0287c38b8c5b8d09bcbe565e92196870007000000145aff1c9128000c265c660e00e79547dedd9febc7000000141099e6219e113d8683058d13").unwrap();
         assert!(ed448::validate(&public_key, &signature, &m).is_ok());
+    }
+
+    #[test]
+    fn test_decode_point_from_otr4j() {
+        let encoded_vec: Vec<u8> = [
+            -34, -104, -16, -124, 35, -103, 75, 116, -80, -57, -19, 11, 97, 86, -64, 37, 12, -123,
+            107, -100, 115, -78, -15, 58, -91, 95, 22, 34, 127, -26, 47, -64, 37, 39, -90, 59, 75,
+            44, 90, 112, -122, 103, 115, 77, -124, -62, -98, 126, -43, 8, 42, -18, 68, -120, 75,
+            90, 0,
+        ]
+        .into_iter()
+        .map(|v: i8| u8::from_be_bytes(v.to_be_bytes()))
+        .collect();
+        let mut encoded = [0u8; 57];
+        encoded.clone_from_slice(&encoded_vec);
+        let p = Point::decode(&encoded).unwrap();
+        ed448::verify(&p).unwrap();
+    }
+
+    #[test]
+    fn test_decode_signature_from_otr4j() {
+        let signature_vec: Vec<u8> = [
+            40, -83, 48, -110, 68, 96, 18, -103, 36, -23, 37, -106, 110, 2, -80, -43, 50, 118, 65,
+            -98, -119, 76, -104, 70, 85, -67, -120, -118, -26, 32, 105, -56, 103, 65, -58, -32,
+            -58, -117, 121, 76, 94, -57, 98, -53, -22, 9, 10, 44, -16, 73, -7, -89, 24, 99, -13,
+            -119, -128, -13, -114, -40, -77, -37, -5, -15, 66, 86, -53, -79, -14, 122, -43, -97,
+            107, -111, -1, -66, -107, 51, -81, 14, -118, 92, -117, -108, -16, 124, -104, -126, -26,
+            125, 18, -4, 85, -76, 39, 72, -115, 30, 69, -55, 37, 36, 38, 83, -56, -72, -3, 24, 81,
+            51, -78, -52, 48, 0,
+        ]
+        .into_iter()
+        .map(|v: i8| u8::from_be_bytes(v.to_be_bytes()))
+        .collect();
+        let mut signature = [0u8; 114];
+        signature.clone_from_slice(&signature_vec);
+        ed448::Signature::decode(&mut OTRDecoder::new(&signature)).unwrap();
     }
 }

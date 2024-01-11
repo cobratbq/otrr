@@ -3,7 +3,7 @@
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
 use bitflags::bitflags;
-use num_bigint::{BigUint, BigInt};
+use num_bigint::{BigInt, BigUint};
 
 use crate::{
     crypto::{dsa, ed448},
@@ -46,9 +46,13 @@ impl<'a> OTRDecoder<'a> {
         Self(content)
     }
 
+    pub fn available(&self) -> usize {
+        self.0.len()
+    }
+
     /// `read_byte` reads a single byte from buffer.
     pub fn read_u8(&mut self) -> Result<u8, OTRError> {
-        log::trace!("decode byte");
+        log::trace!("read byte");
         if self.0.is_empty() {
             return Err(OTRError::IncompleteMessage);
         }
@@ -59,7 +63,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_short` reads a short value (2 bytes, big-endian) from buffer.
     pub fn read_u16(&mut self) -> Result<u16, OTRError> {
-        log::trace!("decode short");
+        log::trace!("read short");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -70,7 +74,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_short_le` reads a short value (2 bytes, little-endian) from buffer.
     pub fn read_u16_le(&mut self) -> Result<u16, OTRError> {
-        log::trace!("decode short (little-endian)");
+        log::trace!("read short (little-endian)");
         if self.0.len() < 2 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -81,7 +85,7 @@ impl<'a> OTRDecoder<'a> {
 
     /// `read_int` reads an integer value (4 bytes, big-endian) from buffer.
     pub fn read_u32(&mut self) -> Result<u32, OTRError> {
-        log::trace!("decode int");
+        log::trace!("read int");
         if self.0.len() < 4 {
             return Err(OTRError::IncompleteMessage);
         }
@@ -94,7 +98,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_i64(&mut self) -> Result<i64, OTRError> {
-        log::trace!("decode int (64-bit, signed)");
+        log::trace!("read int (64-bit, signed)");
         Ok(i64::from_be_bytes(self.read::<8>()?))
     }
 
@@ -172,6 +176,12 @@ impl<'a> OTRDecoder<'a> {
         dsa::PublicKey::from_components(p, q, g, y).map_err(OTRError::CryptographicViolation)
     }
 
+    pub fn read_dsa_signature(&mut self) -> Result<dsa::Signature, OTRError> {
+        let r = self.read_mpi()?;
+        let s = self.read_mpi()?;
+        dsa::Signature::from(r, s).map_err(OTRError::CryptographicViolation)
+    }
+
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
         log::trace!("decode all TLVs");
         let mut tlvs = Vec::new();
@@ -219,7 +229,11 @@ impl<'a> OTRDecoder<'a> {
 
     pub fn read_ed448_point(&mut self) -> Result<ed448::Point, OTRError> {
         log::trace!("decode Ed448 point");
-        ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)
+        let point =
+            ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)?;
+        // FIXME debugging maybe remove for excess processing
+        ed448::verify(&point).map_err(OTRError::CryptographicViolation)?;
+        Ok(point)
     }
 
     pub fn read_ed448_scalar(&mut self) -> Result<BigInt, OTRError> {
@@ -237,8 +251,9 @@ impl<'a> OTRDecoder<'a> {
         self.read()
     }
 
+    // TODO the copy made here is often unnecessary, i.e. could read/parse directly from buffer self.0
     pub fn read<const N: usize>(&mut self) -> Result<[u8; N], OTRError> {
-        log::trace!("read {N} bytes");
+        log::trace!("read {N} (fixed) bytes");
         if self.0.len() < N {
             return Err(OTRError::IncompleteMessage);
         }
@@ -249,6 +264,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     fn transfer(&mut self, n: usize, buffer: &mut Vec<u8>) {
+        log::trace!("read {n} (variable) bytes");
         buffer.extend_from_slice(&self.0[..n]);
         self.0 = &self.0[n..];
     }
@@ -394,10 +410,9 @@ impl OTREncoder {
     }
 
     pub fn write_ed448_scalar(&mut self, scalar: &BigInt) -> &mut Self {
-        self.buffer
-            .extend_from_slice(&utils::bigint::to_bytes_le_fixed::<
-                { ed448::ENCODED_LENGTH },
-            >(scalar));
+        self.buffer.extend_from_slice(
+            &utils::bigint::to_bytes_le_fixed::<{ ed448::ENCODED_LENGTH }>(scalar),
+        );
         self
     }
 
