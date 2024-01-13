@@ -1407,14 +1407,14 @@ pub mod ed448 {
         /// # Errors
         /// In case of verification failure.
         #[allow(non_snake_case)]
-        pub fn verify(
+        pub fn validate(
             &self,
             A1: &Point,
             A2: &Point,
             A3: &Point,
             m: &[u8],
         ) -> Result<(), CryptoError> {
-            log::trace!("Verifying ring-signature…");
+            log::trace!("Validating ring-signature…");
             let T1 = &*G * &self.r1 + A1 * &self.c1;
             let T2 = &*G * &self.r2 + A2 * &self.c2;
             let T3 = &*G * &self.r3 + A3 * &self.c3;
@@ -1433,6 +1433,7 @@ pub mod ed448 {
                     .to_vec(),
             );
             // FIXME make constant-time comparison, selection
+            log::trace!("Validating ring-signature: verifying scalars…");
             constant::compare_scalars_distinct(&c, &(&self.c1 + &self.c2 + &self.c3).mod_floor(&*Q))
         }
 
@@ -1475,6 +1476,7 @@ pub mod ed448 {
                 (false, false, true) => (&*G * &r1 + A1 * &c1, &*G * &r2 + A2 * &c2, &*G * &t),
                 _ => panic!("BUG: illegal combination of public keys."),
             };
+            // REMARK this hashing enforces fixed order, therefore the order of input into ring-signing becomes necessary. I wonder if this was intentional.
             let c = hash_to_scalar(
                 USAGE_AUTH,
                 &OTREncoder::new()
@@ -2227,11 +2229,11 @@ mod tests {
         let a3 = ed448::ECDHKeyPair::generate();
         let m = utils::random::secure_bytes::<250>();
         let sigma = RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m)?;
-        sigma.verify(keypair.public(), a2.public(), a3.public(), &m)?;
+        sigma.validate(keypair.public(), a2.public(), a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), keypair.public(), a3.public(), &m)?;
-        sigma.verify(a2.public(), keypair.public(), a3.public(), &m)?;
+        sigma.validate(a2.public(), keypair.public(), a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), keypair.public(), &m)?;
-        sigma.verify(a2.public(), a3.public(), keypair.public(), &m)
+        sigma.validate(a2.public(), a3.public(), keypair.public(), &m)
     }
 
     #[test]
@@ -2242,11 +2244,11 @@ mod tests {
         let a2 = ed448::ECDHKeyPair::generate();
         let a3 = ed448::ECDHKeyPair::generate();
         let sigma = RingSignature::sign(&keypair, &a1_public, a2.public(), a3.public(), &m)?;
-        sigma.verify(&a1_public, a2.public(), a3.public(), &m)?;
+        sigma.validate(&a1_public, a2.public(), a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), &a1_public, a3.public(), &m)?;
-        sigma.verify(a2.public(), &a1_public, a3.public(), &m)?;
+        sigma.validate(a2.public(), &a1_public, a3.public(), &m)?;
         let sigma = RingSignature::sign(&keypair, a2.public(), a3.public(), &a1_public, &m)?;
-        sigma.verify(a2.public(), a3.public(), &a1_public, &m)
+        sigma.validate(a2.public(), a3.public(), &a1_public, &m)
     }
 
     #[test]
@@ -2259,17 +2261,17 @@ mod tests {
         let sigma =
             RingSignature::sign(&keypair, keypair.public(), a2.public(), a3.public(), &m).unwrap();
         assert!(sigma
-            .verify(keypair.public(), a2.public(), a3.public(), &m_bad)
+            .validate(keypair.public(), a2.public(), a3.public(), &m_bad)
             .is_err());
         let sigma =
             RingSignature::sign(&keypair, a2.public(), keypair.public(), a3.public(), &m).unwrap();
         assert!(sigma
-            .verify(a2.public(), keypair.public(), a3.public(), &m_bad)
+            .validate(a2.public(), keypair.public(), a3.public(), &m_bad)
             .is_err());
         let sigma =
             RingSignature::sign(&keypair, a2.public(), a3.public(), keypair.public(), &m).unwrap();
         assert!(sigma
-            .verify(a2.public(), a3.public(), keypair.public(), &m_bad)
+            .validate(a2.public(), a3.public(), keypair.public(), &m_bad)
             .is_err());
     }
 

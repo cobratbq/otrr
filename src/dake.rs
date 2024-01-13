@@ -203,6 +203,7 @@ impl DAKEContext {
                 .to_vec(),
         ));
         let identity_keypair = self.host.keypair_identity();
+        // TODO strictly speaking, the fixed order here is a problem
         let sigma = ed448::RingSignature::sign(
             identity_keypair,
             &profile_bob.forging_key,
@@ -302,17 +303,17 @@ impl DAKEContext {
                 .write_data(account)
                 .to_vec(),
         ));
-        log::trace!("Verifying Auth-R sigma…");
+        log::trace!("Validating Auth-R sigma…");
         message
             .sigma
-            .verify(
+            .validate(
                 &profile_bob.forging_key,
                 &profile_alice.identity_key,
                 y.public(),
                 &tbytes,
             )
             .map_err(OTRError::CryptographicViolation)?;
-        log::trace!("Auth-R sigma verified.");
+        log::trace!("Auth-R sigma validated.");
         // Generate response Auth-I Message.
         let mut tbytes: Vec<u8> = Vec::new();
         tbytes.push(0x01);
@@ -444,17 +445,17 @@ impl DAKEContext {
                 .to_vec(),
         ));
         // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
-        log::trace!("Verifying Auth-I sigma…");
+        log::trace!("Validating Auth-I sigma…");
         message
             .sigma
-            .verify(
+            .validate(
                 &profile_bob.identity_key,
                 &profile_alice.forging_key,
                 x,
                 &tbytes,
             )
             .map_err(OTRError::CryptographicViolation)?;
-        log::trace!("Auth-I sigma verified.");
+        log::trace!("Auth-I sigma validated.");
         let ssid = otr4::hwc::<8>(otr4::USAGE_SSID, k);
         let prev_root_key = otr4::kdf::<{ otr4::ROOT_KEY_LENGTH }>(otr4::USAGE_FIRST_ROOT_KEY, k);
         let shared_secret = otr4::MixedSharedSecret::new(
