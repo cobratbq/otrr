@@ -1476,7 +1476,6 @@ pub mod ed448 {
                 (false, false, true) => (&*G * &r1 + A1 * &c1, &*G * &r2 + A2 * &c2, &*G * &t),
                 _ => panic!("BUG: illegal combination of public keys."),
             };
-            // REMARK this hashing enforces fixed order, therefore the order of input into ring-signing becomes necessary. I wonder if this was intentional.
             let c = hash_to_scalar(
                 USAGE_AUTH,
                 &OTREncoder::new()
