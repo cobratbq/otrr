@@ -172,24 +172,25 @@ impl DAKEContext {
         let x = ed448::ECDHKeyPair::generate();
         let a = dh3072::KeyPair::generate();
         // FIXME double check minimal size big-endian encoding.
-        let mut tbytes = Vec::new();
-        tbytes.push(0x00);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(&message.profile).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-            &profile_payload_bytes,
-        ));
-        tbytes.extend_from_slice(&message.y.encode());
-        tbytes.extend_from_slice(&x.public().encode());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.b).to_vec());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a.public()).to_vec());
+        let mut tbytes_enc = OTREncoder::new();
+        tbytes_enc
+            .write_u8(0x00)
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(&message.profile).to_vec(),
+            ))
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
+                &profile_payload_bytes,
+            ))
+            .write_ed448_point(&message.y)
+            .write_ed448_point(x.public())
+            .write_mpi(&message.b)
+            .write_mpi(a.public());
         let profile = profile_payload.validate()?;
         let ecdh0 = ed448::ECDHKeyPair::generate();
         let dh0 = dh3072::KeyPair::generate();
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
+        tbytes_enc.write(&otr4::hwc::<64>(
             otr4::USAGE_AUTH_R_PHI,
             &OTREncoder::new()
                 .write_u32(profile.owner_tag)
@@ -203,13 +204,12 @@ impl DAKEContext {
                 .to_vec(),
         ));
         let identity_keypair = self.host.keypair_identity();
-        // TODO strictly speaking, the fixed order here is a problem
         let sigma = ed448::RingSignature::sign(
             identity_keypair,
             &profile_bob.forging_key,
             identity_keypair.public(),
             &message.y,
-            &tbytes,
+            &tbytes_enc.to_vec(),
         )
         .map_err(OTRError::CryptographicViolation)?;
         let response = AuthRMessage {
@@ -273,24 +273,25 @@ impl DAKEContext {
         };
         log::trace!("Handling Auth-R message…");
         let profile_alice = message.validate()?;
-        let mut tbytes: Vec<u8> = Vec::new();
-        tbytes.push(0x00);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new()
-                .write_encodable(&message.profile_payload)
-                .to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.public().encode());
-        tbytes.extend_from_slice(&message.x.encode());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
+        let mut tbytes_enc = OTREncoder::new();
+        tbytes_enc
+            .write_u8(0x00)
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+            ))
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_R_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new()
+                    .write_encodable(&message.profile_payload)
+                    .to_vec(),
+            ))
+            .write_ed448_point(y.public())
+            .write_ed448_point(&message.x)
+            .write_mpi(b.public())
+            .write_mpi(&message.a);
         let profile_bob = payload_bob.validate()?;
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
+        tbytes_enc.write(&otr4::hwc::<64>(
             otr4::USAGE_AUTH_R_PHI,
             &OTREncoder::new()
                 .write_u32(profile_alice.owner_tag)
@@ -310,47 +311,48 @@ impl DAKEContext {
                 &profile_bob.forging_key,
                 &profile_alice.identity_key,
                 y.public(),
-                &tbytes,
+                &tbytes_enc.to_vec(),
             )
             .map_err(OTRError::CryptographicViolation)?;
         log::trace!("Auth-R sigma validated.");
         // Generate response Auth-I Message.
-        let mut tbytes: Vec<u8> = Vec::new();
-        tbytes.push(0x01);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new()
-                .write_encodable(&message.profile_payload)
-                .to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.public().encode());
-        tbytes.extend_from_slice(&message.x.encode());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b.public()).to_vec());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(&message.a).to_vec());
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_I_PHI,
-            &OTREncoder::new()
-                .write_u32(profile_alice.owner_tag)
-                .write_u32(profile_bob.owner_tag)
-                .write_ed448_point(ecdh0.public())
-                .write_mpi(dh0.public())
-                .write_ed448_point(&message.ecdh0)
-                .write_mpi(&message.dh0)
-                .write_data(account)
-                .write_data(contact)
-                .to_vec(),
-        ));
+        let mut tbytes_enc = OTREncoder::new();
+        tbytes_enc
+            .write_u8(0x01)
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+            ))
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new()
+                    .write_encodable(&message.profile_payload)
+                    .to_vec(),
+            ))
+            .write_ed448_point(y.public())
+            .write_ed448_point(&message.x)
+            .write_mpi(b.public())
+            .write_mpi(&message.a)
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_PHI,
+                &OTREncoder::new()
+                    .write_u32(profile_bob.owner_tag)
+                    .write_u32(profile_alice.owner_tag)
+                    .write_ed448_point(ecdh0.public())
+                    .write_mpi(dh0.public())
+                    .write_ed448_point(&message.ecdh0)
+                    .write_mpi(&message.dh0)
+                    .write_data(account)
+                    .write_data(contact)
+                    .to_vec(),
+            ));
         let keypair_identity = self.host.keypair_identity();
         let sigma = ed448::RingSignature::sign(
             keypair_identity,
             keypair_identity.public(),
             &profile_alice.forging_key,
             &message.x,
-            &tbytes,
+            &tbytes_enc.to_vec(),
         )
         .map_err(OTRError::CryptographicViolation)?;
         // Calculate cryptographic material.
@@ -416,26 +418,27 @@ impl DAKEContext {
             ));
         };
         let profile_alice = payload_alice.validate()?;
-        let mut tbytes: Vec<u8> = Vec::new();
-        tbytes.push(0x01);
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_bob).to_vec(),
-        ));
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
-            otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
-            &OTREncoder::new().write_encodable(payload_alice).to_vec(),
-        ));
-        tbytes.extend_from_slice(&y.encode());
-        tbytes.extend_from_slice(&x.encode());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(b).to_vec());
-        tbytes.extend_from_slice(&OTREncoder::new().write_mpi(a).to_vec());
+        let mut tbytes_enc = OTREncoder::new();
+        tbytes_enc
+            .write_u8(0x01)
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_BOB_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_bob).to_vec(),
+            ))
+            .write(&otr4::hwc::<64>(
+                otr4::USAGE_AUTH_I_ALICE_CLIENT_PROFILE,
+                &OTREncoder::new().write_encodable(payload_alice).to_vec(),
+            ))
+            .write_ed448_point(y)
+            .write_ed448_point(x)
+            .write_mpi(b)
+            .write_mpi(a);
         let profile_bob = payload_bob.validate()?;
-        tbytes.extend_from_slice(&otr4::hwc::<64>(
+        tbytes_enc.write(&otr4::hwc::<64>(
             otr4::USAGE_AUTH_I_PHI,
             &OTREncoder::new()
-                .write_u32(profile_alice.owner_tag)
                 .write_u32(profile_bob.owner_tag)
+                .write_u32(profile_alice.owner_tag)
                 .write_ed448_point(ecdh0_other)
                 .write_mpi(dh0_other)
                 .write_ed448_point(ecdh0.public())
@@ -452,7 +455,7 @@ impl DAKEContext {
                 &profile_bob.identity_key,
                 &profile_alice.forging_key,
                 x,
-                &tbytes,
+                &tbytes_enc.to_vec(),
             )
             .map_err(OTRError::CryptographicViolation)?;
         log::trace!("Auth-I sigma validated.");
