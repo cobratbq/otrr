@@ -32,11 +32,7 @@ impl Account {
     /// # Errors
     /// In case of failure to reconstruct client profile.
     // FIXME need method for acquiring session for specified address (create or retrieve)
-    pub fn new(
-        account: Vec<u8>,
-        policy: Policy,
-        host: Rc<dyn Host>,
-    ) -> Result<Self, OTRError> {
+    pub fn new(account: Vec<u8>, policy: Policy, host: Rc<dyn Host>) -> Result<Self, OTRError> {
         let sessions = collections::HashMap::new();
         let profile = Self::restore_clientprofile(host.as_ref())?;
         let details = Rc::new(AccountDetails {
@@ -1088,12 +1084,8 @@ mod tests {
             forging_alice,
             RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(
-            Vec::from("alice"),
-            Policy::ALLOW_V3,
-            Rc::clone(&host_alice),
-        )
-        .unwrap();
+        let mut account_alice =
+            Account::new(Vec::from("alice"), Policy::ALLOW_V3, Rc::clone(&host_alice)).unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
@@ -1103,12 +1095,8 @@ mod tests {
             forging_bob,
             RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(
-            Vec::from("bob"),
-            Policy::ALLOW_V3,
-            Rc::clone(&host_bob),
-        )
-        .unwrap();
+        let mut account_bob =
+            Account::new(Vec::from("bob"), Policy::ALLOW_V3, Rc::clone(&host_bob)).unwrap();
         let bob = account_bob.session(b"alice");
 
         messages_bob
@@ -1149,12 +1137,8 @@ mod tests {
             forging_alice,
             RefCell::new(Vec::new()),
         ));
-        let mut account_alice = Account::new(
-            Vec::from("alice"),
-            Policy::ALLOW_V3,
-            Rc::clone(&host_alice),
-        )
-        .unwrap();
+        let mut account_alice =
+            Account::new(Vec::from("alice"), Policy::ALLOW_V3, Rc::clone(&host_alice)).unwrap();
         let alice = account_alice.session(b"bob");
         let host_bob: Rc<dyn Host> = Rc::new(TestHost(
             Rc::clone(&messages_alice),
@@ -1164,12 +1148,8 @@ mod tests {
             forging_bob,
             RefCell::new(Vec::new()),
         ));
-        let mut account_bob = Account::new(
-            Vec::from("bob"),
-            Policy::ALLOW_V3,
-            Rc::clone(&host_bob),
-        )
-        .unwrap();
+        let mut account_bob =
+            Account::new(Vec::from("bob"), Policy::ALLOW_V3, Rc::clone(&host_bob)).unwrap();
         let bob = account_bob.session(b"alice");
 
         alice.query().unwrap();

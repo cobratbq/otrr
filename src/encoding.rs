@@ -123,6 +123,10 @@ impl<'a> OTRDecoder<'a> {
     pub fn read_mpi(&mut self) -> Result<BigUint, OTRError> {
         log::trace!("decode MPI");
         let len = self.read_u32()? as usize;
+        if len == 0 {
+            // zero-length MPI is `0`, hence no bytes need reading
+            return Ok((*utils::biguint::ZERO).clone());
+        }
         if self.0.len() < len {
             return Err(OTRError::IncompleteMessage);
         }

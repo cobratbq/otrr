@@ -1006,9 +1006,8 @@ pub mod otr4 {
             let mut k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
             assert!(utils::bytes::any_nonzero(&k_ecdh));
             let brace_key = if third {
-                let mut k_dh = utils::biguint::to_bytes_le_fixed::<{ dh3072::ENCODED_LENGTH }>(
-                    &dh.generate_shared_secret(&public_dh),
-                );
+                // TODO determine and align with otr4j: minimum-length or fixed-length encoding for k_dh
+                let mut k_dh = dh.generate_shared_secret(&public_dh).to_bytes_be();
                 let new_brace_key = kdf(USAGE_THIRD_BRACE_KEY, &k_dh);
                 utils::bytes::clear(&mut k_dh);
                 new_brace_key
@@ -1889,7 +1888,9 @@ pub mod dh3072 {
     /// In case `v` fails verification.
     pub fn verify(v: &BigUint) -> Result<(), CryptoError> {
         if v < &G3 || v > &(&*P - &*G3) || v.modpow(&Q, &P) != *utils::biguint::ONE {
-            return Err(CryptoError::VerificationFailure("element is invalid"));
+            return Err(CryptoError::VerificationFailure(
+                "element is invalid for 3072 DH",
+            ));
         }
         Ok(())
     }

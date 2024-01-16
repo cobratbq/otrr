@@ -119,6 +119,11 @@ pub mod bytes {
         buffer
     }
 
+    /// `dump_hex` dumps a byte-array as hexadecimal value. (0xVALUE)
+    pub fn dump_hex(lbl: &str, v: &[u8]) {
+        eprintln!("{lbl} ({}): 0x{}", v.len(), hex::encode(v));
+    }
+
     #[cfg(test)]
     mod tests {
         use hex::FromHex;

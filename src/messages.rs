@@ -10,7 +10,8 @@ use crate::{
     dake,
     encoding::{MessageFlags, OTRDecoder, OTREncodable, OTREncoder, CTR_LEN, MAC4_LEN, MAC_LEN},
     instancetag::InstanceTag,
-    utils, OTRError, Version, keymanager::KeyID,
+    keymanager::KeyID,
+    utils, OTRError, Version,
 };
 
 const OTR_USE_INFORMATION_MESSAGE: &[u8] = b"An Off-The-Record conversation has been requested.";

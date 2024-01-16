@@ -439,6 +439,7 @@ impl ProtocolState for EncryptedOTR4State {
         authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         log::trace!("ENCRYPTED(OTRv4): handling OTRv4 DATA message…");
+        // FIXME otrr code-base assumes public-DH always present in data message, while otr4j assumes it is absent (space-efficiency). OTRv4 spec is not perfectly clear, but hints at it being zero-length. otrr should be adapted to work with `0` public-DH if not DH-ratchet.
         match self.decrypt_message(msg, authenticator_data) {
             Ok(decrypted) => match parse_message(&decrypted) {
                 msg @ Ok(Message::ConfidentialFinished(_)) => {
@@ -539,6 +540,7 @@ impl EncryptedOTR4State {
             self.double_ratchet.k()
         );
         if self.double_ratchet.next() == otr4::Selector::SENDER {
+            // ratchet and immediately persist
             self.double_ratchet = self.double_ratchet.rotate_sender();
         }
         let keys = self.double_ratchet.sender_keys();
@@ -602,13 +604,13 @@ impl EncryptedOTR4State {
         let mut speculate: otr4::DoubleRatchet;
         if msg.i < current_ratchet || (msg.i == current_ratchet && msg.j < self.double_ratchet.k())
         {
-            log::trace!("Working with stored message keys…");
+            log::trace!("Double ratchet: working with stored message keys…");
             // FIXME 1. get key from stored-keys-store
             return Err(OTRError::UserError(
                 "Stored message keys are not supported yet.",
             ));
         } else if msg.i == self.double_ratchet.i() {
-            log::trace!("Rotating the double ratchet forward to the right ratchet…");
+            log::trace!("Double ratchet: ratcheting forward to the right ratchet…");
             if self.double_ratchet.next() != otr4::Selector::RECEIVER {
                 log::trace!("Protocol violation: there cannot be a valid message for a future ratchet, if we need to rotate sender keys first.");
                 return Err(OTRError::ProtocolViolation("Message received in future ratchet even though we need to execute the next ratchet."));
@@ -618,11 +620,16 @@ impl EncryptedOTR4State {
                 .rotate_receiver(msg.ecdh.clone(), msg.dh.clone())
                 .map_err(OTRError::CryptographicViolation)?;
         } else {
-            log::trace!("Working with the current ratchet…");
+            log::trace!("Double ratchet: working with the current ratchet…");
             speculate = self.double_ratchet.clone();
         }
         // TODO should we perform a sanity check in order to not go to far out in the chainkey message id counter?
         while speculate.k() < msg.j {
+            log::trace!(
+                "Current chainkey index: {}. Needed: {}. Rotating.",
+                speculate.k(),
+                msg.j
+            );
             // FIXME need to fast-forward and store all keys we pass by. (different method, store internally?)
             speculate.rotate_receiver_chainkey();
         }
@@ -635,6 +642,7 @@ impl EncryptedOTR4State {
         constant::compare_bytes_distinct(&authenticator, &msg.authenticator)
             .map_err(OTRError::CryptographicViolation)?;
         let content = chacha20::decrypt(Self::extract_encryption_key(&keys.0), &msg.encrypted);
+        // after successfully processing message, persist state of Double Ratchet and rotate past this chainkey
         self.double_ratchet = speculate;
         self.double_ratchet.rotate_receiver_chainkey();
         Ok(content)
@@ -647,6 +655,7 @@ impl EncryptedOTR4State {
     }
 }
 
+// TODO keep track of protocol version we transitioned from, to ensure that StateFinished is not used to subtle downgrade the session protocol.
 pub struct FinishedState {}
 
 impl ProtocolState for FinishedState {

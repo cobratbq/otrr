@@ -9,7 +9,7 @@ use crate::{
     crypto::{dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
     messages::EncodedMessageType,
-    Host, OTRError, Version, SSID,
+    utils, Host, OTRError, Version, SSID,
 };
 
 /// `DAKEContext` is the struct maintaining the state.
@@ -449,8 +449,8 @@ impl DAKEContext {
         ));
         // TODO consider precomputing this and storing the bytes for the ring signature verification, instead of individual components.
         log::trace!("Validating Auth-I sigma…");
-        message
-            .sigma
+        let AuthIMessage { sigma } = message;
+        sigma
             .validate(
                 &profile_bob.identity_key,
                 &profile_alice.forging_key,
