@@ -349,7 +349,7 @@ pub struct DataMessage4 {
     pub i: u32,
     pub j: u32,
     pub ecdh: ed448::Point,
-    pub dh: BigUint,
+    pub dh: Option<BigUint>,
     pub encrypted: Vec<u8>,
     pub authenticator: [u8; MAC4_LEN],
     pub revealed: Vec<u8>,
@@ -373,7 +373,11 @@ impl DataMessage4 {
             i,
             j,
             ecdh,
-            dh,
+            dh: if dh == *utils::biguint::ZERO {
+                None
+            } else {
+                Some(dh)
+            },
             encrypted,
             authenticator,
             revealed,
@@ -390,7 +394,7 @@ impl OTREncodable for DataMessage4 {
             .write_u32(self.i)
             .write_u32(self.j)
             .write_ed448_point(&self.ecdh)
-            .write_mpi(&self.dh)
+            .write_mpi(self.dh.as_ref().unwrap_or(&*utils::biguint::ZERO))
             .write_data(&self.encrypted)
             .write_mac4(&self.authenticator)
             .write_data(&self.revealed);
@@ -399,11 +403,18 @@ impl OTREncodable for DataMessage4 {
 
 impl DataMessage4 {
     pub fn validate(&self) -> Result<(), OTRError> {
-        dh3072::verify(&self.dh).map_err(OTRError::CryptographicViolation)?;
+        if (self.i % 3 == 0) != self.dh.is_some() {
+            return Err(OTRError::ProtocolViolation(
+                "Expected DH public key on DH-ratchet iteration.",
+            ));
+        }
+        if let Some(value) = &self.dh {
+            dh3072::verify(value).map_err(OTRError::CryptographicViolation)?;
+        }
         ed448::verify(&self.ecdh).map_err(OTRError::CryptographicViolation)?;
         if self.revealed.len() % otr4::MAC_LENGTH != 0 {
             return Err(OTRError::ProtocolViolation(
-                "Revealed MACs data does not have expected length.",
+                "Revealed MACs data do not have expected length.",
             ));
         }
         for i in 0..(self.authenticator.len() / otr4::MAC_LENGTH) {
@@ -532,7 +543,7 @@ pub fn encode_authenticator_data4(
         .write_u32(message.i)
         .write_u32(message.j)
         .write_ed448_point(&message.ecdh)
-        .write_mpi(&message.dh)
+        .write_mpi(message.dh.as_ref().unwrap_or(&*utils::biguint::ZERO))
         .write_data(&message.encrypted)
         .to_vec()
 }

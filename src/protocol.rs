@@ -545,16 +545,23 @@ impl EncryptedOTR4State {
         }
         let keys = self.double_ratchet.sender_keys();
         let encrypted = chacha20::encrypt(Self::extract_encryption_key(&keys.0), content);
+        let msg_i = self.double_ratchet.i().saturating_sub(1);
+        let dh = if msg_i % 3 == 0 {
+            Some(self.double_ratchet.dh_public().clone())
+        } else {
+            None
+        };
         let mut message = DataMessage4 {
             flags,
             pn: self.double_ratchet.pn(),
             // TODO do I understand correctly that `saturating_sub` will stay 0 if 1 subtracted from 0?
-            i: self.double_ratchet.i().saturating_sub(1),
+            i: msg_i,
             j: self.double_ratchet.j(),
             ecdh: self.double_ratchet.ecdh_public().clone(),
-            dh: self.double_ratchet.dh_public().clone(),
+            dh,
             encrypted,
             authenticator: [0u8; otr4::MAC_LENGTH],
+            // FIXME need to insert revealed MACs
             revealed: Vec::new(),
         };
         let authenticator_data = messages::encode_authenticator_data4(
@@ -613,11 +620,25 @@ impl EncryptedOTR4State {
             log::trace!("Double ratchet: ratcheting forward to the right ratchet…");
             if self.double_ratchet.next() != otr4::Selector::RECEIVER {
                 log::trace!("Protocol violation: there cannot be a valid message for a future ratchet, if we need to rotate sender keys first.");
-                return Err(OTRError::ProtocolViolation("Message received in future ratchet even though we need to execute the next ratchet."));
+                return Err(OTRError::ProtocolViolation("Message received in future ratchet even though this client is scheduled to perform next ratchet rotation."));
             }
-            speculate = self.double_ratchet.clone();
-            speculate = speculate
-                .rotate_receiver(msg.ecdh.clone(), msg.dh.clone())
+            // This protocol violation should have been detected during message validation.
+            assert_eq!(msg.i % 3 == 0, msg.dh.is_some());
+            if msg.dh.is_some() && msg.dh.as_ref().unwrap() == self.double_ratchet.other_dh() {
+                return Err(OTRError::ProtocolViolation(
+                    // REMARK probably needs a proper formulated sentence :-P
+                    "The same DH public key was provided on (new) DH-ratchet.",
+                ));
+            }
+            speculate = self
+                .double_ratchet
+                .rotate_receiver(
+                    msg.ecdh.clone(),
+                    msg.dh
+                        .as_ref()
+                        .unwrap_or(self.double_ratchet.other_dh())
+                        .clone(),
+                )
                 .map_err(OTRError::CryptographicViolation)?;
         } else {
             log::trace!("Double ratchet: working with the current ratchet…");

@@ -832,6 +832,7 @@ impl Instance {
                     Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
                     Ok(Message::ConfidentialFinished(content)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver, content)),
                     Err(OTRError::UnreadableMessage(_)) if msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) => {
+                        log::debug!("Received unreadable message with flags {}", msg.flags.bits());
                         // For an unreadable message, even if the IGNORE_UNREADABLE flag is set, we
                         // need to send an OTR Error response, to indicate to the other user that
                         // we no longer have a correctly established OTR session.

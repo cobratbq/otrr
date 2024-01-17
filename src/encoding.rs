@@ -363,6 +363,9 @@ impl OTREncoder {
 
     #[allow(clippy::cast_possible_truncation)]
     pub fn write_mpi(&mut self, v: &BigUint) -> &mut Self {
+        if *v == *utils::biguint::ZERO {
+            return self.write_u32(0);
+        }
         // - 4-byte unsigned len, big-endian
         // - <len> byte unsigned value, big-endian
         // (MPIs must use the minimum-length encoding; i.e. no leading 0x00 bytes. This is important when calculating public key fingerprints.)

@@ -436,12 +436,12 @@ fn encode_versions(versions: &[Version]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        crypto::{self, dsa, ed448},
+        crypto::{dsa, ed448},
         encoding::{OTRDecoder, OTREncoder},
         Version,
     };
 
-    use super::{ClientProfile, ClientProfilePayload, Field, ForgingKey, IdentityKey};
+    use super::{ClientProfile, ClientProfilePayload};
 
     #[test]
     fn test_encode_decode_clientprofile() {

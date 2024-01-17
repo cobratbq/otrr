@@ -770,14 +770,14 @@ pub mod otr4 {
         ///
         /// # Panics
         /// In case `rotate_receiver` is used before its turn to rotate. (see `next`)
-        // FIXME dh_next optional or expect same to be provided repeatedly, which may help with out-of-order messages.
         pub fn rotate_receiver(
             &self,
             ecdh_next: ed448::Point,
             dh_next: BigUint,
         ) -> Result<Self, CryptoError> {
             assert_eq!(Selector::RECEIVER, self.next);
-            assert!((self.i % 3 != 0) == (dh_next == self.shared_secret.public_dh));
+            assert_ne!(*utils::biguint::ZERO, dh_next);
+            assert_eq!(self.i % 3 == 0, dh_next != self.shared_secret.public_dh);
             let new_shared_secret =
                 self.shared_secret
                     .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
@@ -955,10 +955,13 @@ pub mod otr4 {
         /// Should only panic in case of a bug in the implementation.
         #[must_use]
         pub fn rotate_keypairs(&self, third: bool) -> Self {
-            let ecdh = ed448::ECDHKeyPair::generate();
-            let dh = dh3072::KeyPair::generate();
+            let dh = if third {
+                dh3072::KeyPair::generate()
+            } else {
+                self.dh.clone()
+            };
             Self::next(
-                ecdh,
+                ed448::ECDHKeyPair::generate(),
                 dh,
                 self.public_ecdh.clone(),
                 self.public_dh.clone(),
@@ -1006,7 +1009,6 @@ pub mod otr4 {
             let mut k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
             assert!(utils::bytes::any_nonzero(&k_ecdh));
             let brace_key = if third {
-                // TODO determine and align with otr4j: minimum-length or fixed-length encoding for k_dh
                 let mut k_dh = dh.generate_shared_secret(&public_dh).to_bytes_be();
                 let new_brace_key = kdf(USAGE_THIRD_BRACE_KEY, &k_dh);
                 utils::bytes::clear(&mut k_dh);

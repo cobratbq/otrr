@@ -9,7 +9,7 @@ use crate::{
     crypto::{dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
     messages::EncodedMessageType,
-    utils, Host, OTRError, Version, SSID,
+    Host, OTRError, Version, SSID,
 };
 
 /// `DAKEContext` is the struct maintaining the state.
