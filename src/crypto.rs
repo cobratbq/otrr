@@ -849,6 +849,11 @@ pub mod otr4 {
 
         #[must_use]
         pub fn receiver_keys(&self) -> Keys {
+            // Note: key management is trivial because we do not yet support going back in time and
+            // retrieving message-keys from store. Keep in mind that when we start selecting message-keys by
+            // ratchet ID + message ID, that we need to use `i-1` if when next rotation is for sender keys,
+            // and `i-2` once sender keys are rotated (and receiver keys are scheduled next).
+            // (See otr4j for edge-case with test, ~2024-01-21.)
             self.receiver.keys()
         }
     }

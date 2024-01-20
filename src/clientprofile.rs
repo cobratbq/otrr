@@ -149,6 +149,7 @@ impl ClientProfilePayload {
     // TODO now assumes fields order is reliable for signatures, which is not guaranteed by OTRv4 spec, as there it lists fields explicitly by name.
     #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> Result<ClientProfile, OTRError> {
+        // FIXME require presence of transitional signature if Version 3 is present in versions-list.
         log::trace!("validating client profile: collecting fields…");
         let mut owner_tag: Option<InstanceTag> = Option::None;
         let mut identity_key: Option<ed448::Point> = Option::None;
