@@ -396,7 +396,7 @@ pub mod dsa {
     use num_bigint::BigUint;
     use num_integer::Integer;
 
-    use crate::encoding::OTREncodable;
+    use crate::{encoding::OTREncodable, utils};
 
     use super::CryptoError;
 
@@ -508,8 +508,12 @@ pub mod dsa {
 
     impl OTREncodable for Signature {
         fn encode(&self, encoder: &mut crate::encoding::OTREncoder) {
-            encoder.write_mpi(self.0.r());
-            encoder.write_mpi(self.0.s());
+            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
+                self.0.r(),
+            ));
+            encoder.write(&utils::biguint::to_bytes_be_fixed::<PARAM_Q_LENGTH>(
+                self.0.s(),
+            ));
         }
     }
 

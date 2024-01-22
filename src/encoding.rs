@@ -181,9 +181,10 @@ impl<'a> OTRDecoder<'a> {
     }
 
     pub fn read_dsa_signature(&mut self) -> Result<dsa::Signature, OTRError> {
-        let r = self.read_mpi()?;
-        let s = self.read_mpi()?;
-        dsa::Signature::from(r, s).map_err(OTRError::CryptographicViolation)
+        let r = self.read::<20>()?;
+        let s = self.read::<20>()?;
+        dsa::Signature::from(BigUint::from_bytes_be(&r), BigUint::from_bytes_be(&s))
+            .map_err(OTRError::CryptographicViolation)
     }
 
     pub fn read_tlvs(&mut self) -> Result<Vec<TLV>, OTRError> {
