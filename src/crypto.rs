@@ -1116,7 +1116,7 @@ pub mod chacha20 {
     }
 }
 
-mod shake256 {
+pub mod shake256 {
     use digest::{ExtendableOutput, Update, XofReader};
     use sha3::Shake256;
 

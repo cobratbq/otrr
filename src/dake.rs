@@ -6,7 +6,7 @@ use num_bigint::BigUint;
 
 use crate::{
     clientprofile::{self, ClientProfile, ClientProfilePayload},
-    crypto::{dh3072, ed448, otr4},
+    crypto::{self, dh3072, ed448, otr4},
     encoding::{OTRDecoder, OTREncodable, OTREncoder},
     messages::EncodedMessageType,
     Host, OTRError, Version, SSID,
@@ -158,8 +158,13 @@ impl DAKEContext {
                 identity_message,
             } => {
                 profile_bob = message.validate()?;
-                // FIXME we need to compare the proper values (hashes of `B`)
-                if identity_message.b > message.b {
+                let our_hashed_b = BigUint::from_bytes_be(&crypto::shake256::digest::<32>(
+                    &OTREncoder::new().write_mpi(&identity_message.b).to_vec(),
+                ));
+                let their_hashed_b = BigUint::from_bytes_be(&crypto::shake256::digest::<32>(
+                    &OTREncoder::new().write_mpi(&message.b).to_vec(),
+                ));
+                if our_hashed_b > their_hashed_b {
                     return Ok(EncodedMessageType::Identity(identity_message.clone()));
                 }
             }
