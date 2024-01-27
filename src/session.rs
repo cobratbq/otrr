@@ -211,7 +211,7 @@ impl Session {
             };
             fragment::verify(&fragment).or(Err(OTRError::ProtocolViolation("Invalid fragment")))?;
             if fragment.receiver != INSTANCE_ZERO && fragment.receiver != self.details.tag {
-                // NOTE: ignore instance tag ZERO as this is only relevant for OTRv2 and we do not
+                // ignore instance tag ZERO as this is only relevant for OTRv2 and we do not
                 // support this.
                 return Err(OTRError::MessageForOtherInstance);
             }
@@ -227,7 +227,7 @@ impl Session {
             return match instance.assembler.assemble(&fragment) {
                 Ok(assembled) => {
                     if fragment::match_fragment(&assembled) {
-                        return Err(OTRError::ProtocolViolation("Assembled fragments lead to a fragment. This is disallowed by the specification."));
+                        return Err(OTRError::ProtocolViolation("Assembled fragments assemble into a fragment. This is disallowed by the specification."));
                     }
                     self.receive(&assembled)
                 }
@@ -609,6 +609,7 @@ struct Instance {
     host: Rc<dyn Host>,
     address: Vec<u8>,
     receiver: InstanceTag,
+    // assembler for each instance, such that resets of the OTR3 assembler are per instance
     assembler: fragment::Assembler,
     state: Box<dyn protocol::ProtocolState>,
     ake: AKEContext,
@@ -654,7 +655,7 @@ impl Instance {
     }
 
     fn transfer_ake_context(&self) -> Result<AKEContext, OTRError> {
-        assert_eq!(0, self.receiver);
+        assert_eq!(INSTANCE_ZERO, self.receiver);
         self.ake.transfer().map_err(OTRError::AuthenticationError)
     }
 
@@ -665,7 +666,7 @@ impl Instance {
     }
 
     fn transfer_dake_context(&self) -> Result<DAKEContext, OTRError> {
-        assert_eq!(0, self.receiver);
+        assert_eq!(INSTANCE_ZERO, self.receiver);
         self.dake.transfer()
     }
 
@@ -683,6 +684,7 @@ impl Instance {
         let version = encoded_message.version;
         let sender = encoded_message.sender;
         let receiver = encoded_message.receiver;
+        // FIXME only reset OTR3 fragment assember, as it expects in-order fragments with no deviation
         self.assembler.reset();
         match (&version, encoded_message.message) {
             (Version::V3, EncodedMessageType::DHCommit(msg)) => {

@@ -8,7 +8,7 @@ use regex::bytes::Regex;
 use crate::{
     encoding::OTREncodable,
     instancetag::{self, InstanceTag},
-    utils,
+    utils, Version,
 };
 
 const OTR_FRAGMENT_V2_PREFIX: &[u8] = b"?OTR,";
@@ -29,9 +29,19 @@ const INDEX_FIRST_FRAGMENT: u16 = 1;
 /// Note that `k` and `n` are unsigned short ints (`2` bytes), and each has a maximum value of
 /// `65535`. Also, each `piece[k]` must be non-empty. The instance tags (if applicable) and the `k`
 /// and `n` values may have leading zeroes.
-static FRAGMENT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static FRAGMENT_V3_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
+    )
+    .unwrap()
+});
+
+/// The OTRv4 fragment format is like OTR3 but contains a message identifier before the sender and
+/// receiver instance tags. This allows distinguishing fragments from multiple messages in out-of-
+/// order delivery.
+static FRAGMENT_V4_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"\?OTR\|([0-9a-fA-F]{8})\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
     )
     .unwrap()
 });
@@ -46,26 +56,64 @@ pub fn match_fragment(content: &[u8]) -> bool {
 /// `parse` parses fragments. Only the `OTRv3` fragment pattern is supported. `OTRv2` fragments will
 /// not match, therefore result in a `None` result.
 pub fn parse(content: &[u8]) -> Option<Fragment> {
-    let captures = (*FRAGMENT_PATTERN).captures(content)?;
-    let sender_bytes =
-        hex::decode(as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
-    let receiver_bytes =
-        hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
-    // NOTE that in the conversion to bytes we assume that a full-size instance tag is present,
+    let version: Version;
+    let identifier: u32;
+    let sender_bytes: Vec<u8>;
+    let receiver_bytes: Vec<u8>;
+    let part: u16;
+    let total: u16;
+    let payload: Vec<u8>;
+    if let Some(captures) = (*FRAGMENT_V4_PATTERN).captures(content) {
+        version = Version::V4;
+        identifier = u32::from_be_bytes(
+            hex::decode(as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes()))
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        sender_bytes =
+            hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
+        receiver_bytes =
+            hex::decode(as_sized_hexarray::<8>(captures.get(3).unwrap().as_bytes())).unwrap();
+        part = std::str::from_utf8(captures.get(4).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        total = std::str::from_utf8(captures.get(5).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        payload = Vec::from(captures.get(6).unwrap().as_bytes());
+    } else if let Some(captures) = (*FRAGMENT_V3_PATTERN).captures(content) {
+        version = Version::V3;
+        identifier = 0u32;
+        sender_bytes =
+            hex::decode(as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
+        receiver_bytes =
+            hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
+        part = std::str::from_utf8(captures.get(3).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        total = std::str::from_utf8(captures.get(4).unwrap().as_bytes())
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        payload = Vec::from(captures.get(5).unwrap().as_bytes());
+    } else {
+        return None;
+    }
+    // Note that in the conversion to bytes we assume that a full-size instance tag is present,
     // therefore decodes into 4 bytes of data.
-    return Some(Fragment {
+    Some(Fragment {
+        version,
+        identifier,
         sender: instancetag::verify(utils::u32::from_4byte_be(&sender_bytes)).ok()?,
         receiver: instancetag::verify(utils::u32::from_4byte_be(&receiver_bytes)).ok()?,
-        part: std::str::from_utf8(captures.get(3).unwrap().as_bytes())
-            .unwrap()
-            .parse::<u16>()
-            .unwrap(),
-        total: std::str::from_utf8(captures.get(4).unwrap().as_bytes())
-            .unwrap()
-            .parse::<u16>()
-            .unwrap(),
-        payload: Vec::from(captures.get(5).unwrap().as_bytes()),
-    });
+        part,
+        total,
+        payload,
+    })
 }
 
 fn as_sized_hexarray<const N: usize>(data: &[u8]) -> [u8; N] {
@@ -75,7 +123,8 @@ fn as_sized_hexarray<const N: usize>(data: &[u8]) -> [u8; N] {
 }
 
 pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
-    if fragment.total == 0
+    if (fragment.version == Version::V3 && fragment.identifier != 0)
+        || fragment.total == 0
         || fragment.part == 0
         || fragment.part > fragment.total
         || fragment.payload.is_empty()
@@ -120,6 +169,8 @@ pub fn fragment(
     for pos in (0..content.len()).step_by(fragment_size) {
         let payload = &content[pos..usize::min(pos + fragment_size, content.len())];
         fragments.push(Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender,
             receiver,
             part: u16::try_from(fragments.len()).unwrap() + 1,
@@ -131,6 +182,8 @@ pub fn fragment(
 }
 
 pub struct Fragment {
+    pub version: Version,
+    identifier: u32,
     pub sender: InstanceTag,
     pub receiver: InstanceTag,
     part: u16,
@@ -141,6 +194,8 @@ pub struct Fragment {
 impl Debug for Fragment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Fragment")
+            .field("version", &self.version)
+            .field("identifier", &self.identifier)
             .field("sender", &self.sender)
             .field("receiver", &self.receiver)
             .field("part", &self.part)
@@ -237,7 +292,7 @@ pub enum FragmentError {
 mod tests {
     use std::cmp::Ordering;
 
-    use crate::{encoding::OTREncoder, utils};
+    use crate::{encoding::OTREncoder, utils, Version};
 
     use super::{fragment, match_fragment, parse, verify, Fragment};
 
@@ -256,6 +311,8 @@ mod tests {
     #[test]
     fn test_verify_fragments() {
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 1,
@@ -264,6 +321,8 @@ mod tests {
         })
         .is_ok());
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 1,
@@ -272,6 +331,8 @@ mod tests {
         })
         .is_err());
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 0,
@@ -280,6 +341,8 @@ mod tests {
         })
         .is_err());
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 1,
@@ -288,6 +351,8 @@ mod tests {
         })
         .is_err());
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 1,
@@ -296,6 +361,8 @@ mod tests {
         })
         .is_err());
         assert!(verify(&Fragment {
+            version: Version::V3,
+            identifier: 0,
             sender: 256,
             receiver: 256,
             total: 11,
@@ -320,6 +387,20 @@ mod tests {
     #[test]
     fn test_parse_fragment() {
         let f = parse(b"?OTR|1f2e3d4c|1a2b3c4d,1,2,?OTR:encoded.,").unwrap();
+        assert_eq!(Version::V3, f.version);
+        assert_eq!(0x0000_0000_u32, f.identifier);
+        assert_eq!(0x1f2e_3d4c_u32, f.sender);
+        assert_eq!(0x1a2b_3c4d_u32, f.receiver);
+        assert_eq!(1u16, f.part);
+        assert_eq!(2u16, f.total);
+        assert_eq!(b"?OTR:encoded.", f.payload.as_slice());
+    }
+
+    #[test]
+    fn test_parse_fragment_otrv4() {
+        let f = parse(b"?OTR|ffaa6600|1f2e3d4c|1a2b3c4d,1,2,?OTR:encoded.,").unwrap();
+        assert_eq!(Version::V4, f.version);
+        assert_eq!(0xffaa_6600_u32, f.identifier);
         assert_eq!(0x1f2e_3d4c_u32, f.sender);
         assert_eq!(0x1a2b_3c4d_u32, f.receiver);
         assert_eq!(1u16, f.part);
@@ -330,6 +411,8 @@ mod tests {
     #[test]
     fn test_parse_fragment_dont_be_stupid_you_know_base64_has_additional_characters() {
         let f = parse(b"?OTR|7a38ec40|60b07b61,00026,00029,+/5b9OkBSaV3fsR=,").unwrap();
+        assert_eq!(Version::V3, f.version);
+        assert_eq!(0x0000_0000_u32, f.identifier);
         assert_eq!(0x7a38_ec40_u32, f.sender);
         assert_eq!(0x60b0_7b61_u32, f.receiver);
         assert_eq!(26u16, f.part);
@@ -340,6 +423,8 @@ mod tests {
     #[test]
     fn test_parse_fragment_with_shorter_instance_tags_and_part_data() {
         let f = parse(b"?OTR|ec40|161,26,29,ab5b9OkBSaV3fsR=,").unwrap();
+        assert_eq!(Version::V3, f.version);
+        assert_eq!(0x0000_0000_u32, f.identifier);
         assert_eq!(0x0000_ec40_u32, f.sender);
         assert_eq!(0x0000_0161_u32, f.receiver);
         assert_eq!(26u16, f.part);
