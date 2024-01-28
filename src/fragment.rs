@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
@@ -131,6 +131,7 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
     {
         Err(FragmentError::InvalidData)
     } else {
+        // TODO guard againt too high `total` values?
         Ok(())
     }
 }
@@ -233,13 +234,45 @@ impl OTREncodable for Fragment {
 }
 
 pub struct Assembler {
+    inorder: InOrderAssembler,
+    unordered: UnorderedAssembler,
+}
+
+impl Assembler {
+    pub fn new() -> Self {
+        Self {
+            inorder: InOrderAssembler::new(),
+            unordered: UnorderedAssembler::new(),
+        }
+    }
+
+    pub fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
+        match fragment.version {
+            Version::V3 => self.inorder.assemble(fragment),
+            Version::V4 => self.unordered.assemble(fragment),
+            Version::None | Version::Unsupported(_) => {
+                panic!("BUG: unexpected version for fragment")
+            }
+        }
+    }
+
+    pub fn reset(&mut self, version: &Version) {
+        match version {
+            Version::V3 => self.inorder.reset(),
+            Version::V4 => self.unordered.reset(),
+            Version::None | Version::Unsupported(_) => panic!("BUG: bad use of assembler reset"),
+        }
+    }
+}
+
+struct InOrderAssembler {
     total: u16,
     last: u16,
     content: Vec<u8>,
 }
 
-impl Assembler {
-    pub fn new() -> Self {
+impl InOrderAssembler {
+    fn new() -> Self {
         Self {
             total: 0,
             last: 0,
@@ -247,7 +280,7 @@ impl Assembler {
         }
     }
 
-    pub fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
+    fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
         verify(fragment)?;
         if fragment.part == INDEX_FIRST_FRAGMENT {
             // First fragment encountered.
@@ -270,10 +303,54 @@ impl Assembler {
         }
     }
 
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         self.total = 0;
         self.last = 0;
         self.content.clear();
+    }
+}
+
+struct UnorderedAssembler {
+    fragments: HashMap<u32, Vec<Vec<u8>>>,
+}
+
+impl UnorderedAssembler {
+    fn new() -> Self {
+        Self {
+            fragments: HashMap::new(),
+        }
+    }
+
+    fn reset(&mut self) {
+        // FIXME implement reset/cleanup for OTRv4 assembler
+        todo!("TODO: implement reset for OTRv4 assembler")
+    }
+
+    fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
+        // TODO verify fragment here again?
+        let store =
+            self.fragments
+                .entry(fragment.identifier)
+                .or_insert(vec![Vec::new(); fragment.total as usize]);
+        if store.capacity() != fragment.total as usize {
+            return Err(FragmentError::InvalidData);
+        }
+        if !store[fragment.part as usize].is_empty() {
+            // TODO handle duplicate fragment differently?
+            log::debug!("Duplicate fragment encountered: fragment already present in store.");
+            return Err(FragmentError::UnexpectedFragment);
+        }
+        store[fragment.part as usize] = fragment.payload.clone();
+        if store.iter().any(std::vec::Vec::is_empty) {
+            return Err(FragmentError::IncompleteResult);
+        }
+        let mut payload: Vec<u8> = Vec::with_capacity(store.iter().fold(0, |a, f| a + f.len()));
+        for f in store.iter() {
+            payload.extend(f);
+        }
+        let removed = self.fragments.remove(&fragment.identifier);
+        debug_assert!(removed.is_some());
+        Ok(payload)
     }
 }
 

@@ -684,8 +684,10 @@ impl Instance {
         let version = encoded_message.version;
         let sender = encoded_message.sender;
         let receiver = encoded_message.receiver;
-        // FIXME only reset OTR3 fragment assember, as it expects in-order fragments with no deviation
-        self.assembler.reset();
+        if version == Version::V3 {
+            // FIXME only reset OTR3 fragment assember, as it expects in-order fragments with no deviation
+            self.assembler.reset(&Version::V3);
+        }
         match (&version, encoded_message.message) {
             (Version::V3, EncodedMessageType::DHCommit(msg)) => {
                 let response = self
