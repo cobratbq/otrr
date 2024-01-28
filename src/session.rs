@@ -269,7 +269,7 @@ impl Session {
                 log::debug!("Processing whitespace-tagged message ..");
                 if self.details.policy.contains(Policy::WHITESPACE_START_AKE) {
                     if let Some(selected) = select_version(&self.details.policy, &versions) {
-                        self.initiate(selected, INSTANCE_ZERO)?;
+                        self.initiate(&selected, INSTANCE_ZERO)?;
                     }
                 }
                 if self.has_sessions() || self.details.policy.contains(Policy::REQUIRE_ENCRYPTION) {
@@ -282,7 +282,7 @@ impl Session {
                 log::debug!("Processing query message ..");
                 log::trace!("Query-message with versions {:?}", versions);
                 if let Some(selected) = select_version(&self.details.policy, &versions) {
-                    self.initiate(selected, INSTANCE_ZERO)?;
+                    self.initiate(&selected, INSTANCE_ZERO)?;
                 }
                 Ok(UserMessage::None)
             }
@@ -494,7 +494,7 @@ impl Session {
     // TODO now that `initiate` may return an error, check if this needs handling or whether propagation is fine.
     pub fn initiate(
         &mut self,
-        version: Version,
+        version: &Version,
         receiver: InstanceTag,
     ) -> Result<UserMessage, OTRError> {
         self.instances
@@ -644,7 +644,7 @@ impl Instance {
         self.state.status()
     }
 
-    fn initiate(&mut self, version: Version) -> Result<UserMessage, OTRError> {
+    fn initiate(&mut self, version: &Version) -> Result<UserMessage, OTRError> {
         let initiator = match version {
             Version::V3 => self.ake.initiate(),
             Version::V4 => self.dake.initiate()?,
@@ -693,14 +693,14 @@ impl Instance {
                 let response = self
                     .ake
                     .handle_dhcommit(msg).map_err(OTRError::AuthenticationError)?;
-                self.inject(self.ake.version(), sender, response);
+                self.inject(&self.ake.version(), sender, response);
                 Ok(UserMessage::None)
             }
             (Version::V3, EncodedMessageType::DHKey(msg)) => {
                 let response = self
                     .ake
                     .handle_dhkey(msg).map_err(OTRError::AuthenticationError)?;
-                self.inject(self.ake.version(), sender, response);
+                self.inject(&self.ake.version(), sender, response);
                 Ok(UserMessage::None)
             }
             (Version::V3, EncodedMessageType::RevealSignature(msg)) => {
@@ -710,7 +710,7 @@ impl Instance {
                 self.state = self.state.secure(Rc::clone(&self.host), self.details.tag,
                     encoded_message.sender, ProtocolMaterial::AKE { ssid, our_dh, their_dh, their_dsa });
                 assert_eq!(ProtocolStatus::Encrypted, self.state.status());
-                self.inject(self.ake.version(), sender, response);
+                self.inject(&self.ake.version(), sender, response);
                 Ok(UserMessage::ConfidentialSessionStarted(self.receiver))
             }
             (Version::V3, EncodedMessageType::Signature(msg)) => {
@@ -745,7 +745,7 @@ impl Instance {
                                     .write_u8(0)
                                     .write_tlv(&reply_tlv)
                                     .to_vec())?;
-                            self.inject(self.state.version(), sender, otr_message);
+                            self.inject(&self.state.version(), sender, otr_message);
                         }
                         match self.state.smp().unwrap().status() {
                             SMPStatus::InProgress => Ok(UserMessage::None),
@@ -780,12 +780,12 @@ impl Instance {
             }
             (Version::V4, EncodedMessageType::Identity(message)) => {
                 let response = self.dake.handle_identity(message, &self.details.account, &self.address)?;
-                self.inject(self.dake.version(), sender, response);
+                self.inject(&self.dake.version(), sender, response);
                 Ok(UserMessage::None)
             }
             (Version::V4, EncodedMessageType::AuthR(message)) => {
                 let (MixedKeyMaterial{ssid, double_ratchet, us, them}, response) = self.dake.handle_auth_r(message, &self.details.account, &self.address)?;
-                self.inject(self.dake.version(), sender, response);
+                self.inject(&self.dake.version(), sender, response);
                 self.state = self.state.secure(Rc::clone(&self.host), self.details.tag, self.receiver, ProtocolMaterial::DAKE { ssid, double_ratchet, us, them });
                 // TODO is this assertion valid? (what if we perform new DAKE while in encrypted session?)
                 assert_eq!(ProtocolStatus::Encrypted, self.state.status());
@@ -823,7 +823,7 @@ impl Instance {
                                     .write_u8(0)
                                     .write_tlv(&response)
                                     .to_vec())?;
-                            self.inject(self.state.version(), sender, otr_message);
+                            self.inject(&self.state.version(), sender, otr_message);
                         }
                         match self.state.smp4().unwrap().status() {
                             SMP4Status::InProgress => Ok(UserMessage::None),
@@ -873,7 +873,7 @@ impl Instance {
             return UserMessage::None;
         }
         if let Some(msg) = abortmsg {
-            self.inject(version, self.receiver, msg);
+            self.inject(&version, self.receiver, msg);
         }
         UserMessage::Reset(self.receiver)
     }
@@ -910,42 +910,46 @@ impl Instance {
             | EncodedMessageType::RevealSignature(_)
             | EncodedMessageType::Signature(_)) => {
                 log::trace!("Message prepared as OTR-encoded protocol message.");
-                let content =
-                    encode_message(self.ake.version(), self.details.tag, self.receiver, message);
-                Ok(self.prepare_payloads(content))
+                let content = encode_message(
+                    &self.ake.version(),
+                    self.details.tag,
+                    self.receiver,
+                    message,
+                );
+                Ok(self.prepare_payloads(&self.ake.version(), content))
             }
             message @ (EncodedMessageType::Identity(_)
             | EncodedMessageType::AuthR(_)
             | EncodedMessageType::AuthI(_)) => {
                 log::trace!("Message prepared as OTR-encoded OTRv4 protocol message.");
                 let content = encode_message(
-                    self.dake.version(),
+                    &self.dake.version(),
                     self.details.tag,
                     self.receiver,
                     message,
                 );
-                Ok(self.prepare_payloads(content))
+                Ok(self.prepare_payloads(&self.dake.version(), content))
             }
             message @ (EncodedMessageType::Data(_) | EncodedMessageType::Data4(_)) => {
                 let content = encode_message(
-                    self.state.version(),
+                    &self.state.version(),
                     self.details.tag,
                     self.receiver,
                     message,
                 );
-                Ok(self.prepare_payloads(content))
+                Ok(self.prepare_payloads(&self.state.version(), content))
             }
         }
     }
 
-    fn prepare_payloads(&self, payload: Vec<u8>) -> Vec<Vec<u8>> {
+    fn prepare_payloads(&self, version: &Version, payload: Vec<u8>) -> Vec<Vec<u8>> {
         let max_size = self.host.message_size();
         if payload.len() <= max_size {
             // send message-bytes as-is: fragmentation is not needed.
             vec![payload]
         } else {
             // fragmentation is needed: send multiple fragments instead.
-            fragment::fragment(max_size, self.details.tag, self.receiver, &payload)
+            fragment::fragment(max_size, version, self.details.tag, self.receiver, &payload)
                 .iter()
                 .map(|f| OTREncoder::new().write_encodable(f).to_vec())
                 .collect()
@@ -960,7 +964,7 @@ impl Instance {
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_u8(0).write_tlv(&tlv).to_vec(),
         )?;
-        self.inject(self.state.version(), self.receiver, message);
+        self.inject(&self.state.version(), self.receiver, message);
         Ok(())
     }
 
@@ -983,25 +987,32 @@ impl Instance {
                 &OTREncoder::new().write_u8(0).write_tlv(&tlv).to_vec(),
             )
             .unwrap();
-        self.inject(self.state.version(), self.receiver, msg);
+        self.inject(&self.state.version(), self.receiver, msg);
         Ok(())
     }
 
-    fn inject(&self, version: Version, receiver: InstanceTag, message: EncodedMessageType) {
+    fn inject(&self, version: &Version, receiver: InstanceTag, message: EncodedMessageType) {
         assert!(receiver != 0 && self.receiver == 0 || self.receiver == receiver);
         log::trace!(
             "Injecting encoded message with tag '{}' for '{}'.",
             self.details.tag,
             receiver
         );
+        // FIXME cloning version enum or passing by reference? (it's a stupidly trivial question, but I wonder about this because it's such a trivial data-type)
         let content = encode_message(version, self.details.tag, self.receiver, message);
         let max_size = self.host.message_size();
         if content.len() <= max_size {
             self.host.inject(&self.address, &content);
         } else {
-            for fragment in fragment::fragment(max_size, self.details.tag, self.receiver, &content)
-                .into_iter()
-                .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
+            for fragment in fragment::fragment(
+                max_size,
+                &version,
+                self.details.tag,
+                self.receiver,
+                &content,
+            )
+            .into_iter()
+            .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
             {
                 self.host.inject(&self.address, &fragment);
             }

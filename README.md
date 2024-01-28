@@ -71,8 +71,9 @@ __Functionality__:
   - ☑ Assemble fragments of incoming message.
   - ☑ Fragment outgoing messages.
 - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
-- ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)
-- ☐ Expose the Extra Symmetric Key (TLV type `8`)
+- ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)  
+  _This is somewhat controversial due to risk of sending queued messages to wrong established session._
+- ☐ Expose the Extra Symmetric Key (TLV type `8` in OTR3, TLV type `7` in OTRv4)
 
 __Operational__:
 
@@ -85,7 +86,7 @@ __Developmental__:
 - ☑ No logic for managing multiple accounts:  
   _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Account` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
 - ☐ API for managing multiple accounts, keys, policies?
-- ☐ Unit tests: too few tests, because rust syntax is that expressive
+- ☐ Unit tests: too few tests, even though rust syntax is that expressive.
 - ☐ Resilient to faulty implementations of `Host` as provided by the client.  
     _At this moment it is not clear how to do this: `std::panic::catch_unwind` is not guaranteed to catch and handle all panics._
 

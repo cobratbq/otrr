@@ -429,13 +429,13 @@ impl DataMessage4 {
 }
 
 pub fn encode_message(
-    version: Version,
+    version: &Version,
     sender: InstanceTag,
     receiver: InstanceTag,
     message: EncodedMessageType,
 ) -> Vec<u8> {
     serialize_message(&MessageType::Encoded(EncodedMessage {
-        version,
+        version: version.clone(),
         sender,
         receiver,
         message,
