@@ -327,6 +327,7 @@ impl UnorderedAssembler {
     }
 
     fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
+        verify(fragment)?;
         // TODO verify fragment here again?
         let store =
             self.fragments
@@ -335,12 +336,13 @@ impl UnorderedAssembler {
         if store.capacity() != fragment.total as usize {
             return Err(FragmentError::InvalidData);
         }
-        if !store[fragment.part as usize].is_empty() {
+        let idx = fragment.part as usize - 1;
+        if !store[idx].is_empty() {
             // TODO handle duplicate fragment differently?
             log::debug!("Duplicate fragment encountered: fragment already present in store.");
             return Err(FragmentError::UnexpectedFragment);
         }
-        store[fragment.part as usize] = fragment.payload.clone();
+        store[idx] = fragment.payload.clone();
         if store.iter().any(std::vec::Vec::is_empty) {
             return Err(FragmentError::IncompleteResult);
         }
