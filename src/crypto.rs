@@ -534,12 +534,7 @@ pub mod dsa {
     }
 
     fn prehash(data: &[u8], q: &BigUint) -> [u8; 20] {
-        BigUint::from_bytes_be(data)
-            .mod_floor(q)
-            .to_bytes_be()
-            // FIXME double-check if this is correct in all cases: if bytes_be.len() < 20, probably leaves zeroes at the end.
-            .try_into()
-            .expect("BUG: Failed to convert prehash into 20-byte array")
+        utils::biguint::to_bytes_be_fixed(&BigUint::from_bytes_be(data).mod_floor(q))
     }
 }
 
