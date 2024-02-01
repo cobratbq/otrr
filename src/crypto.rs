@@ -669,6 +669,7 @@ pub mod otr4 {
         next: Selector,
         i: u32,
         pn: u32,
+        reveals: Vec<u8>,
     }
 
     impl Drop for DoubleRatchet {
@@ -676,6 +677,8 @@ pub mod otr4 {
             utils::bytes::clear(&mut self.root_key);
             self.i = 0;
             self.pn = 0;
+            // FIXME proper disposal of to-be-revealed keys. (This is most likely called due to rotating away, so clearing without exposing isn't an issue to be concerned with here.)
+            self.reveals.clear();
         }
     }
 
@@ -719,12 +722,18 @@ pub mod otr4 {
                 next,
                 i: 0,
                 pn: 0,
+                reveals: Vec::new(),
             }
         }
 
         #[must_use]
         pub fn next(&self) -> Selector {
             self.next.clone()
+        }
+
+        #[must_use]
+        pub fn collect_reveals(&mut self) -> Vec<u8> {
+            std::mem::take(&mut self.reveals)
         }
 
         /// `rotate_sender` rotates the sender keys of the Double Ratchet.
@@ -748,6 +757,7 @@ pub mod otr4 {
                 next: Selector::RECEIVER,
                 i: self.i + 1,
                 pn: self.sender.message_id,
+                reveals: self.reveals.clone(),
             }
         }
 
@@ -792,12 +802,20 @@ pub mod otr4 {
                 next: Selector::SENDER,
                 i: self.i + 1,
                 pn: self.pn,
+                reveals: self.reveals.clone(),
             };
             utils::bytes::clear(&mut new_k);
             Ok(rotated)
         }
 
         pub fn rotate_receiver_chainkey(&mut self) {
+            self.receiver.rotate();
+        }
+
+        /// `confirm_receiver_keys` confirms use of the current message-keys by extending the buffer
+        /// of MK_mac keys to reveal, then rotates past the current keys for next usage.
+        pub fn confirm_receiver_keys(&mut self) {
+            self.reveals.extend_from_slice(&self.receiver.keys().1);
             self.receiver.rotate();
         }
 

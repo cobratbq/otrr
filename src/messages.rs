@@ -417,6 +417,11 @@ impl DataMessage4 {
                 "Revealed MACs data do not have expected length.",
             ));
         }
+        if self.i > 0 && self.j == 0 && self.revealed.len() / otr4::MAC_LENGTH == 0 {
+            return Err(OTRError::ProtocolViolation(
+                "First message of the ratchet does not contain revealed MAC-keys. (This is required by the protocol and is critical for our deniability.)"
+            ));
+        }
         for i in 0..(self.authenticator.len() / otr4::MAC_LENGTH) {
             debug_assert!(utils::bytes::any_nonzero(
                 &self.authenticator[i..i + otr4::MAC_LENGTH]

@@ -31,7 +31,6 @@ impl Account {
     ///
     /// # Errors
     /// In case of failure to reconstruct client profile.
-    // FIXME need method for acquiring session for specified address (create or retrieve)
     pub fn new(account: Vec<u8>, policy: Policy, host: Rc<dyn Host>) -> Result<Self, OTRError> {
         let sessions = collections::HashMap::new();
         let profile = Self::restore_clientprofile(host.as_ref())?;
@@ -85,6 +84,7 @@ impl Account {
             host.update_client_profile(OTREncoder::new().write_encodable(&payload).to_vec());
             Ok(profile)
         } else {
+            // TODO how to handle bad payloads? We need to fall-back to creating a new client-profile, but then will we cause trouble if we ask host to blindly overwrite its existing (bad) client-profile?
             log::trace!("Account: restoring existing client profile.");
             let mut decoder = OTRDecoder::new(&bytes);
             let payload = ClientProfilePayload::decode(&mut decoder)?;

@@ -439,7 +439,6 @@ impl ProtocolState for EncryptedOTR4State {
         authenticator_data: &[u8],
     ) -> (Result<Message, OTRError>, Option<Box<dyn ProtocolState>>) {
         log::trace!("ENCRYPTED(OTRv4): handling OTRv4 DATA message…");
-        // FIXME otrr code-base assumes public-DH always present in data message, while otr4j assumes it is absent (space-efficiency). OTRv4 spec is not perfectly clear, but hints at it being zero-length. otrr should be adapted to work with `0` public-DH if not DH-ratchet.
         match self.decrypt_message(msg, authenticator_data) {
             Ok(decrypted) => match parse_message(&decrypted) {
                 msg @ Ok(Message::ConfidentialFinished(_)) => {
@@ -494,6 +493,7 @@ impl ProtocolState for EncryptedOTR4State {
             .write_u8(0)
             .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
+        // FIXME need to include (remaining) MAC keys to reveal when encrypting disconnect-message.
         let optabort = Some(EncodedMessageType::Data4(
             self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
         ));
@@ -539,9 +539,13 @@ impl EncryptedOTR4State {
             self.double_ratchet.j(),
             self.double_ratchet.k()
         );
+        let reveals: Vec<u8>;
         if self.double_ratchet.next() == otr4::Selector::SENDER {
             // ratchet and immediately persist
+            reveals = self.double_ratchet.collect_reveals();
             self.double_ratchet = self.double_ratchet.rotate_sender();
+        } else {
+            reveals = Vec::new();
         }
         let keys = self.double_ratchet.sender_keys();
         let encrypted = chacha20::encrypt(Self::extract_encryption_key(&keys.0), content);
@@ -562,7 +566,7 @@ impl EncryptedOTR4State {
             encrypted,
             authenticator: [0u8; otr4::MAC_LENGTH],
             // FIXME need to insert revealed MACs
-            revealed: Vec::new(),
+            revealed: reveals,
         };
         let authenticator_data = messages::encode_authenticator_data4(
             &self.version(),
@@ -665,7 +669,7 @@ impl EncryptedOTR4State {
         let content = chacha20::decrypt(Self::extract_encryption_key(&keys.0), &msg.encrypted);
         // after successfully processing message, persist state of Double Ratchet and rotate past this chainkey
         self.double_ratchet = speculate;
-        self.double_ratchet.rotate_receiver_chainkey();
+        self.double_ratchet.confirm_receiver_keys();
         Ok(content)
     }
 
