@@ -719,7 +719,7 @@ mod tests {
             unimplemented!("message injection is not necessary for SMP4 tests")
         }
 
-        fn keypair(&self) -> &crypto::dsa::Keypair {
+        fn keypair(&self) -> Option<&crypto::dsa::Keypair> {
             unimplemented!("DSA keypair is not necessary for SMP4 tests")
         }
 

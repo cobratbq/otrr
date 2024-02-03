@@ -77,7 +77,13 @@ impl SMPContext {
             return Err(OTRError::SMPInProgress);
         }
         let x = compute_secret(
-            &otr::fingerprint(&self.host.keypair().public_key()),
+            &otr::fingerprint(
+                &self
+                    .host
+                    .keypair()
+                    .expect("BUG: in OTR3 SMP the (legacy) DSA keypair must be available.")
+                    .public_key(),
+            ),
             &self.their_fingerprint,
             &self.ssid,
             secret,
@@ -261,7 +267,13 @@ impl SMPContext {
         }
         let y = compute_secret(
             &self.their_fingerprint,
-            &otr::fingerprint(&self.host.keypair().public_key()),
+            &otr::fingerprint(
+                &self
+                    .host
+                    .keypair()
+                    .expect("BUG: in OTR3 SMP the (legacy) DSA keypair must be available.")
+                    .public_key(),
+            ),
             &self.ssid,
             &answer.unwrap(),
         );
@@ -1349,8 +1361,8 @@ mod tests {
             unimplemented!("not necessary for tests")
         }
 
-        fn keypair(&self) -> &dsa::Keypair {
-            &self.0
+        fn keypair(&self) -> Option<&dsa::Keypair> {
+            Some(&self.0)
         }
 
         fn keypair_identity(&self) -> &crate::crypto::ed448::EdDSAKeyPair {

@@ -185,7 +185,10 @@ impl AKEContext {
                 // `AUTHSTATE_AWAITING_SIG`.
                 let s = state.our_dh_keypair.generate_shared_secret(&msg.gy);
                 let secrets = AKESecrets::derive(&OTREncoder::new().write_mpi(&s).to_vec());
-                let dsa_keypair = self.host.keypair();
+                let dsa_keypair = self
+                    .host
+                    .keypair()
+                    .expect("BUG: (legacy) DSA keypair must be available for OTR3 AKE");
                 let pub_b = dsa_keypair.public_key();
                 let m_b = sha256::hmac(
                     &secrets.m1,
@@ -337,7 +340,10 @@ impl AKEContext {
                     .map_err(AKEError::CryptographicViolation)?;
                 log::debug!("M_B verified: correct");
 
-                let keypair = self.host.keypair();
+                let keypair = self
+                    .host
+                    .keypair()
+                    .expect("BUG: (legacy) DSA keypair must be available for OTR3 AKE");
                 let m_a = sha256::hmac(
                     &secrets.m1p,
                     &OTREncoder::new()

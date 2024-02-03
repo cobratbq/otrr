@@ -49,6 +49,7 @@ impl Account {
 
     // TODO how to approach client profile renewals?
     fn restore_clientprofile(host: &dyn Host) -> Result<ClientProfile, OTRError> {
+        const DEFAULT_EXPIRATION: u64 = 7 * 24 * 3600;
         log::trace!("Account: restoring client profile…");
         let bytes = host.client_profile();
         // TODO automatically generate new profile if there is an error, or feed-back the error and assume steps need to be taken on the host?
@@ -57,12 +58,14 @@ impl Account {
             let tag = instancetag::random_tag();
             let identity_public = host.keypair_identity().public().clone();
             let forging_public = host.keypair_forging().public().clone();
-            // FIXME figure out allowed versions from policy (or something)
-            let versions = vec![Version::V4];
-            // FIXME replace with constant for default expiration time.
+            let mut versions = vec![Version::V4];
+            let legacy_keypair = host.keypair();
+            if legacy_keypair.is_some() {
+                versions.push(Version::V3);
+            }
             let expiration = i64::try_from(
                 std::time::SystemTime::now()
-                    .checked_add(std::time::Duration::new(86400, 0))
+                    .checked_add(std::time::Duration::new(DEFAULT_EXPIRATION, 0))
                     .unwrap()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -78,9 +81,9 @@ impl Account {
                 forging_public,
                 versions,
                 expiration,
-                None,
+                legacy_keypair.map(|keypair| keypair.public_key().clone()),
             )?;
-            let payload = profile.sign(host.keypair_identity(), None);
+            let payload = profile.sign(host.keypair_identity(), legacy_keypair);
             host.update_client_profile(OTREncoder::new().write_encodable(&payload).to_vec());
             Ok(profile)
         } else {
@@ -141,6 +144,7 @@ pub struct Session {
     whitespace_tagged: bool,
 }
 
+// TODO we need to ensure the (legacy) DSA keypair is available when OTR3 interaction is executed. The logic assumes that the keypair is present.
 impl Session {
     fn new(host: Rc<dyn Host>, details: Rc<AccountDetails>, address: Vec<u8>) -> Session {
         let mut instances = collections::HashMap::new();
@@ -179,6 +183,7 @@ impl Session {
     }
 
     fn expire(&mut self, timeout: u64) {
+        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         for (_, instance) in &mut self.instances {
             instance.expire(timeout);
         }
@@ -658,12 +663,13 @@ impl Instance {
     }
 
     fn expire(&mut self, timeout: u64) {
-        if let Some((disconnectmsg, new_state)) = self.state.expire(timeout) {
+        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
+        if let Some((disconnect_msg, new_state)) = self.state.expire(timeout) {
             let prev = core::mem::replace(
                 &mut self.state,
                 new_state as Box<dyn protocol::ProtocolState>,
             );
-            self.inject(&prev.version(), self.receiver, disconnectmsg);
+            self.inject(&prev.version(), self.receiver, disconnect_msg);
         }
     }
 
@@ -1488,8 +1494,8 @@ mod tests {
             self.0.borrow_mut().push_back(Vec::from(message));
         }
 
-        fn keypair(&self) -> &dsa::Keypair {
-            &self.1
+        fn keypair(&self) -> Option<&dsa::Keypair> {
+            Some(&self.1)
         }
 
         fn keypair_identity(&self) -> &crate::crypto::ed448::EdDSAKeyPair {

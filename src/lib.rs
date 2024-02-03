@@ -225,7 +225,7 @@ pub trait Host {
     /// Acquire the long-term (legacy) DSA keypair from the host application. The long-term keypair,
     /// that is used for authentication purposes, is requested from the host application. This
     /// allows the host control over which keypair to provide for which account.
-    fn keypair(&self) -> &dsa::Keypair;
+    fn keypair(&self) -> Option<&dsa::Keypair>;
 
     /// keypair_identity is the OTRv4 long-term (identity) keypair.
     fn keypair_identity(&self) -> &ed448::EdDSAKeyPair;
