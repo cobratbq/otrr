@@ -74,6 +74,8 @@ __Functionality__:
 - ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)  
   _This is somewhat controversial due to risk of sending queued messages to wrong established session._
 - ☐ Expose the Extra Symmetric Key (TLV type `8` in OTR3, TLV type `7` in OTRv4)
+- ☑ Session expiration  
+  _Session expiration is present only as a method-call. This is currently an action that the host (chat-application) must perform._
 
 __Operational__:
 
