@@ -46,6 +46,7 @@ pub trait ProtocolState {
         material: ProtocolMaterial,
     ) -> Box<dyn ProtocolState>;
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>);
+    fn expire(&mut self, timeout: u64) -> Option<(EncodedMessageType, Box<FinishedState>)>;
     /// prepare prepares a message for sending in accordance with the active protocol state.
     fn prepare(
         &mut self,
@@ -132,6 +133,11 @@ impl ProtocolState for PlaintextState {
         (None, Box::new(PlaintextState {}))
     }
 
+    fn expire(&mut self, _: u64) -> Option<(EncodedMessageType, Box<FinishedState>)> {
+        // Not in encrypted message-state.
+        None
+    }
+
     fn prepare(&mut self, _: MessageFlags, content: &[u8]) -> Result<EncodedMessageType, OTRError> {
         // Returned as 'Undefined' message as we are not in an encrypted state, therefore we return
         // the content as-is to the caller.
@@ -163,6 +169,7 @@ impl ProtocolState for PlaintextState {
     }
 }
 
+// TODO can we introduce a reasonable mechanism for expiration in OTR3 that doesn't cause issues with protocol (probably)
 pub struct EncryptedOTR3State {
     our_instance: InstanceTag,
     their_instance: InstanceTag,
@@ -266,6 +273,11 @@ impl ProtocolState for EncryptedOTR3State {
             self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
         ));
         (optabort, Box::new(PlaintextState {}))
+    }
+
+    fn expire(&mut self, _: u64) -> Option<(EncodedMessageType, Box<FinishedState>)> {
+        // FIXME implement OTR3 session expiration.
+        None
     }
 
     fn prepare(
@@ -489,15 +501,34 @@ impl ProtocolState for EncryptedOTR4State {
     }
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
-        let plaintext = OTREncoder::new()
+        let content = OTREncoder::new()
             .write_u8(0)
             .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
-        // FIXME need to include (remaining) MAC keys to reveal when encrypting disconnect-message.
-        let optabort = Some(EncodedMessageType::Data4(
-            self.encrypt_message(MessageFlags::IGNORE_UNREADABLE, &plaintext),
-        ));
+        let reveals = self.double_ratchet.collect_reveals();
+        let optabort = Some(EncodedMessageType::Data4(self.encrypt_message(
+            MessageFlags::IGNORE_UNREADABLE,
+            &content,
+            reveals,
+        )));
         (optabort, Box::new(PlaintextState {}))
+    }
+
+    fn expire(&mut self, timeout: u64) -> Option<(EncodedMessageType, Box<FinishedState>)> {
+        if self.double_ratchet.created().elapsed().as_secs() < timeout {
+            return None;
+        }
+        let content = OTREncoder::new()
+            .write_u8(0)
+            .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
+            .to_vec();
+        let reveals = self.double_ratchet.collect_reveals();
+        let abort = EncodedMessageType::Data4(self.encrypt_message(
+            MessageFlags::IGNORE_UNREADABLE,
+            &content,
+            reveals,
+        ));
+        Some((abort, Box::new(FinishedState {})))
     }
 
     fn prepare(
@@ -505,9 +536,11 @@ impl ProtocolState for EncryptedOTR4State {
         flags: MessageFlags,
         content: &[u8],
     ) -> Result<EncodedMessageType, OTRError> {
-        Ok(EncodedMessageType::Data4(
-            self.encrypt_message(flags, content),
-        ))
+        Ok(EncodedMessageType::Data4(self.encrypt_message(
+            flags,
+            content,
+            Vec::new(),
+        )))
     }
 
     fn smp(&self) -> Result<&SMPContext, OTRError> {
@@ -532,20 +565,22 @@ impl ProtocolState for EncryptedOTR4State {
 }
 
 impl EncryptedOTR4State {
-    fn encrypt_message(&mut self, flags: MessageFlags, content: &[u8]) -> DataMessage4 {
+    fn encrypt_message(
+        &mut self,
+        flags: MessageFlags,
+        content: &[u8],
+        mut reveals: Vec<u8>,
+    ) -> DataMessage4 {
         log::trace!(
             "Current double ratchet state: i={}, j={}, k={}",
             self.double_ratchet.i(),
             self.double_ratchet.j(),
             self.double_ratchet.k()
         );
-        let reveals: Vec<u8>;
         if self.double_ratchet.next() == otr4::Selector::SENDER {
             // ratchet and immediately persist
-            reveals = self.double_ratchet.collect_reveals();
+            reveals.extend(self.double_ratchet.collect_reveals());
             self.double_ratchet = self.double_ratchet.rotate_sender();
-        } else {
-            reveals = Vec::new();
         }
         let keys = self.double_ratchet.sender_keys();
         let encrypted = chacha20::encrypt(Self::extract_encryption_key(&keys.0), content);
@@ -753,6 +788,10 @@ impl ProtocolState for FinishedState {
 
     fn finish(&mut self) -> (Option<EncodedMessageType>, Box<PlaintextState>) {
         (None, Box::new(PlaintextState {}))
+    }
+
+    fn expire(&mut self, _: u64) -> Option<(EncodedMessageType, Box<FinishedState>)> {
+        None
     }
 
     fn prepare(&mut self, _: MessageFlags, _: &[u8]) -> Result<EncodedMessageType, OTRError> {

@@ -10,7 +10,7 @@ pub mod alloc {
 }
 
 pub mod bytes {
-    use std::cmp::Ordering;
+    use core::cmp::Ordering;
 
     pub fn verify_nonzero<E>(data: &[u8], error: E) -> Result<(), E> {
         if any_nonzero(data) {

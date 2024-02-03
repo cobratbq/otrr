@@ -268,7 +268,7 @@ pub enum EncodedMessageType {
 }
 
 impl core::fmt::Debug for EncodedMessageType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Unencoded(_) => f.debug_tuple("Unencoded").finish(),
             Self::DHCommit(_) => f.debug_tuple("DHCommit").finish(),

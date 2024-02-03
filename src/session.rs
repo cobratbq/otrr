@@ -114,6 +114,13 @@ impl Account {
                 Vec::from(address),
             ));
     }
+
+    pub fn expire(&mut self, timeout: u64) {
+        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
+        for (_, session) in &mut self.sessions {
+            session.expire(timeout);
+        }
+    }
 }
 
 pub struct Session {
@@ -169,6 +176,12 @@ impl Session {
             sessions.push(*k);
         }
         sessions
+    }
+
+    fn expire(&mut self, timeout: u64) {
+        for (_, instance) in &mut self.instances {
+            instance.expire(timeout);
+        }
     }
 
     /// Query status (protocol status) for a particular instance. Returns status if the instance is
@@ -644,6 +657,16 @@ impl Instance {
         self.state.status()
     }
 
+    fn expire(&mut self, timeout: u64) {
+        if let Some((disconnectmsg, new_state)) = self.state.expire(timeout) {
+            let prev = core::mem::replace(
+                &mut self.state,
+                new_state as Box<dyn protocol::ProtocolState>,
+            );
+            self.inject(&prev.version(), self.receiver, disconnectmsg);
+        }
+    }
+
     fn initiate(&mut self, version: &Version) -> Result<UserMessage, OTRError> {
         let initiator = match version {
             Version::V3 => self.ake.initiate(),
@@ -1004,15 +1027,10 @@ impl Instance {
         if content.len() <= max_size {
             self.host.inject(&self.address, &content);
         } else {
-            for fragment in fragment::fragment(
-                max_size,
-                &version,
-                self.details.tag,
-                self.receiver,
-                &content,
-            )
-            .into_iter()
-            .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
+            for fragment in
+                fragment::fragment(max_size, version, self.details.tag, self.receiver, &content)
+                    .into_iter()
+                    .map(|f| OTREncoder::new().write_encodable(&f).to_vec())
             {
                 self.host.inject(&self.address, &fragment);
             }
@@ -1505,7 +1523,7 @@ mod tests {
             println!(
                 "{}: processing message `{}`",
                 id,
-                std::str::from_utf8(&m).unwrap()
+                core::str::from_utf8(&m).unwrap()
             );
             // FIXME don't assume success
             let message = session.receive(&m).unwrap();
@@ -1523,25 +1541,25 @@ mod tests {
         match msg {
             UserMessage::None => println!("{id}: (none)"),
             UserMessage::Plaintext(msg) => {
-                println!("{id}: {}", std::str::from_utf8(msg).unwrap());
+                println!("{id}: {}", core::str::from_utf8(msg).unwrap());
             }
             UserMessage::ConfidentialSessionStarted(tag) => {
                 println!("{id}: confidential session started for instance {tag}");
             }
             UserMessage::Confidential(tag, message, tlvs) => println!(
                 "{id}: confidential message on {tag}: {} (TLVs: {tlvs:?})",
-                std::str::from_utf8(message).unwrap(),
+                core::str::from_utf8(message).unwrap(),
             ),
             UserMessage::ConfidentialSessionFinished(tag, content) => {
                 println!(
                     "{id}: confidential session finished for instance {tag} (\"{}\")",
-                    std::str::from_utf8(content).unwrap()
+                    core::str::from_utf8(content).unwrap()
                 );
             }
             UserMessage::WarningUnencrypted(content) => {
                 println!(
                     "{id} WARNING: unencrypted message: {})",
-                    std::str::from_utf8(content).unwrap()
+                    core::str::from_utf8(content).unwrap()
                 );
             }
             msg => todo!(

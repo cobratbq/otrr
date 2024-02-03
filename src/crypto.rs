@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 use crate::utils;
 
@@ -328,8 +328,8 @@ pub mod aes128 {
         Aes128Ctr,
     };
 
+    use core::ops::Drop;
     use ring::rand::SecureRandom;
-    use std::ops::Drop;
 
     use crate::utils;
 
@@ -662,6 +662,7 @@ pub mod otr4 {
     // TODO manage MAC reveals
     #[derive(Clone)]
     pub struct DoubleRatchet {
+        created: std::time::Instant,
         shared_secret: MixedSharedSecret,
         root_key: [u8; 64],
         sender: Ratchet,
@@ -677,7 +678,8 @@ pub mod otr4 {
             utils::bytes::clear(&mut self.root_key);
             self.i = 0;
             self.pn = 0;
-            // FIXME proper disposal of to-be-revealed keys. (This is most likely called due to rotating away, so clearing without exposing isn't an issue to be concerned with here.)
+            assert_eq!(0, self.reveals.len() % otr4::MAC_LENGTH);
+            self.reveals.fill(0);
             self.reveals.clear();
         }
     }
@@ -715,6 +717,7 @@ pub mod otr4 {
                 ),
             };
             Self {
+                created: std::time::Instant::now(),
                 shared_secret,
                 root_key: kdf2(USAGE_ROOT_KEY, &prev_root_key, &k),
                 sender,
@@ -727,13 +730,18 @@ pub mod otr4 {
         }
 
         #[must_use]
+        pub fn created(&self) -> std::time::Instant {
+            self.created
+        }
+
+        #[must_use]
         pub fn next(&self) -> Selector {
             self.next.clone()
         }
 
         #[must_use]
         pub fn collect_reveals(&mut self) -> Vec<u8> {
-            std::mem::take(&mut self.reveals)
+            core::mem::take(&mut self.reveals)
         }
 
         /// `rotate_sender` rotates the sender keys of the Double Ratchet.
@@ -747,6 +755,7 @@ pub mod otr4 {
             let new_k = new_shared_secret.k();
             // TODO clear k?
             Self {
+                created: std::time::Instant::now(),
                 shared_secret: new_shared_secret,
                 root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
                 sender: Ratchet {
@@ -792,6 +801,7 @@ pub mod otr4 {
                     .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
             let mut new_k = new_shared_secret.k();
             let rotated = Self {
+                created: std::time::Instant::now(),
                 shared_secret: new_shared_secret,
                 root_key: kdf2::<ROOT_KEY_LENGTH>(USAGE_ROOT_KEY, &self.root_key, &new_k),
                 sender: self.sender.clone(),
@@ -1147,7 +1157,7 @@ pub mod shake256 {
 }
 
 pub mod ed448 {
-    use std::{
+    use core::{
         ops::{Add, Mul, Neg},
         str::FromStr,
     };

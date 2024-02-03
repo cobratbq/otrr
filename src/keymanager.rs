@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-use crate::{crypto::dh, utils::{self, biguint::ZERO}, OTRError};
+use crate::{
+    crypto::dh,
+    utils::{self, biguint::ZERO},
+    OTRError,
+};
 
 /// `KeyManager` maintains both our keypairs and received public keys from the other party.
 pub struct KeyManager {
@@ -109,7 +113,7 @@ impl KeyManager {
     }
 
     pub fn get_reveal_macs(&mut self) -> Vec<u8> {
-        let reveal_macs = std::mem::take(&mut self.old_macs);
+        let reveal_macs = core::mem::take(&mut self.old_macs);
         assert_eq!(self.old_macs.len(), 0);
         assert_eq!(0, reveal_macs.len() % 20);
         reveal_macs

@@ -459,7 +459,7 @@ pub struct TLV(pub TLVType, pub Vec<u8>);
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use core::cmp::Ordering;
 
     use num_bigint::BigUint;
 

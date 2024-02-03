@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
-use std::{collections::HashMap, fmt::Debug};
+use core::fmt::Debug;
+use std::collections::HashMap;
 
 use once_cell::sync::Lazy;
 use regex::bytes::Regex;
@@ -73,11 +74,11 @@ pub fn parse(content: &[u8]) -> Option<Fragment> {
             hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
         receiver_bytes =
             hex::decode(as_sized_hexarray::<8>(captures.get(3).unwrap().as_bytes())).unwrap();
-        part = std::str::from_utf8(captures.get(4).unwrap().as_bytes())
+        part = core::str::from_utf8(captures.get(4).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
             .unwrap();
-        total = std::str::from_utf8(captures.get(5).unwrap().as_bytes())
+        total = core::str::from_utf8(captures.get(5).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
             .unwrap();
@@ -89,11 +90,11 @@ pub fn parse(content: &[u8]) -> Option<Fragment> {
             hex::decode(as_sized_hexarray::<8>(captures.get(1).unwrap().as_bytes())).unwrap();
         receiver_bytes =
             hex::decode(as_sized_hexarray::<8>(captures.get(2).unwrap().as_bytes())).unwrap();
-        part = std::str::from_utf8(captures.get(3).unwrap().as_bytes())
+        part = core::str::from_utf8(captures.get(3).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
             .unwrap();
-        total = std::str::from_utf8(captures.get(4).unwrap().as_bytes())
+        total = core::str::from_utf8(captures.get(4).unwrap().as_bytes())
             .unwrap()
             .parse::<u16>()
             .unwrap();
@@ -205,7 +206,7 @@ pub struct Fragment {
 }
 
 impl Debug for Fragment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Fragment")
             .field("version", &self.version)
             .field("identifier", &self.identifier)
@@ -213,7 +214,7 @@ impl Debug for Fragment {
             .field("receiver", &self.receiver)
             .field("part", &self.part)
             .field("total", &self.total)
-            .field("payload", &std::str::from_utf8(&self.payload).unwrap())
+            .field("payload", &core::str::from_utf8(&self.payload).unwrap())
             .finish()
     }
 }
@@ -323,7 +324,7 @@ impl InOrderAssembler {
             return Err(FragmentError::UnexpectedFragment);
         }
         if self.last == self.total {
-            Ok(std::mem::take(&mut self.content))
+            Ok(core::mem::take(&mut self.content))
         } else {
             Err(FragmentError::IncompleteResult)
         }
@@ -395,7 +396,7 @@ pub enum FragmentError {
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use core::cmp::Ordering;
 
     use crate::{encoding::OTREncoder, utils, Version};
 

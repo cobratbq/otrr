@@ -10,7 +10,8 @@
     clippy::unnecessary_unwrap,
     clippy::module_name_repetitions,
     clippy::doc_markdown,
-    clippy::needless_range_loop
+    clippy::needless_range_loop,
+    clippy::for_kv_map
 )]
 
 use ake::AKEError;
