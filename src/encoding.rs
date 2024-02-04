@@ -22,7 +22,6 @@ bitflags! {
     }
 }
 
-// FIXME check places where decoder is used, to check `done` after being done to confirm decoder was exhaustive
 pub struct OTRDecoder<'a>(&'a [u8]);
 
 impl Drop for OTRDecoder<'_> {
@@ -275,8 +274,7 @@ impl<'a> OTRDecoder<'a> {
     }
 
     /// `done` can be used to express the end of decoding. The instance is consumed.
-    /// NOTE during clean-up we verify if the buffer is fully drained.
-    // FIXME is `done` unsustainable due to unpredictable behavior w.r.t. number of received messages?
+    /// Note: during clean-up we verify if the buffer is fully drained.
     pub fn done(self) -> Result<(), OTRError> {
         if self.0.is_empty() {
             Ok(())

@@ -7,7 +7,7 @@ use crate::{
     utils, OTRError, Version,
 };
 
-// FIXME tag in client profile is possibly different from tag in AccountDetails
+// TODO tag in client profile is possibly different from tag in AccountDetails (synced on first load, but what happens if we need to refresh/resign client-profile?)
 pub struct ClientProfile {
     pub owner_tag: InstanceTag,
     pub identity_key: ed448::Point,

@@ -117,6 +117,9 @@ impl Account {
             ));
     }
 
+    /// expire expires all timed-out (in secs) sessions and their instances of an account.
+    ///
+    /// This method handles a complete account. (Alternatively, there is `Session::expire`.)
     pub fn expire(&mut self, timeout: u64) {
         // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         for (_, session) in &mut self.sessions {
@@ -181,7 +184,11 @@ impl Session {
         sessions
     }
 
-    fn expire(&mut self, timeout: u64) {
+    /// expire expires all instances of a session if timeout (in secs) is reached.
+    ///
+    /// This method handles a single session, i.e. multiple instances. (Alternatively, there is
+    /// `Account::expire` that call this method.)
+    pub fn expire(&mut self, timeout: u64) {
         // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         for (_, instance) in &mut self.instances {
             instance.expire(timeout);
@@ -712,8 +719,7 @@ impl Instance {
         let sender = encoded_message.sender;
         let receiver = encoded_message.receiver;
         if version == Version::V3 {
-            // FIXME only reset OTR3 fragment assember, as it expects in-order fragments with no deviation
-            self.assembler.reset(&Version::V3);
+            self.assembler.cleanup(&Version::V3);
         }
         match (&version, encoded_message.message) {
             (Version::V3, EncodedMessageType::DHCommit(msg)) => {
@@ -827,7 +833,7 @@ impl Instance {
             }
             (Version::V4, EncodedMessageType::Data4(msg)) => {
                 msg.validate()?;
-                // NOTE that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
+                // Note that TLV 0 (Padding) and 1 (Disconnect) are already handled as part of the
                 // protocol. Other TLVs that are their own protocol or function, therefore must be
                 // handled separately.
                 let authenticator_data = messages::encode_authenticator_data4(&version, sender, receiver, &msg);
@@ -835,11 +841,11 @@ impl Instance {
                 if transition.is_some() {
                     self.state = transition.unwrap();
                 }
-                // FIXME review this match logic; copied from DataMessage.
                 match message {
                     Ok(Message::Confidential(_, tlvs)) if tlvs.iter().any(smp4::is_smp_tlv) => {
-                        // REMARK we completely ignore the content for messages with SMP TLVs.
-                        // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
+                        if !msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
+                            log::warn!("Received message contains SMP TLV, but IGNORE_UNREADABLE flag is not set.");
+                        }
                         let tlv = tlvs.into_iter().find(smp4::is_smp_tlv).unwrap();
                         // Socialist Millionaire Protocol (SMP) handling.
                         // FIXME unwrap is not okay, might fail due to transition few lines above this line.
@@ -858,7 +864,6 @@ impl Instance {
                             SMP4Status::Aborted(_) => Ok(UserMessage::SMPFailed(self.receiver)),
                             SMP4Status::Initial => panic!("BUG: we should be able to reach after having processed an SMP message TLV."),
                         }
-                        // TODO do we want/need to call back to host to signal SMP-verified account?
                     }
                     Ok(Message::Confidential(content, tlvs)) => Ok(UserMessage::Confidential(self.receiver, content, tlvs)),
                     Ok(Message::ConfidentialFinished(content)) => Ok(UserMessage::ConfidentialSessionFinished(self.receiver, content)),
@@ -1025,7 +1030,6 @@ impl Instance {
             self.details.tag,
             receiver
         );
-        // FIXME cloning version enum or passing by reference? (it's a stupidly trivial question, but I wonder about this because it's such a trivial data-type)
         let content = encode_message(version, self.details.tag, self.receiver, message);
         let max_size = self.host.message_size();
         if content.len() <= max_size {
@@ -1043,9 +1047,9 @@ impl Instance {
 }
 
 /// `AccountDetails` contains our own, static details for an account shared among instances.
-// FIXME tag is duplicate with tag in client profile.
 struct AccountDetails {
     policy: Policy,
+    // TODO tag is duplicate with tag in client profile.
     tag: InstanceTag,
     account: Vec<u8>,
 }

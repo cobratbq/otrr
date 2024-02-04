@@ -276,7 +276,7 @@ impl ProtocolState for EncryptedOTR3State {
     }
 
     fn expire(&mut self, _: u64) -> Option<(EncodedMessageType, Box<FinishedState>)> {
-        // FIXME implement OTR3 session expiration.
+        // TODO implement OTR3 session expiration.
         None
     }
 
@@ -600,7 +600,6 @@ impl EncryptedOTR4State {
             dh,
             encrypted,
             authenticator: [0u8; otr4::MAC_LENGTH],
-            // FIXME need to insert revealed MACs
             revealed: reveals,
         };
         let authenticator_data = messages::encode_authenticator_data4(

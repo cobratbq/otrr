@@ -1,10 +1,10 @@
 # otrr
 
-OTRv4 implementation in Rust.
+OTR in rust.
 
-__status__ work-in-progress, OTRv4 in development, further testing needed
+__status__ work-in-progress, [OTRv4] functional but still in development, further testing needed
 
-Tests demonstrate an established OTR session, however this only proves that any bugs we might touch are symmetric in nature.
+An (minimal) "example" client is available at [echonetwork], which is used for interoperability testing with [otr4j].
 
 ## Warning
 
@@ -26,8 +26,7 @@ Tests demonstrate an established OTR session, however this only proves that any 
 
 ## Goals
 
-- OTRv3 only (OTRv2 and earlier are not supported)  
-  OTRv4 anticipated: intention to implement, but development of specification seems to be suspended.
+- [OTRv4] + [OTR 3][OTR3] (OTRv2 and earlier are not supported)  
 - Structured for security:
   - security-sensitive primitives in separate module (`crypto`)
   - strictly separated states resulting in strictly separated secrets
@@ -75,7 +74,19 @@ __Functionality__:
   _This is somewhat controversial due to risk of sending queued messages to wrong established session._
 - ☐ Expose the Extra Symmetric Key (TLV type `8` in OTR3, TLV type `7` in OTRv4)
 - ☑ Session expiration  
-  _Session expiration is present only as a method-call. This is currently an action that the host (chat-application) must perform._
+  _Session expiration is provided only as a method-call. This is currently an action that the host (chat-application) must perform._
+- ☑ [OTR 3][OTR3]:
+  - ☑ Instance-tags (distinguish multiple clients for the same account)
+  - ☑ Fragmentation with instance-tags.
+- ☑ [OTRv4]:
+  - ☑ Upgraded cryptographic primitives, DAKE, Double-Ratchet, mixed ephemeral keys
+  - ☑ Client-profiles
+  - ☑ Fragmentation with identifier
+  - ☑ FIXME continue itemizing and include incomplete parts ...
+  - ☐ Out-of-order message-keys:
+    - ☑ messages in order,
+    - ☑ skipping messages,
+    - ☐ message-keys from skipped keys store, i.e. out-of-order reception
 
 __Operational__:
 
@@ -86,7 +97,7 @@ __Operational__:
 __Developmental__:
 
 - ☑ No logic for managing multiple accounts:  
-  _We keep this separated and up to the client to implement if necessary. Essentially, just tying the `Account` to the corresponding chat account logic is sufficient, and any management on top of that risks prescribing a certain structure for the host application (e.g. chat application)._
+  _We keep this separated and up to the client to implement as necessary. Essentially, just tying the `Account` to the corresponding chat account logic is sufficient, and additional management risks prescribing a certain structure to the host application (e.g. chat application)._
 - ☐ API for managing multiple accounts, keys, policies?
 - ☐ Unit tests: too few tests, even though rust syntax is that expressive.
 - ☐ Resilient to faulty implementations of `Host` as provided by the client.  
@@ -98,3 +109,10 @@ __Known issues__:
 - The OTR specification documents that any message payload is in UTF-8 and _may contain_ HTML. However, this makes it ambiguous for how the content should be interpreted and results and risks may very per chat network.
 - There is no convention on how the Extra Symmetric Key should be used.
 </details>
+
+
+[otr4j]: <https://github.com/otr4j/otr4j> "otr4j with OTRv4 support"
+[OTRv4]: <https://github.com/otrv4/otrv4> "OTRv4 specification"
+[OTR3]: <https://otr.cypherpunks.ca/Protocol-v3-4.1.1.html> "OTR 3 specification"
+[echonetwork]: <https://github.com/otr4j/echonetwork> "Minimal infrastructure for testing interoperability of OTR-libraries"
+

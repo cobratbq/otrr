@@ -114,8 +114,10 @@ impl SMP4Context {
         match self.dispatch(tlv) {
             Err(_) => {
                 self.state = State::ExpectSMP1;
-                // FIXME need description for abort
-                self.status = SMP4Status::Aborted(Vec::from("Error"));
+                // TODO do we need a more precise description, even if any failure just means SMP aborts?
+                self.status = SMP4Status::Aborted(Vec::from(
+                    "Error during SMP resulted in aborting the process.",
+                ));
                 None
             }
             Ok(response) => response,
@@ -192,7 +194,6 @@ impl SMP4Context {
         ed448::verify(&G2).map_err(OTRError::CryptographicViolation)?;
         let G3 = &G3a * &b3;
         ed448::verify(&G3).map_err(OTRError::CryptographicViolation)?;
-        // FIXME change return type?
         let y = self
             .compute_secret(&self.them, &self.us, &secret)
             .to_bigint()

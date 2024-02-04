@@ -18,8 +18,6 @@ const OTR_FRAGMENT_SUFFIX: &[u8] = b",";
 
 const INDEX_FIRST_FRAGMENT: u16 = 1;
 
-// FIXME implement fragmentation for OTRv4
-
 /// OTR: "Start with the OTR message as you would normally transmit it. Break it up into
 /// sufficiently small pieces. Let the number of pieces be (`n`), and the pieces be `piece[1]`,
 /// `piece[2]`,`...`,`piece[n]`. Transmit (`n`) OTR version 3 fragmented messages with the following
@@ -283,10 +281,10 @@ impl Assembler {
         }
     }
 
-    pub fn reset(&mut self, version: &Version) {
+    pub fn cleanup(&mut self, version: &Version) {
         match version {
             Version::V3 => self.inorder.reset(),
-            Version::V4 => self.unordered.reset(),
+            Version::V4 => self.unordered.cleanup(),
             Version::None | Version::Unsupported(_) => panic!("BUG: bad use of assembler reset"),
         }
     }
@@ -348,7 +346,7 @@ impl UnorderedAssembler {
         }
     }
 
-    fn reset(&mut self) {
+    fn cleanup(&mut self) {
         // FIXME implement reset/cleanup for OTRv4 assembler
         todo!("TODO: implement reset for OTRv4 assembler")
     }

@@ -538,7 +538,6 @@ pub struct IdentityMessage {
 
 impl OTREncodable for IdentityMessage {
     fn encode(&self, encoder: &mut OTREncoder) {
-        // FIXME check if complete/working.
         encoder
             .write_encodable(&self.profile)
             .write_ed448_point(&self.y)
