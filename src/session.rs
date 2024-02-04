@@ -74,7 +74,6 @@ impl Account {
             .expect(
                 "BUG: working under the assumption that the duration calculation fits in an i64.",
             );
-            // FIXME dynamically decide whether legacy support is necessary.
             let profile = ClientProfile::new(
                 tag,
                 identity_public,
@@ -310,12 +309,12 @@ impl Session {
                 receiver: _,
                 message: _,
             }) => {
-                log::debug!("Encoded message with sender-tag 0. This is illegal in OTR protocol.");
+                log::debug!("Encoded message with sender-tag 0. This is illegal in OTR protocol (starting with version 3).");
                 Ok(UserMessage::None)
             }
             MessageType::Encoded(
                 msg @ EncodedMessage {
-                    version: _,
+                    version: Version::V3,
                     sender: _,
                     receiver: _,
                     message: EncodedMessageType::DHKey(_),
@@ -329,7 +328,7 @@ impl Session {
                 // of chat. Only upon receiving do we obtain the instance tag such that we can
                 // redirect processing to a dedicated instance.
                 self.verify_encoded_message_header(&msg)?;
-                if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3) {
+                if !self.details.policy.contains(Policy::ALLOW_V3) {
                     return Ok(UserMessage::None);
                 }
                 // TODO DH-Key (responses) may be received multiple times (multiple instances, multiple repeats). Do we need to take these cases into account when handling? (temporary dh keypair and `r` value are same/reused for all cases, same CTR value used for all cases)
@@ -355,7 +354,7 @@ impl Session {
             }
             MessageType::Encoded(
                 msg @ EncodedMessage {
-                    version: _,
+                    version: Version::V4,
                     sender: _,
                     receiver: _,
                     message: EncodedMessageType::AuthR(_),
@@ -365,7 +364,7 @@ impl Session {
                 log::debug!("Processing OTR-encoded Auth-R message (with possible need to transfer DAKEContext)…");
                 log::trace!("Auth-R message: {msg:?}");
                 self.verify_encoded_message_header(&msg)?;
-                if msg.version == Version::V4 && !self.details.policy.contains(Policy::ALLOW_V4) {
+                if !self.details.policy.contains(Policy::ALLOW_V4) {
                     return Ok(UserMessage::None);
                 }
                 // TODO Auth-R (responses) may be received multiple times (multiple instances, multiple repeats). Do we need to take these cases into account when handling? (temporary dh keypair and `r` value are same/reused for all cases, same CTR value used for all cases)
@@ -391,7 +390,7 @@ impl Session {
                 instance.handle(msg)
             }
             MessageType::Encoded(msg) => {
-                log::debug!("Processing OTR-encoded message ..");
+                log::debug!("Processing OTR-encoded message…");
                 log::trace!("Encoded message: {msg:?}");
                 self.verify_encoded_message_header(&msg)?;
                 if msg.version == Version::V3 && !self.details.policy.contains(Policy::ALLOW_V3)
@@ -433,7 +432,6 @@ impl Session {
         instancetag::verify(msg.receiver).or(Err(OTRError::ProtocolViolation(
             "Receiver instance tag is illegal value",
         )))?;
-        // FIXME need to check proper protocol version.
         if msg.receiver == 0
             && !matches!(
                 msg.message,
