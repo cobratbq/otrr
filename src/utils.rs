@@ -67,29 +67,13 @@ pub mod bytes {
     }
 
     /// `clear` fills provided byte-array with zeroes.
-    pub fn clear(buffer: &mut [u8]) {
-        buffer.fill(0);
+    pub fn clear<const N: usize>(mut b: [u8; N]) {
+        b.fill(0);
     }
 
-    /// `clear2` fills provided 2 byte-array with zeroes.
-    pub fn clear2(buffer1: &mut [u8], buffer2: &mut [u8]) {
-        buffer1.fill(0);
-        buffer2.fill(0);
-    }
-
-    /// `clear3` fills provided 3 byte-array with zeroes.
-    pub fn clear3(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8]) {
-        buffer1.fill(0);
-        buffer2.fill(0);
-        buffer3.fill(0);
-    }
-
-    /// `clear4` fills provided 4 byte-array with zeroes.
-    pub fn clear4(buffer1: &mut [u8], buffer2: &mut [u8], buffer3: &mut [u8], buffer4: &mut [u8]) {
-        buffer1.fill(0);
-        buffer2.fill(0);
-        buffer3.fill(0);
-        buffer4.fill(0);
+    /// `clear_vec` fills provided byte-vector with zeroes.
+    pub fn clear_vec(mut b: Vec<u8>) {
+        b.fill(0);
     }
 
     /// `concatenate` concatenates three byte-arrays into a new byte-array.
