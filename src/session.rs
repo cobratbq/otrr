@@ -33,7 +33,13 @@ impl Account {
     /// In case of failure to reconstruct client profile.
     pub fn new(account: Vec<u8>, policy: Policy, host: Rc<dyn Host>) -> Result<Self, OTRError> {
         let sessions = collections::HashMap::new();
-        let profile = Self::restore_clientprofile(host.as_ref())?;
+        let profile = if let Ok(restored) = Self::restore_clientprofile(host.as_ref()) {
+            log::trace!("Account: attempting to restore client-profile from host.");
+            restored
+        } else {
+            log::trace!("Account: host provided zero bytes, incorrect or expired profile. Constructing new client profile.");
+            Self::generate_clientprofile(host.as_ref())
+        };
         let details = Rc::new(AccountDetails {
             policy,
             tag: profile.owner_tag,
@@ -49,50 +55,45 @@ impl Account {
 
     // TODO how to approach client profile renewals?
     fn restore_clientprofile(host: &dyn Host) -> Result<ClientProfile, OTRError> {
+        log::trace!("Account: restoring existing client profile.");
+        let encoded_profile = host.client_profile();
+        let mut decoder = OTRDecoder::new(&encoded_profile);
+        let payload = ClientProfilePayload::decode(&mut decoder)?;
+        decoder.done()?;
+        payload.validate()
+    }
+
+    fn generate_clientprofile(host: &dyn Host) -> ClientProfile {
         const DEFAULT_EXPIRATION: u64 = 7 * 24 * 3600;
-        log::trace!("Account: restoring client profile…");
-        let bytes = host.client_profile();
-        // TODO automatically generate new profile if there is an error, or feed-back the error and assume steps need to be taken on the host?
-        if bytes.is_empty() {
-            log::trace!("Account: host provided zero bytes. Constructing new client profile.");
-            let tag = instancetag::random_tag();
-            let identity_public = host.keypair_identity().public().clone();
-            let forging_public = host.keypair_forging().public().clone();
-            let mut versions = vec![Version::V4];
-            let legacy_keypair = host.keypair();
-            if legacy_keypair.is_some() {
-                versions.push(Version::V3);
-            }
-            let expiration = i64::try_from(
-                std::time::SystemTime::now()
-                    .checked_add(std::time::Duration::new(DEFAULT_EXPIRATION, 0))
-                    .unwrap()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            )
-            .expect(
-                "BUG: working under the assumption that the duration calculation fits in an i64.",
-            );
-            let profile = ClientProfile::new(
-                tag,
-                identity_public,
-                forging_public,
-                versions,
-                expiration,
-                legacy_keypair.map(|keypair| keypair.public_key().clone()),
-            )?;
-            let payload = profile.sign(host.keypair_identity(), legacy_keypair);
-            host.update_client_profile(OTREncoder::new().write_encodable(&payload).to_vec());
-            Ok(profile)
-        } else {
-            // TODO how to handle bad payloads? We need to fall-back to creating a new client-profile, but then will we cause trouble if we ask host to blindly overwrite its existing (bad) client-profile?
-            log::trace!("Account: restoring existing client profile.");
-            let mut decoder = OTRDecoder::new(&bytes);
-            let payload = ClientProfilePayload::decode(&mut decoder)?;
-            decoder.done()?;
-            payload.validate()
+        let tag = instancetag::random_tag();
+        let identity_keypair = host.keypair_identity();
+        let identity_public = identity_keypair.public().clone();
+        let forging_public = host.keypair_forging().public().clone();
+        let mut versions = vec![Version::V4];
+        let legacy_keypair = host.keypair();
+        if legacy_keypair.is_some() {
+            versions.push(Version::V3);
         }
+        let expiration = i64::try_from(
+            std::time::SystemTime::now()
+                .checked_add(std::time::Duration::new(DEFAULT_EXPIRATION, 0))
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+        .expect("BUG: working under the assumption that the duration calculation fits in an i64.");
+        let profile = ClientProfile::new(
+            tag,
+            identity_public,
+            forging_public,
+            versions,
+            expiration,
+            legacy_keypair.map(|keypair| keypair.public_key().clone()),
+        ).expect("BUG: failed to construct new client-profile for our client. This only happens in case of bad input such as illegal keypairs.");
+        let payload = profile.sign(identity_keypair, legacy_keypair);
+        host.update_client_profile(OTREncoder::new().write_encodable(&payload).to_vec());
+        profile
     }
 
     #[must_use]
