@@ -32,7 +32,7 @@ pub struct SMP4Context {
 
 impl Drop for SMP4Context {
     fn drop(&mut self) {
-        utils::bytes::clear(self.ssid);
+        utils::bytes::clear(&mut self.ssid);
     }
 }
 

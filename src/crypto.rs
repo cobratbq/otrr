@@ -675,12 +675,11 @@ pub mod otr4 {
 
     impl Drop for DoubleRatchet {
         fn drop(&mut self) {
-            utils::bytes::clear(self.root_key);
+            utils::bytes::clear(&mut self.root_key);
             self.i = 0;
             self.pn = 0;
             assert_eq!(0, self.reveals.len() % otr4::MAC_LENGTH);
-            self.reveals.fill(0);
-            self.reveals.clear();
+            utils::bytes::clear(&mut self.reveals);
         }
     }
 
@@ -799,7 +798,7 @@ pub mod otr4 {
             let new_shared_secret =
                 self.shared_secret
                     .rotate_others(self.i % 3 == 0, ecdh_next, dh_next)?;
-            let new_k = new_shared_secret.k();
+            let mut new_k = new_shared_secret.k();
             let rotated = Self {
                 created: std::time::Instant::now(),
                 shared_secret: new_shared_secret,
@@ -814,7 +813,7 @@ pub mod otr4 {
                 pn: self.pn,
                 reveals: self.reveals.clone(),
             };
-            utils::bytes::clear(new_k);
+            utils::bytes::clear(&mut new_k);
             Ok(rotated)
         }
 
@@ -894,7 +893,7 @@ pub mod otr4 {
 
     impl Drop for Ratchet {
         fn drop(&mut self) {
-            utils::bytes::clear(self.chain_key);
+            utils::bytes::clear(&mut self.chain_key);
             self.message_id = 0;
         }
     }
@@ -931,9 +930,9 @@ pub mod otr4 {
 
     impl Drop for Keys {
         fn drop(&mut self) {
-            utils::bytes::clear(self.0);
-            utils::bytes::clear(self.1);
-            utils::bytes::clear(self.2);
+            utils::bytes::clear(&mut self.0);
+            utils::bytes::clear(&mut self.1);
+            utils::bytes::clear(&mut self.2);
         }
     }
 
@@ -957,8 +956,8 @@ pub mod otr4 {
 
     impl Drop for MixedSharedSecret {
         fn drop(&mut self) {
-            utils::bytes::clear(self.brace_key);
-            utils::bytes::clear(self.k);
+            utils::bytes::clear(&mut self.brace_key);
+            utils::bytes::clear(&mut self.k);
         }
     }
 
@@ -1040,19 +1039,19 @@ pub mod otr4 {
         ) -> Result<Self, CryptoError> {
             ed448::verify(&public_ecdh)?;
             dh3072::verify(&public_dh)?;
-            let k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
+            let mut k_ecdh = ecdh.generate_shared_secret(&public_ecdh).encode();
             assert!(utils::bytes::any_nonzero(&k_ecdh));
             let brace_key = if third {
-                let k_dh = dh.generate_shared_secret(&public_dh).to_bytes_be();
+                let mut k_dh = dh.generate_shared_secret(&public_dh).to_bytes_be();
                 let new_brace_key = kdf(USAGE_THIRD_BRACE_KEY, &k_dh);
-                utils::bytes::clear_vec(k_dh);
+                utils::bytes::clear(&mut k_dh);
                 new_brace_key
             } else {
                 assert!(utils::bytes::any_nonzero(&brace_key_prev));
                 kdf(USAGE_BRACE_KEY, &brace_key_prev)
             };
             let k = kdf2::<K_LENGTH>(USAGE_SHARED_SECRET, &k_ecdh, &brace_key);
-            utils::bytes::clear(k_ecdh);
+            utils::bytes::clear(&mut k_ecdh);
             Ok(Self {
                 ecdh,
                 dh,
@@ -1257,31 +1256,31 @@ pub mod ed448 {
         #[allow(non_snake_case)]
         #[must_use]
         pub fn sign(&self, message: &[u8]) -> Signature {
-            let h = shake256::digest::<114>(&self.0);
+            let mut h = shake256::digest::<114>(&self.0);
             let mut secret_bytes = [0u8; 57];
             secret_bytes.clone_from_slice(&h[..57]);
             let mut prefix = [0u8; 57];
             prefix.clone_from_slice(&h[57..]);
             prune(&mut secret_bytes);
             let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &secret_bytes);
-            let encoded_A = (&*G * &s).encode();
-            let buffer_R = utils::bytes::concatenate3(&dom4(EDDSA_CONTEXT), &prefix, message);
+            let mut encoded_A = (&*G * &s).encode();
+            let mut buffer_R = utils::bytes::concatenate3(&dom4(EDDSA_CONTEXT), &prefix, message);
             let r =
                 BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_R));
             // TODO double-check with joldilocks, it uses basepoint in 4E, it seems to be a difference in notation between papers, see RFC 8032.
             let encoded_R = (&*G * &r).encode();
-            let buffer_K =
+            let mut buffer_K =
                 utils::bytes::concatenate4(&dom4(EDDSA_CONTEXT), &encoded_R, &encoded_A, message);
             let k =
                 BigInt::from_bytes_le(num_bigint::Sign::Plus, &shake256::digest::<114>(&buffer_K));
             let encoded_s =
                 utils::bigint::to_bytes_le_fixed::<ENCODED_LENGTH>(&(&r + &k * &s).mod_floor(&*Q));
-            utils::bytes::clear_vec(buffer_K);
-            utils::bytes::clear_vec(buffer_R);
-            utils::bytes::clear(encoded_A);
-            utils::bytes::clear(secret_bytes);
-            utils::bytes::clear(prefix);
-            utils::bytes::clear(h);
+            utils::bytes::clear(&mut buffer_K);
+            utils::bytes::clear(&mut buffer_R);
+            utils::bytes::clear(&mut encoded_A);
+            utils::bytes::clear(&mut secret_bytes);
+            utils::bytes::clear(&mut prefix);
+            utils::bytes::clear(&mut h);
             Signature(encoded_R, encoded_s)
         }
     }
@@ -1813,7 +1812,7 @@ pub mod ed448 {
         assert!(bytes::any_nonzero(&h));
         prune(&mut h);
         let v = decode_scalar(&h);
-        utils::bytes::clear(h);
+        utils::bytes::clear(&mut h);
         v
     }
 
@@ -1832,7 +1831,6 @@ pub mod ed448 {
     }
 }
 
-// FIXME change name to refer to group identifier or something from otrv4
 pub mod dh3072 {
     use num_bigint::BigUint;
     use once_cell::sync::Lazy;
@@ -1881,7 +1879,7 @@ pub mod dh3072 {
     pub static G3: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
 
     // TODO check if cofactor is needed.
-    pub const COFACTOR: u8 = 2;
+    //pub const COFACTOR: u8 = 2;
 
     // TODO why is this called subprime, isn't it the order?
     /// q is the subprime.
@@ -1985,14 +1983,13 @@ pub mod constant {
     ///
     /// # Errors
     /// In case comparison fails, i.e. scalars are not equal.
+    ///
+    /// # Panics
+    /// In case of unequal signs.
     pub fn compare_scalars(s1: &BigInt, s2: &BigInt) -> Result<(), CryptoError> {
         let (sign1, encoded1) = s1.to_bytes_le();
         let (sign2, encoded2) = s2.to_bytes_le();
-        if sign1 != sign2 {
-            return Err(CryptoError::VerificationFailure(
-                "verification of scalars failed",
-            ));
-        }
+        assert_eq!(sign1, sign2);
         compare(&encoded1, &encoded2, "verification of scalars failed")
     }
 

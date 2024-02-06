@@ -235,8 +235,6 @@ impl<'a> OTRDecoder<'a> {
         log::trace!("decode Ed448 point");
         let point =
             ed448::Point::decode(&self.read()?).map_err(OTRError::CryptographicViolation)?;
-        // FIXME debugging maybe remove for excess processing
-        ed448::verify(&point).map_err(OTRError::CryptographicViolation)?;
         Ok(point)
     }
 

@@ -67,12 +67,7 @@ pub mod bytes {
     }
 
     /// `clear` fills provided byte-array with zeroes.
-    pub fn clear<const N: usize>(mut b: [u8; N]) {
-        b.fill(0);
-    }
-
-    /// `clear_vec` fills provided byte-vector with zeroes.
-    pub fn clear_vec(mut b: Vec<u8>) {
+    pub fn clear(b: &mut [u8]) {
         b.fill(0);
     }
 

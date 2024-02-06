@@ -614,7 +614,6 @@ impl EncryptedOTR4State {
             &authenticator_data,
         );
         debug_assert!(message.validate().is_ok());
-        // FIXME need to verify if this approach to rotating is in sync with spec. (needs testing) If we rotate here, we will reduce exposure of message keys after use ... maybe somewhat artificial urgency.
         self.double_ratchet.rotate_sender_chainkey();
         message
     }
