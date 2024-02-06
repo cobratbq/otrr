@@ -72,6 +72,7 @@ pub mod session;
 // TODO hunt for variables that could be defined `const`.
 // TODO consider using something like a NonZeroU16 trait for certain datatypes to enforce correct logic.
 // TODO apply BigUint::zeroize for sensitive values
+// TODO crypto: at this point, there is no zeroing of BigInt/BigUint values
 // REMARK clean up asserts that are clearly only used to evalute/confirm (static) control flow logic. (may impact constant-time expectations)
 // REMARK allow defining custom message to be included with the OTR Query-tag.
 // REMARK expose TLV 0 for manual padding by client?

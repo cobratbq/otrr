@@ -649,7 +649,7 @@ impl EncryptedOTR4State {
         if msg.i < current_ratchet || (msg.i == current_ratchet && msg.j < self.double_ratchet.k())
         {
             log::trace!("Double ratchet: working with stored message keys…");
-            // FIXME 1. get key from stored-keys-store
+            // TODO stored message-keys: get key from stored-keys-store
             return Err(OTRError::UserError(
                 "Stored message keys are not supported yet.",
             ));
@@ -688,7 +688,7 @@ impl EncryptedOTR4State {
                 speculate.k(),
                 msg.j
             );
-            // FIXME need to fast-forward and store all keys we pass by. (different method, store internally?)
+            // stored message-keys: need to fast-forward and store all keys we pass by. (different method, store internally?)
             speculate.rotate_receiver_chainkey();
         }
         let keys = speculate.receiver_keys();

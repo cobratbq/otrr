@@ -1343,8 +1343,8 @@ pub mod ed448 {
             let mut buffer = shake256::digest::<114>(&r.to_bytes_le().1);
             prune(&mut buffer);
             let s = BigInt::from_bytes_le(num_bigint::Sign::Plus, &buffer);
-            // FIXME securely delete r, h
             let public = (&*G) * &s;
+            utils::bytes::clear(&mut buffer);
             Self(s, public)
         }
 

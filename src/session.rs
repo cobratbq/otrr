@@ -121,7 +121,7 @@ impl Account {
     ///
     /// This method handles a complete account. (Alternatively, there is `Session::expire`.)
     pub fn expire(&mut self, timeout: u64) {
-        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
+        // TODO this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         for (_, session) in &mut self.sessions {
             session.expire(timeout);
         }
@@ -189,7 +189,7 @@ impl Session {
     /// This method handles a single session, i.e. multiple instances. (Alternatively, there is
     /// `Account::expire` that call this method.)
     pub fn expire(&mut self, timeout: u64) {
-        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
+        // TODO this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         for (_, instance) in &mut self.instances {
             instance.expire(timeout);
         }
@@ -668,7 +668,7 @@ impl Instance {
     }
 
     fn expire(&mut self, timeout: u64) {
-        // FIXME this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
+        // TODO this is currently not thread-safe. Depending on how the heart-beat timer is going to work, this can cause problems.
         if let Some((disconnect_msg, new_state)) = self.state.expire(timeout) {
             let prev = core::mem::replace(
                 &mut self.state,
@@ -765,13 +765,30 @@ impl Instance {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(Message::Confidential(_, tlvs)) if tlvs.iter().any(smp::is_smp_tlv) => {
-                        // REMARK we completely ignore the content for messages with SMP TLVs.
-                        // REMARK we could inspect and log if messages with SMP TLVs do not have the IGNORE_UNREADABLE flag set.
-                        let tlv = tlvs.into_iter().find(smp::is_smp_tlv).unwrap();
+                    Ok(Message::Confidential(content, tlvs)) if tlvs.iter().any(smp::is_smp_tlv) => {
+                        if !msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
+                            log::warn!("Other client did not set ignore-unreadable flag on SMP messages. This is preferred/recommended because these are OTR control messages, rather than user content.");
+                        }
+                        if !content.is_empty() {
+                            log::warn!("OTR3 SMP tlv messages are not expected to contain text content. This content is ignored.");
+                        }
+                        if tlvs.iter().filter(|t| smp::is_smp_tlv(t)).count() > 1 {
+                            // Given more than one SMP tlv, the order of processing impacts outcome.
+                            // The protocol only specifies that a single SMP tlv is expected at any
+                            // one time, so do not even attempt to process these. It is a violation.
+                            log::warn!("OTR3 more than one SMP tlv found. This is not expected according to the specification. Aborting further processing.");
+                            return Err(OTRError::ProtocolViolation("SMP: more than one SMP tlv found. This cannot occur when protocol is properly followed."));
+                        }
+                        let Ok(smp_context) = self.state.smp_mut() else {
+                            // SMP tlvs are only relevant in encrypted-messaging state. If we
+                            // transitioned away just now, then this SMP tlv no longer has any value
+                            // Log this somewhat peculiar circumstance and stop processing.
+                            log::warn!("OTR3 SMP state is no longer available. The state machine must have transitioned away before the SMP tlvs were processed. This seems to indicate a protocol violation. Ignoring this SMP tlv and returning result without user-content.");
+                            return Err(OTRError::ProtocolViolation("OTR3 SMP tlv being processed while the state machine has already transitioned away. This cannot happen in OTR unless the other client deviated from the protocol."));
+                        };
                         // Socialist Millionaire Protocol (SMP) handling.
-                        // FIXME call to `smp_mut()` is not guaranteed anymore, because we already transition states above, if we get a state change returned.
-                        if let Some(reply_tlv) = self.state.smp_mut().unwrap().handle(&tlv) {
+                        let tlv = tlvs.into_iter().find(smp::is_smp_tlv).unwrap();
+                        if let Some(reply_tlv) = smp_context.handle(&tlv) {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
@@ -842,14 +859,30 @@ impl Instance {
                     self.state = transition.unwrap();
                 }
                 match message {
-                    Ok(Message::Confidential(_, tlvs)) if tlvs.iter().any(smp4::is_smp_tlv) => {
+                    Ok(Message::Confidential(content, tlvs)) if tlvs.iter().any(smp4::is_smp_tlv) => {
                         if !msg.flags.contains(MessageFlags::IGNORE_UNREADABLE) {
-                            log::warn!("Received message contains SMP TLV, but IGNORE_UNREADABLE flag is not set.");
+                            log::warn!("Other client did not set IGNORE_UNREADABLE flag on SMP messages. This is preferred/recommended because these are OTR control messages, rather than user content.");
                         }
-                        let tlv = tlvs.into_iter().find(smp4::is_smp_tlv).unwrap();
+                        if !content.is_empty() {
+                            log::warn!("OTRv4 SMP tlv messages are not expected to contain text content. This content is ignored.");
+                        }
+                        if tlvs.iter().filter(|t| smp4::is_smp_tlv(t)).count() > 1 {
+                            // Given more than one SMP tlv, the order of processing impacts outcome.
+                            // The protocol only specifies that a single SMP tlv is expected at any
+                            // one time, so do not even attempt to process these. It is a violation.
+                            log::warn!("OTRv4 more than one SMP tlv found. This is not expected according to the specification. Aborting further processing.");
+                            return Err(OTRError::ProtocolViolation("SMP: more than one SMP tlv found. This cannot occur when protocol is properly followed."));
+                        }
+                        let Ok(smp4_context) = self.state.smp4_mut() else {
+                            // SMP tlvs are only relevant in encrypted-messaging state. If we
+                            // transitioned away just now, then this SMP tlv no longer has any value
+                            // Log this somewhat peculiar circumstance and stop processing.
+                            log::warn!("OTRv4 SMP state is no longer available. The state machine must have transitioned away before the SMP tlvs were processed. This seems to indicate a protocol violation. Ignoring this SMP tlv and returning result without user-content.");
+                            return Err(OTRError::ProtocolViolation("OTRv4 SMP tlv being processed while the state machine has already transitioned away. This cannot happen in OTR unless the other client deviated from the protocol."));
+                        };
                         // Socialist Millionaire Protocol (SMP) handling.
-                        // FIXME unwrap is not okay, might fail due to transition few lines above this line.
-                        if let Some(response) = self.state.smp4_mut().unwrap().handle(&tlv) {
+                        let tlv = tlvs.into_iter().find(smp4::is_smp_tlv).unwrap();
+                        if let Some(response) = smp4_context.handle(&tlv) {
                             let otr_message = self.state.prepare(
                                 MessageFlags::IGNORE_UNREADABLE,
                                 &OTREncoder::new()
@@ -1533,7 +1566,6 @@ mod tests {
                 id,
                 core::str::from_utf8(&m).unwrap()
             );
-            // FIXME don't assume success
             let message = session.receive(&m).unwrap();
             extract_readable(id, &message);
             if let UserMessage::None = message {

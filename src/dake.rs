@@ -73,11 +73,6 @@ impl DAKEContext {
         Ok(EncodedMessageType::Identity(identity_message))
     }
 
-    pub fn abort(&mut self) {
-        self.state = State::Initial;
-        // FIXME need to send response when we abort?
-    }
-
     /// `transfer` provides DAKEContext --if and only if in the proper state-- for transfer to
     /// another instance.
     pub fn transfer(&self) -> Result<DAKEContext, OTRError> {
@@ -176,7 +171,6 @@ impl DAKEContext {
         profile_decoder.done()?;
         let x = ed448::ECDHKeyPair::generate();
         let a = dh3072::KeyPair::generate();
-        // FIXME double check minimal size big-endian encoding.
         let mut tbytes_enc = OTREncoder::new();
         tbytes_enc
             .write_u8(0x00)
