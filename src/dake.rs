@@ -143,6 +143,11 @@ impl DAKEContext {
                 dh0_other: _,
             } => {
                 profile_bob = message.validate()?;
+                // Note that, in case of `Awaiting Auth-I` we follow path of new identity message,
+                // as opposed to OTRv4 spec's incorrect instructions of creating an Auth-R Message
+                // with new values from the received Identity Message only, i.e. reusing our
+                // existing but already cleared ECDH/DH keypairs.
+                // There is no risk in generating new key material.
             }
             State::AwaitingAuthR {
                 y: _,
@@ -490,6 +495,7 @@ pub struct MixedKeyMaterial {
 }
 
 /// Interactive DAKE states.
+// FIXME consider defining an `ERROR` state that can be swapped in when taking the current state as we process the next DAKE message.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum State {

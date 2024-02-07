@@ -92,7 +92,7 @@ __Operational__:
 
 - ☑ Single instance of `Account` represents single account on a chat network: allows for specific identity (_DSA keypair_), chat network/transport.
 - ☐ Thread-safety. (Not yet determined necessary.)  
-    _Limited by ordering-requirement for transport. Expect processing single message at a time._
+  _Given that most messages can be processed one at a time, most benefit is derived from having separate tasks for session expiration and heartbeats. However, these may be interleaved with message processing._
 
 __Developmental__:
 

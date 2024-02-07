@@ -505,6 +505,7 @@ impl ProtocolState for EncryptedOTR4State {
             .write_u8(0)
             .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
+        // TODO generate MK_mac reveals for stored message keys when stored message keys are implemented.
         let reveals = self.double_ratchet.collect_reveals();
         let optabort = Some(EncodedMessageType::Data4(self.encrypt_message(
             MessageFlags::IGNORE_UNREADABLE,
@@ -522,6 +523,7 @@ impl ProtocolState for EncryptedOTR4State {
             .write_u8(0)
             .write_tlv(&TLV(TLV_TYPE_1_DISCONNECT, Vec::new()))
             .to_vec();
+        // TODO generate MK_mac reveals for stored message keys when stored message keys are implemented.
         let reveals = self.double_ratchet.collect_reveals();
         let abort = EncodedMessageType::Data4(self.encrypt_message(
             MessageFlags::IGNORE_UNREADABLE,
