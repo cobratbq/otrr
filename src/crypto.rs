@@ -1467,7 +1467,6 @@ pub mod ed448 {
                     .write_data(m)
                     .to_vec(),
             );
-            // FIXME make constant-time comparison, selection
             log::trace!("Validating ring-signature: verifying scalars…");
             constant::compare_scalars_distinct(&c, &(&self.c1 + &self.c2 + &self.c3).mod_floor(&*Q))
         }
@@ -1490,13 +1489,14 @@ pub mod ed448 {
             verify(A1)?;
             verify(A2)?;
             verify(A3)?;
-            let eq1 = constant::compare_points(&keypair.2, A1).is_ok();
-            let eq2 = constant::compare_points(&keypair.2, A2).is_ok();
-            let eq3 = constant::compare_points(&keypair.2, A3).is_ok();
-            match (eq1, eq2, eq3) {
-                (true, false, false) | (false, true, false) | (false, false, true) => {}
-                _ => panic!("BUG: illegal combination of public keys."),
-            }
+            let eq1 = 1 - constant::diff_points(&keypair.2, A1);
+            let eq2 = 1 - constant::diff_points(&keypair.2, A2);
+            let eq3 = 1 - constant::diff_points(&keypair.2, A3);
+            assert_eq!(
+                1,
+                eq1 + eq2 + eq3,
+                "BUG: illegal combination of public keys."
+            );
             let t = random_in_Zq();
             let c1 = random_in_Zq();
             let c2 = random_in_Zq();
@@ -1504,13 +1504,9 @@ pub mod ed448 {
             let r1 = random_in_Zq();
             let r2 = random_in_Zq();
             let r3 = random_in_Zq();
-            // FIXME make constant-time comparison, selection
-            let (T1, T2, T3) = match (eq1, eq2, eq3) {
-                (true, false, false) => (&*G * &t, &*G * &r2 + A2 * &c2, &*G * &r3 + A3 * &c3),
-                (false, true, false) => (&*G * &r1 + A1 * &c1, &*G * &t, &*G * &r3 + A3 * &c3),
-                (false, false, true) => (&*G * &r1 + A1 * &c1, &*G * &r2 + A2 * &c2, &*G * &t),
-                _ => panic!("BUG: illegal combination of public keys."),
-            };
+            let T1 = (&*G * &(eq1 * &t)) + (&*G * &((1 - eq1) * &r1) + A1 * &((1 - eq1) * &c1));
+            let T2 = (&*G * &(eq2 * &t)) + (&*G * &((1 - eq2) * &r2) + A2 * &((1 - eq2) * &c2));
+            let T3 = (&*G * &(eq3 * &t)) + (&*G * &((1 - eq3) * &r3) + A3 * &((1 - eq3) * &c3));
             let c = hash_to_scalar(
                 USAGE_AUTH,
                 &OTREncoder::new()
@@ -1525,57 +1521,26 @@ pub mod ed448 {
                     .write_data(m)
                     .to_vec(),
             );
-            // TODO "The order of elements passed to `H` and sent to the verifier must not depend on the secret known by the prover (otherwise, the key used to produce the proof can be inferred in practice)."
-            let sigma = match (eq1, eq2, eq3) {
-                (true, false, false) => {
-                    //let c1 = &c - &c2 - &c3;
-                    let c1_derived = (&c - &c2 - &c3).mod_floor(&*Q);
-                    //let r1 = &t - &c1 * &keypair.0;
-                    let r1_derived =
-                        (&t - &(&c1_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
-                    Self {
-                        c1: c1_derived,
-                        r1: r1_derived,
-                        c2,
-                        r2,
-                        c3,
-                        r3,
-                    }
-                }
-                (false, true, false) => {
-                    //let c2 = &c - &c1 - &c3;
-                    let c2_derived = (&c - &c1 - &c3).mod_floor(&*Q);
-                    //let r2 = &t - &c2 * &keypair.0;
-                    let r2_derived =
-                        (&t - &(&c2_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
-                    Self {
-                        c1,
-                        r1,
-                        c2: c2_derived,
-                        r2: r2_derived,
-                        c3,
-                        r3,
-                    }
-                }
-                (false, false, true) => {
-                    //let c3 = &c - &c1 - &c2;
-                    let c3_derived = (&c - &c1 - &c2).mod_floor(&*Q);
-                    //let r3 = &t - &c3 * &keypair.0;
-                    let r3_derived =
-                        (&t - &(&c3_derived * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
-                    Self {
-                        c1,
-                        r1,
-                        c2,
-                        r2,
-                        c3: c3_derived,
-                        r3: r3_derived,
-                    }
-                }
-                _ => panic!("BUG: should not reach here."),
-            };
+            let c1 = c1 * (1 - eq1) + eq1 * (&c - &c2 - &c3).mod_floor(&*Q);
+            let r1 =
+                (1 - eq1) * r1 + eq1 * (&t - &(&c1 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
+            let c2 = c2 * (1 - eq2) + eq2 * (&c - &c1 - &c3).mod_floor(&*Q);
+            //let r2 = &t - &c2 * &keypair.0;
+            let r2 =
+                (1 - eq2) * r2 + eq2 * (&t - &(&c2 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
+            let c3 = c3 * (1 - eq3) + eq3 * (&c - &c1 - &c2).mod_floor(&*Q);
+            //let r3 = &t - &c3 * &keypair.0;
+            let r3 =
+                (1 - eq3) * r3 + eq3 * (&t - &(&c3 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
             // TODO securely delete t
-            Ok(sigma)
+            Ok(Self {
+                c1,
+                r1,
+                c2,
+                r2,
+                c3,
+                r3,
+            })
         }
     }
 
@@ -2017,6 +1982,14 @@ pub mod constant {
         compare(&p1.encode(), &p2.encode(), "verification of points failed")
     }
 
+    /// `diff_points` byte-compares two points by their encoding. Byte-arrays are compared,
+    /// resulting in 0 if the are byte-exact equal values, or 1 if there is at least one bit
+    /// difference.
+    #[must_use]
+    pub fn diff_points(p1: &ed448::Point, p2: &ed448::Point) -> u8 {
+        diff(&p1.encode(), &p2.encode())
+    }
+
     /// `compare_different_bytes` verifies two same-length byte-slices in constant-time.
     ///
     /// # Errors
@@ -2039,6 +2012,32 @@ pub mod constant {
     /// In case comparison fails, i.e. byte-arrays are not equal.
     pub fn compare_bytes(data1: &[u8], data2: &[u8]) -> Result<(), CryptoError> {
         compare(data1, data2, "verification of bytes failed")
+    }
+
+    /// diff byte-compares `data1` and `data2`, collecting bits that changed, then bits are reduced
+    /// into single bit 0 or 1, with 1 indicating there is a difference or 0 for byte-exact same
+    /// values.
+    // FIXME move into rust-utils
+    #[must_use]
+    pub fn diff(data1: &[u8], data2: &[u8]) -> u8 {
+        verify_nonzero(data1).unwrap();
+        verify_nonzero(data2).unwrap();
+        assert_eq!(data1.len(), data2.len());
+        let mut diff = 0u8;
+        for i in 0..data1.len() {
+            diff |= data1[i] ^ data2[i];
+        }
+        // Note: can we do this more elegantly (possibly more succinctly)?
+        let result = (diff & 0b1000_0000) >> 7
+            | (diff & 0b0100_0000) >> 6
+            | (diff & 0b0010_0000) >> 5
+            | (diff & 0b0001_0000) >> 4
+            | (diff & 0b0000_1000) >> 3
+            | (diff & 0b0000_0100) >> 2
+            | (diff & 0b0000_0010) >> 1
+            | diff & 0b0000_0001;
+        assert!(result == 0 || result == 1);
+        result
     }
 
     fn compare(data1: &[u8], data2: &[u8], msg: &'static str) -> Result<(), CryptoError> {
