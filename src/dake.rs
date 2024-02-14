@@ -118,7 +118,7 @@ impl DAKEContext {
     /// In case of failure to validate message or failed to process due to protocol violation, e.g.
     /// incorrect state.
     // TODO Identity Message also needs to be handled in ENCRYPTED_MESSAGES and FINISHED states.
-    // FIXME we need to pass in transport-level attributes, e.g. account ID of local user and contact ID of remote user, to include in `phi`.
+    // TODO we need to pass in transport-level attributes, e.g. account ID of local user and contact ID of remote user, to include in `phi`.
     #[allow(clippy::too_many_lines)]
     pub fn handle_identity(
         &mut self,

@@ -1521,14 +1521,14 @@ pub mod ed448 {
                     .write_data(m)
                     .to_vec(),
             );
-            let c1 = c1 * (1 - eq1) + eq1 * (&c - &c2 - &c3).mod_floor(&*Q);
+            let c1 = (1 - eq1) * c1 + eq1 * (&c - &c2 - &c3).mod_floor(&*Q);
             let r1 =
                 (1 - eq1) * r1 + eq1 * (&t - &(&c1 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
-            let c2 = c2 * (1 - eq2) + eq2 * (&c - &c1 - &c3).mod_floor(&*Q);
+            let c2 = (1 - eq2) * c2 + eq2 * (&c - &c1 - &c3).mod_floor(&*Q);
             //let r2 = &t - &c2 * &keypair.0;
             let r2 =
                 (1 - eq2) * r2 + eq2 * (&t - &(&c2 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
-            let c3 = c3 * (1 - eq3) + eq3 * (&c - &c1 - &c2).mod_floor(&*Q);
+            let c3 = (1 - eq3) * c3 + eq3 * (&c - &c1 - &c2).mod_floor(&*Q);
             //let r3 = &t - &c3 * &keypair.0;
             let r3 =
                 (1 - eq3) * r3 + eq3 * (&t - &(&c3 * &keypair.1).mod_floor(&*Q)).mod_floor(&*Q);
