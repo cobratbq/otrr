@@ -796,6 +796,7 @@ impl Instance {
                                     .write_u8(0)
                                     .write_tlv(&reply_tlv)
                                     .to_vec())?;
+                            // TODO is current self.state representative of version at time otr_message was constructed?
                             self.inject(&self.state.version(), sender, otr_message);
                         }
                         match self.state.smp().unwrap().status() {
@@ -890,6 +891,7 @@ impl Instance {
                                     .write_u8(0)
                                     .write_tlv(&response)
                                     .to_vec())?;
+                            // TODO is current self.state representative of version at time otr_message was constructed?
                             self.inject(&self.state.version(), sender, otr_message);
                         }
                         match self.state.smp4().unwrap().status() {
@@ -1025,27 +1027,48 @@ impl Instance {
     fn start_smp(&mut self, secret: &[u8], question: &[u8]) -> Result<(), OTRError> {
         // logic currently assumes that if the call to smp succeeds, that we are in an appropriate
         // state to send a message with appended TLV.
-        let tlv = self.state.smp_mut()?.initiate(secret, question)?;
+        let version = self.state.version();
+        let tlv = match (&self.state.status(), &version) {
+            (ProtocolStatus::Encrypted, Version::V3) => {
+                self.state.smp_mut()?.initiate(secret, question)?
+            }
+            (ProtocolStatus::Encrypted, Version::V4) => {
+                self.state.smp4_mut()?.initiate(secret, question)?
+            }
+            _ => {
+                return Err(OTRError::IncorrectState(
+                    "Session is not in a supported state.",
+                ))
+            }
+        };
         let message = self.state.prepare(
             MessageFlags::IGNORE_UNREADABLE,
             &OTREncoder::new().write_u8(0).write_tlv(&tlv).to_vec(),
         )?;
-        self.inject(&self.state.version(), self.receiver, message);
+        self.inject(&version, self.receiver, message);
         Ok(())
     }
 
     fn smp_ssid(&self) -> Result<SSID, OTRError> {
-        Ok(self.state.smp()?.ssid())
+        match (&self.state.status(), &self.state.version()) {
+            (ProtocolStatus::Encrypted, Version::V3) => Ok(self.state.smp()?.ssid()),
+            (ProtocolStatus::Encrypted, Version::V4) => Ok(self.state.smp4()?.ssid()),
+            _ => Err(OTRError::IncorrectState(
+                "Session is not in a supported state to acquire SSID for SMP.",
+            )),
+        }
     }
 
     fn abort_smp(&mut self) -> Result<(), OTRError> {
-        let smp = self.state.smp_mut();
-        if smp.is_err() {
-            return Err(OTRError::IncorrectState(
-                "SMP is unavailable in the current state",
-            ));
-        }
-        let tlv = smp.unwrap().abort();
+        let tlv = match (&self.state.status(), &self.state.version()) {
+            (ProtocolStatus::Encrypted, Version::V3) => self.state.smp_mut()?.abort(),
+            (ProtocolStatus::Encrypted, Version::V4) => self.state.smp4_mut()?.abort(),
+            _ => {
+                return Err(OTRError::IncorrectState(
+                    "SMP is not available in current protocol state.",
+                ))
+            }
+        };
         let msg = self
             .state
             .prepare(

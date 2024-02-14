@@ -23,7 +23,15 @@ const TLV_TYPE_0_PADDING: TLVType = 0;
 const TLV_TYPE_1_DISCONNECT: TLVType = 1;
 
 pub trait ProtocolState {
+    /// `status` indicates the protocol status of the current state, i.e. plaintext, encrypted,
+    /// finished. It indicates whether a secure session is active at the time.
     fn status(&self) -> ProtocolStatus;
+    /// `version` indicates the protocol version that is in effect, i.e. version 3, version 4, etc.
+    /// Although, in general the version is only relevant if in encrypted messaging-state, it may
+    /// (in the future) indicate a version of the `Finished` state such that we can use the version
+    /// indication to prevent transitioning from a finished version 4 session immediately into a
+    /// encrypted version 3 session, i.e. a (somewhat covert) session downgrade if performed
+    /// sufficiently fast. (Use `status()` for reliably indicator of protocol status.)
     fn version(&self) -> Version;
     /// handle processes a received message in accordance with the active protocol state.
     fn handle(

@@ -43,7 +43,6 @@ const TLV_SMP_MESSAGE_4: TLVType = 5;
 const TLV_SMP_ABORT: TLVType = 6;
 
 // TODO ensure any produced error is followed by an abort and reset to ExpectSMP1.
-// FIXME needs unit tests
 // TODO SMP processing is very slow.
 #[allow(non_snake_case)]
 impl SMP4Context {
@@ -67,11 +66,17 @@ impl SMP4Context {
         self.status.clone()
     }
 
+    pub fn ssid(&self) -> SSID {
+        self.ssid
+    }
+
     /// `initiate` initiates a new Socialist Millionaire's Protocol conversation for OTRv4.
-    pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> TLV {
-        // TODO we never check if SMP4 is in-progress?
+    pub fn initiate(&mut self, secret: &[u8], question: &[u8]) -> Result<TLV, OTRError> {
+        if self.status == SMP4Status::InProgress {
+            return Err(OTRError::SMPInProgress);
+        }
         self.status = SMP4Status::InProgress;
-        self.initiate0(secret, question)
+        Ok(self.initiate0(secret, question))
     }
 
     fn initiate0(&mut self, secret: &[u8], question: &[u8]) -> TLV {
@@ -586,7 +591,7 @@ mod tests {
 
         let before_initiate = Instant::now();
         assert!(matches!(alice_smp.status(), SMP4Status::Initial));
-        let init_tlv = alice_smp.initiate(&secret, &question);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         assert!(matches!(alice_smp.status(), SMP4Status::InProgress));
         dbg!(before_initiate.elapsed());
 
@@ -624,7 +629,7 @@ mod tests {
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), Vec::from("DragonForce")));
         let mut alice_smp = SMP4Context::new(Rc::clone(&host), alice, bob, ssid);
         let mut bob_smp = SMP4Context::new(Rc::clone(&host), bob, alice, ssid);
-        let init_tlv = alice_smp.initiate(b"Nightwish", &question);
+        let init_tlv = alice_smp.initiate(b"Nightwish", &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle(&tlv2).unwrap();
         assert!(matches!(bob_smp.status(), SMP4Status::InProgress));
@@ -648,7 +653,7 @@ mod tests {
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
         let mut alice_smp = SMP4Context::new(Rc::clone(&host), alice, bob, ssid);
         let mut bob_smp = SMP4Context::new(Rc::clone(&host), bob, alice, ssid);
-        let mut init_tlv = alice_smp.initiate(&secret, &question);
+        let mut init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         assert!(matches!(alice_smp.status(), SMP4Status::InProgress));
         utils::random::fill_secure_bytes(&mut init_tlv.1);
         assert!(matches!(bob_smp.status(), SMP4Status::Initial));
@@ -666,7 +671,7 @@ mod tests {
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
         let mut alice_smp = SMP4Context::new(Rc::clone(&host), alice, bob, ssid);
         let mut bob_smp = SMP4Context::new(Rc::clone(&host), bob, alice, ssid);
-        let init_tlv = alice_smp.initiate(&secret, &question);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let mut tlv2 = bob_smp.handle(&init_tlv).unwrap();
         assert!(matches!(bob_smp.status(), SMP4Status::InProgress));
         utils::random::fill_secure_bytes(&mut tlv2.1);
@@ -685,7 +690,7 @@ mod tests {
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
         let mut alice_smp = SMP4Context::new(Rc::clone(&host), alice, bob, ssid);
         let mut bob_smp = SMP4Context::new(Rc::clone(&host), bob, alice, ssid);
-        let init_tlv = alice_smp.initiate(&secret, &question);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let mut tlv3 = alice_smp.handle(&tlv2).unwrap();
         utils::random::fill_secure_bytes(&mut tlv3.1);
@@ -704,7 +709,7 @@ mod tests {
         let host: Rc<dyn Host> = Rc::new(TestHost(question.clone(), secret.clone()));
         let mut alice_smp = SMP4Context::new(Rc::clone(&host), alice, bob, ssid);
         let mut bob_smp = SMP4Context::new(Rc::clone(&host), bob, alice, ssid);
-        let init_tlv = alice_smp.initiate(&secret, &question);
+        let init_tlv = alice_smp.initiate(&secret, &question).unwrap();
         let tlv2 = bob_smp.handle(&init_tlv).unwrap();
         let tlv3 = alice_smp.handle(&tlv2).unwrap();
         let mut tlv4 = bob_smp.handle(&tlv3).unwrap();

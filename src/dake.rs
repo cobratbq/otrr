@@ -495,7 +495,6 @@ pub struct MixedKeyMaterial {
 }
 
 /// Interactive DAKE states.
-// FIXME consider defining an `ERROR` state that can be swapped in when taking the current state as we process the next DAKE message.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum State {
