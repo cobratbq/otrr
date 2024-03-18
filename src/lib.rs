@@ -146,6 +146,8 @@ pub enum OTRError {
     UserError(&'static str),
 }
 
+/// `ProtocolStatus` indicates the protocol status: plaintext, encrypted, finished.
+/// If matching for exact protocol state, combine with `Version` to include version-matching.
 #[derive(PartialEq, Eq, Debug)]
 pub enum ProtocolStatus {
     Plaintext,

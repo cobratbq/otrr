@@ -534,18 +534,18 @@ impl Session {
             .initiate(version)
     }
 
-    /// `smp_ssid` returns the SSID used for verification in case of an established (encrypted) OTR
+    /// `ssid` returns the SSID used for verification in case of an established (encrypted) OTR
     /// session.
     ///
     /// # Errors
     ///
     /// Will give an `OTRError::UnknownInstance` error in case of non-existing instance.
     // TODO it is not possible to identify which half must be highlighted in the user interface.
-    pub fn smp_ssid(&self, instance: InstanceTag) -> Result<SSID, OTRError> {
+    pub fn ssid(&self, instance: InstanceTag) -> Result<SSID, OTRError> {
         self.instances
             .get(&instance)
             .ok_or(OTRError::UnknownInstance(instance))?
-            .smp_ssid()
+            .ssid()
     }
 
     fn get_instance(&mut self, instance: InstanceTag) -> Result<&mut Instance, OTRError> {
@@ -1049,7 +1049,7 @@ impl Instance {
         Ok(())
     }
 
-    fn smp_ssid(&self) -> Result<SSID, OTRError> {
+    fn ssid(&self) -> Result<SSID, OTRError> {
         match (&self.state.status(), &self.state.version()) {
             (ProtocolStatus::Encrypted, Version::V3) => Ok(self.state.smp()?.ssid()),
             (ProtocolStatus::Encrypted, Version::V4) => Ok(self.state.smp4()?.ssid()),

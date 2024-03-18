@@ -2,7 +2,7 @@
 
 OTR in rust.
 
-__status__ work-in-progress, [OTRv4] functional but still in development, further testing needed
+__status__ work-in-progress, [OTRv4] functional, tested against [otr4j], further fine-tuning likely when gaining adoption.
 
 An (minimal) "example" client is available at [echonetwork], which is used for interoperability testing with [otr4j].
 
