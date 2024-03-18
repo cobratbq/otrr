@@ -37,7 +37,7 @@ __Functionality__:
 - ☑ Authenticated Key Exchange (AKE)
 - ☑ Socialist Millionaire's Protocol (SMP)
   - ☑ SMP zero-knowledge secret verificaton (w/ or w/o user-provided question)
-  - ☐ Manual verification (SSID)
+  - ☑ Manual verification (SSID)
 - ☑ DSA signatures
 - ☑ Encryption
 - ☑ OTR-encoding
