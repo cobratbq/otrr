@@ -3,6 +3,16 @@
 // NOTES:
 // - keeping score (significant OTRv4 spec errors): 1.) use of secret key material after clearing because receiving messages out of expected order.; 2.) need to process message numbers provisionally because these are early steps leading up to message authentication, therefore cannot be trusted; 3.) merging protocol state machine and DAKE state machine provides opening to Denial-of-Service attacks.
 
+// TODO
+// - risks/limitations of protocol version 3:
+// - does not satisfy recent recommendation for DH moduli of `>= 2048`.
+// - DH modulus in use is likely candidate for precomputation ()
+// - Sources to check:
+// - [WeakDH](<https://weakdh.org/> "Weak Diffie-Hellman and the Logjam Attack")
+// - [LogJam](<https://en.wikipedia.org/wiki/Logjam_(computer_security)>)
+// - [DHEat Attack](<https://dheatattack.com/> "DoS attack that can be performed by enforcing the Diffie-Hellman key exchange")
+// - [RFC 5114](<https://www.rfc-editor.org/rfc/rfc5114.html>)
+
 #![deny(unused_must_use)]
 #![warn(clippy::pedantic)]
 #![allow(

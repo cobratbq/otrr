@@ -6,24 +6,6 @@ __status__ work-in-progress, [OTRv4] functional, tested against [otr4j], further
 
 An (minimal) "example" client is available at [echonetwork], which is used for interoperability testing with [otr4j].
 
-## Warning
-
-```TODO
-- write up conclusion of risks below,
-- reason about extent of the vulnerability and find sources on whether it is still acceptable,
-- recommendation to avoid group is evaluated based on a threat-model requiring a certain minimum number of years of security, (so it depends on what is being discussed whether OTR is adaquate, presumably)
-- ...
-
-- risks/limitations of protocol version 3:
-  - does not satisfy recent recommendation for DH moduli of `>= 2048`.
-  - DH modulus in use is likely candidate for precomputation ()
-- Sources to check:
-  - [WeakDH](<https://weakdh.org/> "Weak Diffie-Hellman and the Logjam Attack")
-  - [LogJam](<https://en.wikipedia.org/wiki/Logjam_(computer_security)>)
-  - [DHEat Attack](<https://dheatattack.com/> "DoS attack that can be performed by enforcing the Diffie-Hellman key exchange")
-  - [RFC 5114](<https://www.rfc-editor.org/rfc/rfc5114.html>)
-```
-
 ## Goals
 
 - [OTRv4] + [OTR 3][OTR3] (OTRv2 and earlier are not supported)  
