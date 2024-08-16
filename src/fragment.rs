@@ -52,8 +52,8 @@ pub fn match_fragment(content: &[u8]) -> bool {
         && content.ends_with(OTR_FRAGMENT_SUFFIX)
 }
 
-/// `parse` parses fragments. Only the `OTRv3` fragment pattern is supported. `OTRv2` fragments will
-/// not match, therefore result in a `None` result.
+/// `parse` parses fragments. `OTRv3` and `OTRv4` fragment patterns are supported. `OTRv2` fragments
+/// will not match, therefore result in a `None` result.
 pub fn parse(content: &[u8]) -> Option<Fragment> {
     let version: Version;
     let identifier: [u8; 4];
@@ -335,13 +335,22 @@ impl InOrderAssembler {
     }
 }
 
-struct UnorderedAssembler {
-    fragments: HashMap<[u8; 4], Vec<Vec<u8>>>,
+struct Assembly {
+    tick: u32,
+    parts: Vec<Vec<u8>>,
 }
+
+struct UnorderedAssembler {
+    tick: u32,
+    fragments: HashMap<[u8; 4], Assembly>,
+}
+
+const MAX_MESSAGES: usize = 100;
 
 impl UnorderedAssembler {
     fn new() -> Self {
         Self {
+            tick: 0,
             fragments: HashMap::new(),
         }
     }
@@ -353,26 +362,46 @@ impl UnorderedAssembler {
 
     fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
         verify(fragment)?;
-        // TODO verify fragment here again?
-        let store =
-            self.fragments
-                .entry(fragment.identifier)
-                .or_insert(vec![Vec::new(); fragment.total as usize]);
-        if store.capacity() != fragment.total as usize {
+        // Make room for `fragment` belonging to a new message.
+        while !self.fragments.contains_key(&fragment.identifier)
+            && self.fragments.len() >= MAX_MESSAGES
+        {
+            let eldest = *self
+                .fragments
+                .iter()
+                .reduce(|acc, e| if acc.1.tick < e.1.tick { acc } else { e })
+                .unwrap()
+                .0;
+            self.fragments.remove(&eldest);
+        }
+        assert!(self.fragments.len() <= MAX_MESSAGES);
+        let store = self
+            .fragments
+            .entry(fragment.identifier)
+            .or_insert(Assembly {
+                tick: self.tick,
+                parts: vec![Vec::new(); fragment.total as usize],
+            });
+        // Increment tick every time, even if contributing to existing reassembly, but does not
+        // really matter. Only monotonic increase is necessary. (We only care about the lowest
+        // value, relatively, to determine which fragment-assembly-effort to drop.)
+        self.tick += 1;
+        if store.parts.capacity() != fragment.total as usize {
             return Err(FragmentError::InvalidData);
         }
         let idx = fragment.part as usize - 1;
-        if !store[idx].is_empty() {
+        if !store.parts[idx].is_empty() {
             // TODO handle duplicate fragment differently?
             log::debug!("Duplicate fragment encountered: fragment already present in store.");
             return Err(FragmentError::UnexpectedFragment);
         }
-        store[idx] = fragment.payload.clone();
-        if store.iter().any(std::vec::Vec::is_empty) {
+        store.parts[idx] = fragment.payload.clone();
+        if store.parts.iter().any(std::vec::Vec::is_empty) {
             return Err(FragmentError::IncompleteResult);
         }
-        let mut payload: Vec<u8> = Vec::with_capacity(store.iter().fold(0, |a, f| a + f.len()));
-        for f in store.iter() {
+        let mut payload: Vec<u8> =
+            Vec::with_capacity(store.parts.iter().fold(0, |a, f| a + f.len()));
+        for f in &store.parts {
             payload.extend(f);
         }
         let removed = self.fragments.remove(&fragment.identifier);
@@ -395,10 +424,11 @@ pub enum FragmentError {
 #[cfg(test)]
 mod tests {
     use core::cmp::Ordering;
+    use std::collections::HashMap;
 
-    use crate::{encoding::OTREncoder, utils, Version};
+    use crate::{encoding::OTREncoder, fragment::parse, utils, Version};
 
-    use super::{fragment, match_fragment, parse, verify, Fragment};
+    use super::{fragment, match_fragment, verify, Fragment, UnorderedAssembler, MAX_MESSAGES};
 
     #[test]
     fn test_match_fragment() {
@@ -565,5 +595,38 @@ mod tests {
                 &OTREncoder::new().write_encodable(&result[2]).to_vec()
             )
         );
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_assemble_max_messages() {
+        let mut assembler = UnorderedAssembler {
+            tick: 1,
+            fragments: HashMap::new(),
+        };
+        let mut prev = 0u32;
+        for i in 0u32..MAX_MESSAGES as u32 + 3 {
+            let sender_id = u32::MAX - i;
+            let receiver_id = 0x0000_ffff - i;
+            // print!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00001,00003,He");
+            let p1 = parse(
+                format!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00001,00003,He,")
+                    .as_bytes(),
+            )
+            .unwrap();
+            let p2 = parse(
+                format!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00002,00003,ll,")
+                    .as_bytes(),
+            )
+            .unwrap();
+            assert!(assembler.assemble(&p1).is_err());
+            assert!(assembler.assemble(&p2).is_err());
+            assert_eq!(
+                (i + 1).min(MAX_MESSAGES as u32),
+                assembler.fragments.len() as u32
+            );
+            assert!(prev < assembler.tick);
+            prev = assembler.tick;
+        }
     }
 }

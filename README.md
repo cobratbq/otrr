@@ -14,9 +14,32 @@ An (minimal) "example" client is available at [echonetwork], which is used for i
   - strictly separated states resulting in strictly separated secrets
 - __not__ multi-threaded
 
+## Changelog
+
+<details>
+  <summary>Changelog</summary>
+
+__0.7.2__
+
+- Fragment-assembly: set maximum limit of 100 incomplete messages. After reaching this limit, the oldest message will be removed from the assembler.
+- Marked message-queuing as "won't fix"; explanation added to "Known issues" section.
+- Added changelog section in README.md.
+
+__0.7.1__
+
+- Moved working notes to lib.rs comments.
+
+__0.7.0__
+
+Initial release.
+
+</details>
+
 ## Design
 
 `TODO write design considerations here`
+
+``TODO document implementation considerations, such as periodically calling `expire` to facilitate session expiration. (Or find a good way to have it timed, thread-safe without causing interference.)``
 
 ## Under consideration
 
@@ -52,8 +75,8 @@ __Functionality__:
   - ☑ Assemble fragments of incoming message.
   - ☑ Fragment outgoing messages.
 - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
-- ☐ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)  
-  _This is somewhat controversial due to risk of sending queued messages to wrong established session._
+- ✕ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)  
+  _This is removed from otr4j and will not be implemented here. See "known issues" below for details._
 - ☐ Expose the Extra Symmetric Key (TLV type `8` in OTR3, TLV type `7` in OTRv4)
 - ☑ Session expiration  
   _Session expiration is provided only as a method-call. This is currently an action that the host (chat-application) must perform._
@@ -87,6 +110,7 @@ __Developmental__:
 
 __Known issues__:
 
+- (Will not be implemented) __Message-queue for delayed sending__: the idea is to queue messages under certain policies or when sending messages while the (D)AKE is in progress. However, as of OTR version 3, instance-tags were added to support distinguishing and identifying multiple clients operating under the same account when OTR sessions are active. Upon establishing an OTR session, sessions may be established simultaneously for each of the active clients - each having their own instance-tag. Stored messages would be sent to the (first) established session, which may not be the client you intended the messages to go to. In addition, the client that supports only lower protocol versions, will likely establish a session fastest.
 - How to deal with multiple instances, "default instance", "selected/active instance"? Especially when dealing with incidental reception of plaintext messages while encrypted session is established for some instance.
 - The OTR specification documents that any message payload is in UTF-8 and _may contain_ HTML. However, this makes it ambiguous for how the content should be interpreted and results and risks may very per chat network.
 - There is no convention on how the Extra Symmetric Key should be used.
