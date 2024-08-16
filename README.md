@@ -74,6 +74,7 @@ __Functionality__:
 - ☑ Fragmentation:
   - ☑ Assemble fragments of incoming message.
   - ☑ Fragment outgoing messages.
+  - ☑ Limit number of incomplete distinct messages for OTRv4.
 - ☐ Heartbeat-messages: keep session alive and ensure regular key rotation.
 - ✕ Store plaintext message for transmission under right circumstances (i.e. `REQUIRE_ENCRYPTION` policy, in-progress AKE, etc.)  
   _This is removed from otr4j and will not be implemented here. See "known issues" below for details._
@@ -95,6 +96,7 @@ __Functionality__:
 
 __Operational__:
 
+- ☑ The _interactive DAKE_ is an independent state-machine. This ensures that the protocol only transitions away after DAKE has completed successfully. It is not possible to trigger DAKE starts causing OTRv4 to transition away from encrypted-messaging state.
 - ☑ Single instance of `Account` represents single account on a chat network: allows for specific identity (_DSA keypair_), chat network/transport.
 - ☐ Thread-safety. (Not yet determined necessary.)  
   _Given that most messages can be processed one at a time, most benefit is derived from having separate tasks for session expiration and heartbeats. However, these may be interleaved with message processing._
@@ -108,13 +110,14 @@ __Developmental__:
 - ☐ Resilient to faulty implementations of `Host` as provided by the client.  
     _At this moment it is not clear how to do this: `std::panic::catch_unwind` is not guaranteed to catch and handle all panics._
 
-__Known issues__:
+</details>
+
+## Known issues
 
 - (Will not be implemented) __Message-queue for delayed sending__: the idea is to queue messages under certain policies or when sending messages while the (D)AKE is in progress. However, as of OTR version 3, instance-tags were added to support distinguishing and identifying multiple clients operating under the same account when OTR sessions are active. Upon establishing an OTR session, sessions may be established simultaneously for each of the active clients - each having their own instance-tag. Stored messages would be sent to the (first) established session, which may not be the client you intended the messages to go to. In addition, the client that supports only lower protocol versions, will likely establish a session fastest.
 - How to deal with multiple instances, "default instance", "selected/active instance"? Especially when dealing with incidental reception of plaintext messages while encrypted session is established for some instance.
 - The OTR specification documents that any message payload is in UTF-8 and _may contain_ HTML. However, this makes it ambiguous for how the content should be interpreted and results and risks may very per chat network.
 - There is no convention on how the Extra Symmetric Key should be used.
-</details>
 
 
 [otr4j]: <https://github.com/otr4j/otr4j> "otr4j with OTRv4 support"
