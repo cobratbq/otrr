@@ -2017,7 +2017,10 @@ pub mod constant {
     /// diff byte-compares `data1` and `data2`, collecting bits that changed, then bits are reduced
     /// into single bit 0 or 1, with 1 indicating there is a difference or 0 for byte-exact same
     /// values.
-    // FIXME move into rust-utils
+    ///
+    /// # Panics
+    /// In case of all-zero slices.
+    // TODO move into rust-utils; should be called `diffNonZero`?
     #[must_use]
     pub fn diff(data1: &[u8], data2: &[u8]) -> u8 {
         verify_nonzero(data1).unwrap();

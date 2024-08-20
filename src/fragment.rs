@@ -395,7 +395,7 @@ impl UnorderedAssembler {
             log::debug!("Duplicate fragment encountered: fragment already present in store.");
             return Err(FragmentError::UnexpectedFragment);
         }
-        store.parts[idx] = fragment.payload.clone();
+        store.parts[idx].clone_from(&fragment.payload);
         if store.parts.iter().any(std::vec::Vec::is_empty) {
             return Err(FragmentError::IncompleteResult);
         }
