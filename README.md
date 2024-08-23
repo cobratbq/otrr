@@ -19,9 +19,15 @@ An (minimal) "example" client is available at [echonetwork], which is used for i
 <details>
   <summary>Changelog</summary>
 
+__0.7.3__
+
+- Fragment-assembly: update `tick` value on every fragment. Highest `tick` value represents the (incomplete) message most recently updated with an incoming fragment.
+- Fragment-assembly: practical, liberal maximum fragment size of `250 KiB` to prevent abuse. Fragments are refused when exceeding this limit.
+- Fragment-assembly: practical, liberal maximum message size of `100 MiB` to prevent abuse. All fragments of a message are evicted when their combined size exceeds this limit.
+
 __0.7.2__
 
-- Fragment-assembly: set maximum limit of 100 incomplete messages. After reaching this limit, the oldest message will be removed from the assembler.
+- Fragment-assembly: set maximum limit of `100` (incomplete) messages. After reaching this limit, the oldest message will be removed from the assembler.
 - Marked message-queuing as "won't fix"; explanation added to "Known issues" section.
 - Added changelog section in README.md.
 

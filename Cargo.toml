@@ -1,6 +1,6 @@
 [package]
 name = "otrr"
-version = "0.7.2"
+version = "0.7.3"
 authors = ["Danny van Heumen <danny@dannyvanheumen.nl>"]
 edition = "2021"
 description = "otrr — OTR protocol version 3 and 4"
