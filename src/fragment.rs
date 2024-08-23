@@ -631,16 +631,24 @@ mod tests {
             let sender_id = u32::MAX - i;
             let receiver_id = 0x0000_ffff - i;
             // print!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00001,00003,He");
-            let p1 = parse(
-                format!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00001,00003,He,")
-                    .as_bytes(),
-            )
-            .unwrap();
-            let p2 = parse(
-                format!(r"?OTR|{i:08X}|{sender_id:08X}|{receiver_id:08X},00002,00003,ll,")
-                    .as_bytes(),
-            )
-            .unwrap();
+            let p1 = Fragment {
+                version: Version::V4,
+                identifier: i.to_be_bytes(),
+                sender: sender_id,
+                receiver: receiver_id,
+                part: 1,
+                total: 3,
+                payload: Vec::from("He"),
+            };
+            let p2 = Fragment {
+                version: Version::V4,
+                identifier: i.to_be_bytes(),
+                sender: sender_id,
+                receiver: receiver_id,
+                part: 2,
+                total: 3,
+                payload: Vec::from("ll"),
+            };
             assert!(assembler.assemble(&p1).is_err());
             assert!(assembler.assemble(&p2).is_err());
             assert_eq!(
@@ -650,5 +658,37 @@ mod tests {
             assert!(prev < assembler.tick);
             prev = assembler.tick;
         }
+    }
+
+    #[test]
+    fn test_huge_fragment_rejected() {
+        let mut big = Vec::with_capacity(200 * 1024);
+        big.resize(200 * 1024, 0);
+        utils::random::fill_secure_bytes(&mut big);
+        assert!(!big.is_empty());
+        let fragment = Fragment {
+            version: Version::V4,
+            identifier: 1u32.to_be_bytes(),
+            sender: u32::MAX - 1,
+            receiver: u32::MAX,
+            part: 2,
+            total: 3,
+            payload: big,
+        };
+        assert!(super::verify(&fragment).is_ok());
+        let mut huge = Vec::with_capacity(1024 * 1024);
+        huge.resize(1024 * 1024, 0);
+        utils::random::fill_secure_bytes(&mut huge);
+        assert!(!huge.is_empty());
+        let fragment = Fragment {
+            version: Version::V4,
+            identifier: 1u32.to_be_bytes(),
+            sender: u32::MAX - 1,
+            receiver: u32::MAX,
+            part: 1,
+            total: 3,
+            payload: huge,
+        };
+        assert!(super::verify(&fragment).is_err());
     }
 }
