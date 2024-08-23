@@ -374,7 +374,6 @@ impl UnorderedAssembler {
     fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
         verify(fragment)?;
         // Make room for `fragment` belonging to a new message.
-        // TODO Risk (active): given that we tick on every fragment, we can drop incomplete messages with large distance from current `tick`
         while !self.fragments.contains_key(&fragment.identifier)
             && self.fragments.len() >= MAX_MESSAGES
         {
@@ -391,14 +390,14 @@ impl UnorderedAssembler {
             .fragments
             .entry(fragment.identifier)
             .or_insert(Assembly {
-                tick: self.tick,
+                tick: 0,
                 parts: vec![Vec::new(); fragment.total as usize],
             });
         // Increment tick every time, even if contributing to existing reassembly, but does not
         // really matter. Only monotonic increase is necessary. (We only care about the lowest
         // value, relatively, to determine which fragment-assembly-effort to drop.)
+        store.tick = self.tick;
         self.tick += 1;
-        // TODO update `store.tick` each time we add a fragment? (would more accurately represent least-active assembly, instead of first-created assembly)
         if store.parts.capacity() != fragment.total as usize {
             return Err(FragmentError::InvalidData);
         }
