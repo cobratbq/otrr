@@ -96,9 +96,15 @@ __Functionality__:
 
 __Operational__:
 
+- Fragments and reassembly (exact limits open for discussion):
+  - ☑ Maximum number of incomplete messages: `100`
+  - ☑ Maximum fragment size: `250 kiB`
+  - ☑ Maximum message size: `100 MiB`
+  - ☐ Maximum over-all memory usage for fragments store
+  - ☑ Logging reports on dropped fragments/messages that exceed limits.
 - ☑ The _interactive DAKE_ is an independent state-machine. This ensures that the protocol only transitions away after DAKE has completed successfully. It is not possible to trigger DAKE starts causing OTRv4 to transition away from encrypted-messaging state.
 - ☑ Single instance of `Account` represents single account on a chat network: allows for specific identity (_DSA keypair_), chat network/transport.
-- ☐ Thread-safety. (Not yet determined necessary.)  
+- ☐ Per-account thread-safe implementation. (Not yet determined necessary.)  
   _Given that most messages can be processed one at a time, most benefit is derived from having separate tasks for session expiration and heartbeats. However, these may be interleaved with message processing._
 
 __Developmental__:

@@ -119,6 +119,7 @@ fn as_sized_hexarray<const N: usize>(data: &[u8]) -> [u8; N] {
     result
 }
 
+// TODO currently applying max-fragment-size to all fragments, including protocol 3. This is not according to OTR3 spec, but does prevent injecting extreme, malicious fragments.
 pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
     if (fragment.version == Version::V3 && fragment.identifier != [0u8; 4])
         || fragment.total == 0
@@ -127,8 +128,14 @@ pub fn verify(fragment: &Fragment) -> Result<(), FragmentError> {
         || fragment.payload.is_empty()
     {
         Err(FragmentError::InvalidData)
+    } else if fragment.payload.len() > MAX_FRAGMENT_SIZE {
+        log::info!(
+            "Dropping fragment for excessive size (max {:}, safety/stability): {:}",
+            MAX_FRAGMENT_SIZE,
+            fragment.payload.len()
+        );
+        Err(FragmentError::InvalidData)
     } else {
-        // TODO guard againt too high `total` values?
         Ok(())
     }
 }
@@ -346,7 +353,11 @@ struct UnorderedAssembler {
 }
 
 const MAX_MESSAGES: usize = 100;
+const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024;
+const MAX_FRAGMENT_SIZE: usize = 250 * 1024;
+const MAX_MEMORY_USE: usize = 100 * 1024 * 1024;
 
+// TODO memory usage may explode if fragments are being assembled that
 impl UnorderedAssembler {
     fn new() -> Self {
         Self {
@@ -363,6 +374,7 @@ impl UnorderedAssembler {
     fn assemble(&mut self, fragment: &Fragment) -> Result<Vec<u8>, FragmentError> {
         verify(fragment)?;
         // Make room for `fragment` belonging to a new message.
+        // TODO Risk (active): given that we tick on every fragment, we can drop incomplete messages with large distance from current `tick`
         while !self.fragments.contains_key(&fragment.identifier)
             && self.fragments.len() >= MAX_MESSAGES
         {
@@ -386,6 +398,7 @@ impl UnorderedAssembler {
         // really matter. Only monotonic increase is necessary. (We only care about the lowest
         // value, relatively, to determine which fragment-assembly-effort to drop.)
         self.tick += 1;
+        // TODO update `store.tick` each time we add a fragment? (would more accurately represent least-active assembly, instead of first-created assembly)
         if store.parts.capacity() != fragment.total as usize {
             return Err(FragmentError::InvalidData);
         }
@@ -396,6 +409,16 @@ impl UnorderedAssembler {
             return Err(FragmentError::UnexpectedFragment);
         }
         store.parts[idx].clone_from(&fragment.payload);
+        if store.parts.iter().fold(0, |acc, f| acc + f.len()) > MAX_MESSAGE_SIZE
+            && store.parts.iter().any(std::vec::Vec::is_empty)
+        {
+            // Dropping fragments of message that is still incomplete but exceeding allowed maximum
+            // message-size.
+            assert!(self.fragments.remove(&fragment.identifier).is_some());
+            log::info!("Dropping fragments for incomplete message with ID {:?} as they already exceed maximum message-size. (max {:}, safety/stability)",
+                fragment.identifier, MAX_MESSAGE_SIZE);
+            return Err(FragmentError::IncompleteResult);
+        }
         if store.parts.iter().any(std::vec::Vec::is_empty) {
             return Err(FragmentError::IncompleteResult);
         }
