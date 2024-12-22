@@ -2,6 +2,7 @@
 name = "otrr"
 version = "0.7.4"
 authors = ["Danny van Heumen <danny@dannyvanheumen.nl>"]
+rust-version = "1.80"
 edition = "2021"
 description = "otrr — OTR protocol version 3 and 4"
 readme = "README.md"
