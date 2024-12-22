@@ -435,7 +435,6 @@ dependencies = [
  "sha-1",
  "sha2",
  "sha3",
- "typenum",
  "zeroize",
 ]
 
