@@ -323,11 +323,8 @@ pub mod otr {
 
 #[allow(non_snake_case)]
 pub mod aes128 {
-    use aes_ctr::{
-        cipher::{generic_array::GenericArray, NewStreamCipher, SyncStreamCipher},
-        Aes128Ctr,
-    };
 
+    use aes::cipher::{KeyIvInit, StreamCipher};
     use core::ops::Drop;
     use ring::rand::SecureRandom;
 
@@ -335,6 +332,7 @@ pub mod aes128 {
 
     const KEY_LENGTH: usize = 16;
 
+    type Aes128Ctr = ctr::Ctr32BE<aes::Aes128>;
     type Nonce = [u8; 16];
 
     #[derive(Clone)]
@@ -367,10 +365,8 @@ pub mod aes128 {
         /// crypt provides both encrypting and decrypting logic.
         fn crypt(&self, nonce: &Nonce, data: &[u8]) -> Vec<u8> {
             let mut result = Vec::from(data);
-            let key = GenericArray::from_slice(&self.0);
-            let nonce = GenericArray::from_slice(nonce);
-            let mut cipher = Aes128Ctr::new(key, nonce);
-            cipher.apply_keystream(result.as_mut_slice());
+            let mut c = Aes128Ctr::new(&self.0.into(), nonce.into());
+            c.apply_keystream(&mut result);
             result
         }
     }

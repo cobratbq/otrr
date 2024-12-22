@@ -16,6 +16,10 @@ An (minimal) "example" client is available at [echonetwork], which is used for i
 
 ## Changelog
 
+__0.7.4__
+
+- `FIXME ...`
+
 <details>
   <summary>Changelog</summary>
 

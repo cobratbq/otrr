@@ -30,7 +30,7 @@ use crypto::{dsa, ed448, CryptoError};
 use encoding::TLV;
 use instancetag::InstanceTag;
 
-extern crate aes_ctr;
+extern crate aes;
 extern crate base64;
 extern crate bitflags;
 extern crate chacha20;
