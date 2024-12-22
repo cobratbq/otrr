@@ -18,6 +18,9 @@ An (minimal) "example" client is available at [echonetwork], which is used for i
 
 __0.7.4__
 
+- Replace deprecated `aes-ctr` with `aes` and `ctr`.
+- Replace `once_cell` in favor of `std::sync::LazyLock`.
+- Update dependencies, general clean-up.
 - `FIXME ...`
 
 <details>
