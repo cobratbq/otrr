@@ -108,14 +108,13 @@ impl Account {
 
     #[must_use]
     pub fn session(&mut self, address: &[u8]) -> &mut Session {
-        return self
-            .sessions
+        self.sessions
             .entry(Vec::from(address))
             .or_insert(Session::new(
                 Rc::clone(&self.host),
                 Rc::clone(&self.details),
                 Vec::from(address),
-            ));
+            ))
     }
 
     /// expire expires all timed-out (in secs) sessions and their instances of an account.

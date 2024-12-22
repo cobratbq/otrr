@@ -1570,7 +1570,7 @@ pub mod ed448 {
         }
     }
 
-    impl<'a, 'b> Mul<&'b BigInt> for &'a Point {
+    impl<'b> Mul<&'b BigInt> for &Point {
         type Output = Point;
 
         // TODO implementation of scalar multiplication is not constant-time
@@ -1595,7 +1595,7 @@ pub mod ed448 {
         }
     }
 
-    impl<'a, 'b> Add<&'b Point> for &'a Point {
+    impl<'b> Add<&'b Point> for &Point {
         type Output = Point;
 
         fn add(self, rhs: &'b Point) -> Self::Output {
@@ -1603,7 +1603,7 @@ pub mod ed448 {
         }
     }
 
-    impl<'a> Neg for &'a Point {
+    impl Neg for &Point {
         type Output = Point;
 
         fn neg(self) -> Self::Output {

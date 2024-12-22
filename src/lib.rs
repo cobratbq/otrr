@@ -30,18 +30,7 @@ use crypto::{dsa, ed448, CryptoError};
 use encoding::TLV;
 use instancetag::InstanceTag;
 
-extern crate aes;
-extern crate base64;
-extern crate bitflags;
-extern crate chacha20;
-extern crate hex;
 extern crate log;
-extern crate num_bigint;
-extern crate num_integer;
-// TODO replace with `std::cell::LazyCell` once stabilized.
-extern crate once_cell;
-extern crate regex;
-extern crate ring;
 
 mod ake;
 mod dake;
