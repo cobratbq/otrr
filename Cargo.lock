@@ -430,7 +430,6 @@ dependencies = [
  "log",
  "num-bigint-dig",
  "num-integer",
- "once_cell",
  "regex",
  "ring",
  "sha-1",

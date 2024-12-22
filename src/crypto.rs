@@ -11,7 +11,7 @@ use crate::utils;
 #[allow(non_snake_case)]
 pub mod dh {
 
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     use num_bigint::BigUint;
     use ring::rand::SecureRandom;
@@ -25,10 +25,10 @@ pub mod dh {
     use super::CryptoError;
 
     /// GENERATOR (g): 2
-    static GENERATOR: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    static GENERATOR: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(2u8));
 
     /// Modulus
-    static MODULUS: Lazy<BigUint> = Lazy::new(|| {
+    static MODULUS: LazyLock<BigUint> = LazyLock::new(|| {
         BigUint::from_bytes_be(&[
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68,
             0xC2, 0x34, 0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08,
@@ -48,10 +48,10 @@ pub mod dh {
     });
 
     /// Modulus - 2
-    static MODULUS_MINUS_TWO: Lazy<BigUint> = Lazy::new(|| &*MODULUS - &*TWO);
+    static MODULUS_MINUS_TWO: LazyLock<BigUint> = LazyLock::new(|| &*MODULUS - &*TWO);
 
     // "D values are calculated modulo `q = (p - 1) / 2`"
-    static Q: Lazy<BigUint> = Lazy::new(|| (&*MODULUS - &*ONE) / &*TWO);
+    static Q: LazyLock<BigUint> = LazyLock::new(|| (&*MODULUS - &*ONE) / &*TWO);
 
     /// `generator` returns the generator (`g`)
     #[must_use]
@@ -1158,10 +1158,10 @@ pub mod ed448 {
         ops::{Add, Mul, Neg},
         str::FromStr,
     };
+    use std::sync::LazyLock;
 
     use num_bigint::{BigInt, ModInverse, ToBigInt};
     use num_integer::Integer;
-    use once_cell::sync::Lazy;
     use zeroize::Zeroize;
 
     use crate::{
@@ -1179,7 +1179,7 @@ pub mod ed448 {
     //        0415467406032909029192869357953282578032075146446173674602635247710,
     //      y=29881921007848149267601793044393067343754404015408024209592824137233
     //        1506189835876003536878655418784733982303233503462500531545062832660)
-    static G: Lazy<Point> = Lazy::new(|| {
+    static G: LazyLock<Point> = LazyLock::new(|| {
         Point{
         x: BigInt::from_str("224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710").unwrap(),
         y: BigInt::from_str("298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660").unwrap(),
@@ -1187,23 +1187,23 @@ pub mod ed448 {
     });
 
     /// `I` is the neutral element, or identity.
-    static I: Lazy<Point> = Lazy::new(|| Point {
+    static I: LazyLock<Point> = LazyLock::new(|| Point {
         x: (*utils::bigint::ZERO).clone(),
         y: (*utils::bigint::ONE).clone(),
     });
 
     /// p, the modulus
-    static P: Lazy<BigInt> = Lazy::new(|| {
+    static P: LazyLock<BigInt> = LazyLock::new(|| {
         BigInt::from_str("726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439").unwrap()
     });
 
     /// q, the (prime) order
-    static Q: Lazy<BigInt> = Lazy::new(|| {
+    static Q: LazyLock<BigInt> = LazyLock::new(|| {
         BigInt::from_str("181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779").unwrap()
     });
 
     /// d, '-39081'
-    static D: Lazy<BigInt> = Lazy::new(|| BigInt::from_str("-39081").unwrap());
+    static D: LazyLock<BigInt> = LazyLock::new(|| BigInt::from_str("-39081").unwrap());
 
     /// `generator` returns the Ed448 base-point.
     #[must_use]
@@ -1793,8 +1793,9 @@ pub mod ed448 {
 }
 
 pub mod dh3072 {
+    use std::sync::LazyLock;
+
     use num_bigint::BigUint;
-    use once_cell::sync::Lazy;
 
     use crate::utils;
 
@@ -1802,7 +1803,7 @@ pub mod dh3072 {
 
     pub const ENCODED_LENGTH: usize = 384;
     /// p is the prime (modulus).
-    pub static P: Lazy<BigUint> = Lazy::new(|| {
+    pub static P: LazyLock<BigUint> = LazyLock::new(|| {
         // FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200CBBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF
         BigUint::from_bytes_be(&[
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68,
@@ -1837,14 +1838,14 @@ pub mod dh3072 {
     });
 
     /// g3 is the generator
-    pub static G3: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
+    pub static G3: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(2u8));
 
     // TODO check if cofactor is needed.
     //pub const COFACTOR: u8 = 2;
 
     // TODO why is this called subprime, isn't it the order?
     /// q is the subprime.
-    pub static Q: Lazy<BigUint> = Lazy::new(|| {
+    pub static Q: LazyLock<BigUint> = LazyLock::new(|| {
         BigUint::from_bytes_be(&[
             0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xE4, 0x87, 0xED, 0x51, 0x10, 0xB4,
             0x61, 0x1A, 0x62, 0x63, 0x31, 0x45, 0xC0, 0x6E, 0x0E, 0x68, 0x94, 0x81, 0x27, 0x04,

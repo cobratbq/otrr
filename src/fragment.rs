@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
 use core::fmt::Debug;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock};
 
-use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
@@ -28,7 +27,7 @@ const INDEX_FIRST_FRAGMENT: u16 = 1;
 /// Note that `k` and `n` are unsigned short ints (`2` bytes), and each has a maximum value of
 /// `65535`. Also, each `piece[k]` must be non-empty. The instance tags (if applicable) and the `k`
 /// and `n` values may have leading zeroes.
-static FRAGMENT_V3_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static FRAGMENT_V3_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
     )
@@ -38,7 +37,7 @@ static FRAGMENT_V3_PATTERN: Lazy<Regex> = Lazy::new(|| {
 /// The OTRv4 fragment format is like OTR3 but contains a message identifier before the sender and
 /// receiver instance tags. This allows distinguishing fragments from multiple messages in out-of-
 /// order delivery.
-static FRAGMENT_V4_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static FRAGMENT_V4_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"\?OTR\|([0-9a-fA-F]{8})\|([0-9a-fA-F]{1,8})\|([0-9a-fA-F]{1,8}),(\d{1,5}),(\d{1,5}),([A-Za-z0-9\+/=\?:\.]+),",
     )

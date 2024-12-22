@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
+use std::sync::LazyLock;
+
 use num_bigint::BigUint;
-use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::{
@@ -32,11 +33,11 @@ const OTR_AUTHI_TYPE_CODE: u8 = 0x37;
 /// OTR encoded message type code for OTRv2 + OTRv3 + OTRv4 data messages.
 const OTR_DATA_TYPE_CODE: u8 = 0x03;
 
-static QUERY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static QUERY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\?OTR\??(:?v(\d*))?\?").expect("BUG: failed to compile hard-coded regex-pattern.")
 });
 const QUERY_GROUP_VERSIONS: usize = 1;
-static WHITESPACE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+static WHITESPACE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r" \t  \t\t\t\t \t \t \t  ([ \t]{8})*")
         .expect("BUG: failed to compile hard-coded regex-pattern.")
 });

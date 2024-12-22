@@ -118,22 +118,23 @@ pub mod bytes {
 }
 
 pub mod bigint {
-    use num_bigint::BigInt;
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
-    pub static ZERO: Lazy<BigInt> = Lazy::new(|| BigInt::from(0u8));
-    pub static ONE: Lazy<BigInt> = Lazy::new(|| BigInt::from(1u8));
-    pub static TWO: Lazy<BigInt> = Lazy::new(|| BigInt::from(2u8));
-    pub static THREE: Lazy<BigInt> = Lazy::new(|| BigInt::from(3u8));
-    pub static FOUR: Lazy<BigInt> = Lazy::new(|| BigInt::from(4u8));
-    pub static FIVE: Lazy<BigInt> = Lazy::new(|| BigInt::from(5u8));
-    pub static SIX: Lazy<BigInt> = Lazy::new(|| BigInt::from(6u8));
-    pub static SEVEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(7u8));
-    pub static EIGHT: Lazy<BigInt> = Lazy::new(|| BigInt::from(8u8));
-    pub static NINE: Lazy<BigInt> = Lazy::new(|| BigInt::from(9u8));
-    pub static TEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(10u8));
-    pub static ELEVEN: Lazy<BigInt> = Lazy::new(|| BigInt::from(11u8));
-    pub static TWELVE: Lazy<BigInt> = Lazy::new(|| BigInt::from(12u8));
+    use num_bigint::BigInt;
+
+    pub static ZERO: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(0u8));
+    pub static ONE: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(1u8));
+    pub static TWO: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(2u8));
+    pub static THREE: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(3u8));
+    pub static FOUR: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(4u8));
+    pub static FIVE: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(5u8));
+    pub static SIX: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(6u8));
+    pub static SEVEN: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(7u8));
+    pub static EIGHT: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(8u8));
+    pub static NINE: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(9u8));
+    pub static TEN: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(10u8));
+    pub static ELEVEN: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(11u8));
+    pub static TWELVE: LazyLock<BigInt> = LazyLock::new(|| BigInt::from(12u8));
 
     pub fn to_bytes_le_fixed<const N: usize>(v: &BigInt) -> [u8; N] {
         let mut result = [0u8; N];
@@ -152,22 +153,23 @@ pub mod bigint {
 }
 
 pub mod biguint {
-    use num_bigint::BigUint;
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
-    pub static ZERO: Lazy<BigUint> = Lazy::new(|| BigUint::from(0u8));
-    pub static ONE: Lazy<BigUint> = Lazy::new(|| BigUint::from(1u8));
-    pub static TWO: Lazy<BigUint> = Lazy::new(|| BigUint::from(2u8));
-    pub static THREE: Lazy<BigUint> = Lazy::new(|| BigUint::from(3u8));
-    pub static FOUR: Lazy<BigUint> = Lazy::new(|| BigUint::from(4u8));
-    pub static FIVE: Lazy<BigUint> = Lazy::new(|| BigUint::from(5u8));
-    pub static SIX: Lazy<BigUint> = Lazy::new(|| BigUint::from(6u8));
-    pub static SEVEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(7u8));
-    pub static EIGHT: Lazy<BigUint> = Lazy::new(|| BigUint::from(8u8));
-    pub static NINE: Lazy<BigUint> = Lazy::new(|| BigUint::from(9u8));
-    pub static TEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(10u8));
-    pub static ELEVEN: Lazy<BigUint> = Lazy::new(|| BigUint::from(11u8));
-    pub static TWELVE: Lazy<BigUint> = Lazy::new(|| BigUint::from(12u8));
+    use num_bigint::BigUint;
+
+    pub static ZERO: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(0u8));
+    pub static ONE: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(1u8));
+    pub static TWO: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(2u8));
+    pub static THREE: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(3u8));
+    pub static FOUR: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(4u8));
+    pub static FIVE: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(5u8));
+    pub static SIX: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(6u8));
+    pub static SEVEN: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(7u8));
+    pub static EIGHT: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(8u8));
+    pub static NINE: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(9u8));
+    pub static TEN: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(10u8));
+    pub static ELEVEN: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(11u8));
+    pub static TWELVE: LazyLock<BigUint> = LazyLock::new(|| BigUint::from(12u8));
 
     pub fn to_bytes_be_fixed<const N: usize>(v: &BigUint) -> [u8; N] {
         let mut buffer = [0u8; N];
@@ -277,11 +279,12 @@ pub mod u32 {
 
 /// `random` provides utils for `ring::rand` secure random generator.
 pub mod random {
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
+
     use ring::rand::{SecureRandom, SystemRandom};
 
     /// `RANDOM` is an instance of `ring::rand::SystemRandom`.
-    pub static RANDOM: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
+    pub static RANDOM: LazyLock<SystemRandom> = LazyLock::new(SystemRandom::new);
 
     /// `secure_bytes` produces the specified number of secure bytes as a byte-array.
     pub fn secure_bytes<const N: usize>() -> [u8; N] {
