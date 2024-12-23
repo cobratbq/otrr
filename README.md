@@ -18,10 +18,10 @@ An (minimal) "example" client is available at [echonetwork], which is used for i
 
 __0.7.4__
 
+- Set minimum rust version to `1.80`.
 - Replace deprecated `aes-ctr` with `aes` and `ctr`.
 - Replace `once_cell` in favor of `std::sync::LazyLock`.
 - Update dependencies, general clean-up.
-- `FIXME ...`
 
 <details>
   <summary>Changelog</summary>
